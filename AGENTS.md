@@ -24,12 +24,13 @@ Do not assume the repository is empty or that files described in planning docume
 - If the task conflicts with `PROJECT_SPEC.md`, stop and ask rather than silently changing requirements.
 - Mark incomplete or deferred work clearly instead of pretending it is finished.
 
-Current status when these instructions were created:
+Current status when these instructions were updated:
 
 - Phase 1 was research and planning only.
-- Phase 2 (UI foundation) has **not** been approved to start and has **not** been implemented.
-- No application code, database, LLM integration, or automated tests exist at this point.
-- Only documentation files have been added.
+- Phase 2 (UI foundation) has **not** been approved or completed.
+- An uncommitted, exploratory Expo UI scaffold exists in the working tree from earlier work. It is not accepted as Phase 2 and must not be treated as feature-complete or as approval to continue.
+- No approved database, financial engine, LLM integration, or automated tests exist.
+- The project specification was expanded with calendar-month cycles, permanent monthly savings history, and dynamic container lifecycle requirements. These are documentation requirements only; no feature is implemented merely because it is documented.
 
 ## 3. Preserve Existing Work
 
@@ -61,6 +62,8 @@ Current status when these instructions were created:
   - UI must not issue ad hoc SQL or call native LLM APIs directly.
   - The AI layer must not write financial records.
 - Keep mock data behind repository, selector, or provider boundaries so it can be replaced by SQLite-backed data without rewriting screens.
+- Keep calendar-period, rollover, effective-date, reporting, and container-lifecycle logic in deterministic domain services. Screens must not compute their own month boundaries or rollover rules.
+- Inject a clock and time-zone source into period logic so month-boundary behavior is testable.
 - Handle loading, empty, error, and populated states explicitly.
 - Use appropriate error handling and never swallow failures silently.
 
@@ -73,13 +76,43 @@ Current status when these instructions were created:
 - Transfers between containers must not create income or expenses.
 - Wallet transfers must not create income or expenses.
 - Savings contributions are transfers, not expenses.
-- Planned allocations and goal targets are not balances and must not affect spendable funds.
+- Monthly budget limits, planned allocations, and goal targets are not balances and must not affect spendable funds or create postings.
+- Actual container funding is a transfer, not a monthly budget limit, income, or expense.
 - External income increases recorded funds; expenses decrease recorded funds.
 - Void or reverse transactions rather than deleting financial history.
 - Prevent duplicate writes with idempotency handling.
 - Make financial writes atomic inside a database transaction.
 - Validate all inputs and the resulting postings before committing.
 - If a financial rule is unclear, stop and ask. Do not invent accounting behavior.
+
+### 6.1 Calendar months and historical reporting
+
+- Use calendar months as the default budget period: the first through the last local calendar day, including correct February/leap-year behavior.
+- Derive the active month from the device’s current local date. Do not require a manual “start month” or reset action.
+- Recompute the active period on launch, foreground/resume, local date change, and time-zone change. If the app was closed across month or year boundaries, reopening must show the correct current month.
+- Do not perform financial writes at rollover. A new month must not create, erase, transfer, or sweep money. Actual wallet and container balances carry forward unchanged.
+- Reset only period-scoped budget usage and plan limits. Unused budget limits are not money.
+- Store each transaction’s effective local date explicitly, with recorded time zone/offset and audit timestamp. Never recompute historical months from a UTC timestamp after the fact.
+- Report monthly income, expenses, budget performance, and savings by effective date, not by the date the transaction was entered.
+- Allow late entries and audited corrections to update the appropriate prior month. A correction must reverse the original in its original effective period and post any replacement in the correct destination period.
+- Preserve all transactions, postings, monthly summaries, and prior-month results permanently unless the user explicitly deletes all local data.
+- Net savings = external income minus external expenses for the selected period. Never include wallet transfers, container transfers, actual container funding, or savings contributions.
+- Keep monthly net savings separate from savings-container contributions and ending balances. Never count the same money twice.
+- Monthly history must support selecting previous months and comparing results offline.
+
+### 6.2 Dynamic containers and historical meaning
+
+- Containers are user data, not hardcoded categories. Support create, rename, icon/color customization, optional monthly budget limits, archive, reactivate, and safe deletion.
+- Container identity is immutable through rename, archive, and reactivation.
+- Renaming, recoloring, re-iconing, archiving, or reactivating a container must never rewrite past transactions or delete audit records.
+- Preserve effective-dated container display metadata or an equivalent immutable historical label so past reports retain their original meaning.
+- Archiving must preserve balances and history. Archived containers remain visible in a labeled area and in reports for periods where they had activity or a budget.
+- Exclude archived containers from new active spending/planning unless an explicit approved policy allows it. Reactivation must not backfill limits into archived months.
+- Deleting a container with a balance or any financial history must be blocked. Explain the consequences and require a safe resolution, such as transferring remaining funds through a normal transfer and archiving the container.
+- Never cascade-delete transactions, postings, budget limits, or summaries when a container is deleted. Hard deletion is allowed only for unused containers with no balance or history, if approved.
+- Container transfers must preserve the accounting invariant and must not inflate income, expenses, savings, or net savings.
+- Monthly budget limits are optional, non-negative planning values. Changing a limit must never move money or alter actual balances.
+- Do not auto-sweep, erase, or silently discard a remaining balance.
 
 ## 7. AI Safety Boundary
 
@@ -90,6 +123,8 @@ Current status when these instructions were created:
 - Chat messages, model confidence, or inferred intent are not authorization to write.
 - Treat model output as untrusted input.
 - Protect against prompt injection and malformed output; unsupported or ambiguous requests must lead to clarification or refusal.
+- AI drafts must not invent effective dates or historical months, and must not target archived, deleted, or invalid containers. Deterministic logic and explicit user confirmation must resolve those fields.
+- The AI must not perform container lifecycle changes or modify monthly budget limits.
 - The model must not receive GCash credentials or unnecessary sensitive data.
 - Do not integrate a cloud LLM as a requirement for core functionality.
 
@@ -105,6 +140,7 @@ Current status when these instructions were created:
 - The core budgeting experience must remain usable without a network connection.
 - SQLite is the local source of truth.
 - Do not make core screens depend on a backend, cloud account, or cloud LLM.
+- Month rollover, historical month selection, monthly summaries, and comparison must work offline.
 - Model download/update may be optional, but failure must not block budgeting.
 - Preserve existing data across schema migrations.
 - Test offline behavior when the relevant feature exists.
@@ -123,12 +159,18 @@ For UI phases:
 - Make layouts responsive to Android phone sizes, safe areas, keyboard insets, and long text.
 - Build reusable components instead of duplicating screen-specific implementations.
 - Clearly identify screens backed by mock data.
+- Show the active month clearly and distinguish actual balances from monthly limits, budget spending, savings contributions, and net savings.
+- Provide accessible month selection, historical-period labeling, container customization, archive/reactivate, and safe-delete flows when those features are in the approved phase.
 - Do not add production financial logic or LLM integration during a UI-foundation phase.
 
 ## 11. Testing and Verification
 
-- Add tests for important logic, especially accounting, validation, idempotency, reversals, and AI draft handling.
-- Test database migrations and constraints when a database exists.
+- Add tests for important logic, especially accounting, validation, idempotency, reversals, effective dates, monthly rollover, and AI draft handling.
+- Test calendar-month boundaries, 28/29/30/31-day months, leap years, year transitions, historical reports, late entries, late corrections, time-zone changes, duplicate transactions, and rollover.
+- Test that month rollover performs no financial writes and that balances and prior summaries remain unchanged.
+- Test net savings excludes all internal transfers and savings contributions, and never double-counts savings-container money.
+- Test container create, rename, recolor/re-icon, archive, reactivate, safe delete, historical metadata, and transfer invariants.
+- Test database migrations and constraints when a database exists, including preservation of historical periods and label metadata.
 - Test failure paths, not only happy paths.
 - Run the repository’s actual lint, typecheck, and test commands after changes.
 - If a command cannot be run, report why and what remains unverified.
@@ -168,10 +210,12 @@ A phase is complete only when:
 2. Existing working code is preserved.
 3. Relevant checks and tests have actually been run and reported.
 4. Financial logic has deterministic validation and appropriate tests.
-5. AI cannot bypass user confirmation or domain rules.
-6. Mock implementations are clearly identified.
-7. Remaining gaps are documented.
-8. The user has reviewed the result and approved the next phase.
+5. Monthly rollover, effective dates, net-savings reporting, and historical periods are verified against boundary/leap-year tests.
+6. Container lifecycle changes preserve balances, ledger history, and effective-dated historical meaning.
+7. AI cannot bypass user confirmation or domain rules.
+8. Mock implementations are clearly identified.
+9. Remaining gaps are documented.
+10. The user has reviewed the result and approved the next phase.
 
 Stop and wait for approval before beginning the next phase.
 
