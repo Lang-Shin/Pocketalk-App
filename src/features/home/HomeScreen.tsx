@@ -1,0 +1,409 @@
+import { Ionicons } from '@expo/vector-icons';
+import { useRouter } from 'expo-router';
+import { useState } from 'react';
+import {
+  Pressable,
+  StyleSheet,
+  useWindowDimensions,
+  View,
+} from 'react-native';
+
+import { AppText } from '@/components/AppText';
+import { BudgetCard } from '@/components/finance/BudgetCard';
+import { BalanceCard } from '@/components/finance/BalanceCard';
+import { MoneyEntryModal } from '@/components/finance/MoneyEntryModal';
+import { MonthSummaryCard } from '@/components/finance/MonthSummaryCard';
+import { TransactionRow } from '@/components/finance/TransactionRow';
+import { AppButton } from '@/components/ui/AppButton';
+import { Card } from '@/components/ui/Card';
+import { Divider } from '@/components/ui/Divider';
+import { IconBadge } from '@/components/ui/IconBadge';
+import { PageHeader } from '@/components/ui/PageHeader';
+import { ProgressBar } from '@/components/ui/ProgressBar';
+import { Screen } from '@/components/ui/Screen';
+import { SectionHeader } from '@/components/ui/SectionHeader';
+import {
+  selectContainerSnapshots,
+  selectMonthSummary,
+  selectRecentTransactions,
+  selectWalletSnapshots,
+} from '@/data/financeSelectors';
+import { useMockFinance, type EntryMode } from '@/data/financeStore';
+import { mockSavingsGoal } from '@/data/mockFinance';
+import type { ContainerSnapshot } from '@/data/models';
+import { formatLongDate } from '@/lib/date';
+import type { IconName } from '@/lib/icons';
+import { formatPercent, formatPeso } from '@/lib/money';
+import { formatMonthKey, formatMonthPeriod } from '@/lib/period';
+import { getContentWidth, useAppTheme, radii, spacing } from '@/theme';
+
+export function HomeScreen() {
+  const { theme } = useAppTheme();
+  const router = useRouter();
+  const { width } = useWindowDimensions();
+  const { state, activeMonthKey, todayDateKey } = useMockFinance();
+  const [entryMode, setEntryMode] = useState<EntryMode | null>(null);
+
+  const wallets = selectWalletSnapshots(state, todayDateKey);
+  const containers = selectContainerSnapshots(state, activeMonthKey);
+  const activeContainers = containers.filter(
+    (container) => container.status === 'active',
+  );
+  const budgetContainers = activeContainers
+    .filter((container) => container.kind === 'budget')
+    .slice(0, 4);
+  const summary = selectMonthSummary(state, activeMonthKey, activeMonthKey);
+  const recentTransactions = selectRecentTransactions(state, 4);
+  const totalBalanceMinor = wallets.reduce(
+    (total, wallet) => total + wallet.balanceMinor,
+    0,
+  );
+  const savingsContainer = activeContainers.find(
+    (container) => container.id === mockSavingsGoal.containerId,
+  );
+  const contentWidth = getContentWidth(width, true);
+  const useTwoColumns = contentWidth >= 680;
+  const cardWidth = useTwoColumns
+    ? (contentWidth - spacing.md) / 2
+    : contentWidth;
+
+  return (
+    <Screen wide>
+      <PageHeader
+        eyebrow={formatLongDate()}
+        title={`Welcome back, Alex`}
+        subtitle={`${formatMonthKey(
+          activeMonthKey,
+        )} \u00B7 ${formatMonthPeriod(activeMonthKey)} is the active calendar month.`}
+        right={
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Open profile and settings"
+            onPress={() => router.push('/profile')}
+            style={({ pressed }) => [
+              styles.avatar,
+              {
+                backgroundColor: theme.colors.primarySoft,
+                opacity: pressed ? 0.72 : 1,
+              },
+            ]}
+          >
+            <AppText variant="h3" color={theme.colors.primarySoftText}>
+              A
+            </AppText>
+          </Pressable>
+        }
+      />
+
+      <BalanceCard
+        label="Total recorded funds"
+        amountMinor={totalBalanceMinor}
+        caption={`${wallets.length} wallets \u00B7 ${activeContainers.length} active containers`}
+        wallets={wallets}
+      />
+
+      <View style={styles.quickActions}>
+        <QuickAction
+          icon="arrow-up"
+          label="Spend"
+          tone="coral"
+          onPress={() => setEntryMode('expense')}
+        />
+        <QuickAction
+          icon="arrow-down"
+          label="Add income"
+          tone="emerald"
+          onPress={() => setEntryMode('income')}
+        />
+        <QuickAction
+          icon="swap-horizontal"
+          label="Move money"
+          tone="blue"
+          onPress={() => setEntryMode('wallet_transfer')}
+        />
+        <QuickAction
+          icon="sparkles"
+          label="Ask Pocketa"
+          tone="violet"
+          onPress={() => router.push('/assistant')}
+        />
+      </View>
+
+      <View style={styles.section}>
+        <SectionHeader
+          title="This month"
+          subtitle="Income, expenses, and budget usage are separate measures."
+          actionLabel="Monthly history"
+          onAction={() => router.push('/monthly-history')}
+        />
+        <MonthSummaryCard summary={summary} />
+      </View>
+
+      <View style={styles.section}>
+        <SectionHeader
+          title="Budget containers"
+          subtitle="Actual balances stay separate from monthly limits."
+          actionLabel="Manage"
+          onAction={() => router.push('/budgets')}
+        />
+        {budgetContainers.length === 0 ? (
+          <Card>
+            <AppText variant="bodySmall" color={theme.colors.textSecondary}>
+              No active budget containers yet. Create one in Budgets.
+            </AppText>
+          </Card>
+        ) : (
+          <View style={styles.grid}>
+            {budgetContainers.map((container) => (
+              <View key={container.id} style={{ width: cardWidth }}>
+                <BudgetCard
+                  container={container}
+                  compact
+                  onPress={() => router.push('/budgets')}
+                />
+              </View>
+            ))}
+          </View>
+        )}
+      </View>
+
+      <View style={styles.section}>
+        <SectionHeader
+          title="Savings goal"
+          subtitle="Savings contributions are transfers, not expenses."
+          actionLabel="Review"
+          onAction={() => router.push('/budgets')}
+        />
+        <SavingsGoalCard container={savingsContainer} />
+      </View>
+
+      <View style={styles.section}>
+        <SectionHeader
+          title="Recent activity"
+          actionLabel="See all"
+          onAction={() => router.push('/history')}
+        />
+        {recentTransactions.length === 0 ? (
+          <Card>
+            <AppText variant="bodySmall" color={theme.colors.textSecondary}>
+              No transactions yet. Your activity will appear here.
+            </AppText>
+          </Card>
+        ) : (
+          <Card padded={false} style={styles.listCard}>
+            {recentTransactions.map((transaction, index) => (
+              <View key={transaction.id}>
+                <TransactionRow transaction={transaction} />
+                {index < recentTransactions.length - 1 ? <Divider /> : null}
+              </View>
+            ))}
+          </Card>
+        )}
+      </View>
+
+      <Card
+        style={[
+          styles.assistantCard,
+          {
+            backgroundColor: theme.colors.primarySoft,
+            borderColor: theme.colors.primarySoft,
+          },
+        ]}
+      >
+        <View style={styles.assistantHeader}>
+          <IconBadge icon="sparkles" tone="emerald" size={42} />
+          <View style={styles.assistantCopy}>
+            <AppText variant="h3" color={theme.colors.primarySoftText}>
+              Just say what happened
+            </AppText>
+            <AppText
+              variant="bodySmall"
+              color={theme.colors.primarySoftText}
+            >
+              Try {'\u201CI spent \u20B1120 on lunch.\u201D'} Pocketa prepares a
+              draft, then you confirm it.
+            </AppText>
+          </View>
+        </View>
+        <AppButton
+          label="Open assistant preview"
+          icon="chatbubble-ellipses-outline"
+          onPress={() => router.push('/assistant')}
+          fullWidth
+        />
+      </Card>
+
+      {entryMode ? (
+        <MoneyEntryModal
+          visible
+          mode={entryMode}
+          onClose={() => setEntryMode(null)}
+        />
+      ) : null}
+    </Screen>
+  );
+}
+
+function SavingsGoalCard({
+  container,
+}: {
+  container: ContainerSnapshot | undefined;
+}) {
+  const { theme } = useAppTheme();
+  const savedMinor = container?.balanceMinor ?? 0;
+  const targetMinor = mockSavingsGoal.targetMinor;
+  const progress = targetMinor > 0 ? savedMinor / targetMinor : 0;
+
+  return (
+    <Card style={styles.goalCard}>
+      <View style={styles.goalHeader}>
+        <IconBadge
+          icon={mockSavingsGoal.icon}
+          tone={mockSavingsGoal.tone}
+          size={44}
+        />
+        <View style={styles.goalCopy}>
+          <AppText variant="h3">{mockSavingsGoal.name}</AppText>
+          <AppText variant="caption" color={theme.colors.textSecondary}>
+            {formatPeso(savedMinor)} saved of {formatPeso(targetMinor)}
+          </AppText>
+        </View>
+        <AppText variant="h3" color={theme.colors.success}>
+          {formatPercent(progress)}
+        </AppText>
+      </View>
+      <ProgressBar
+        value={progress}
+        tone="success"
+        accessibilityLabel={`${mockSavingsGoal.name} progress`}
+      />
+      <View style={styles.goalFooter}>
+        <AppText variant="caption" color={theme.colors.textSecondary}>
+          {formatPeso(Math.max(targetMinor - savedMinor, 0))} to go
+        </AppText>
+        <View style={styles.goalHint}>
+          <Ionicons
+            name="arrow-forward-circle-outline"
+            size={14}
+            color={theme.colors.textSecondary}
+          />
+          <AppText variant="caption" color={theme.colors.textSecondary}>
+            Balance, not monthly net savings
+          </AppText>
+        </View>
+      </View>
+    </Card>
+  );
+}
+
+interface QuickActionProps {
+  icon: IconName;
+  label: string;
+  tone: 'coral' | 'emerald' | 'blue' | 'violet';
+  onPress: () => void;
+}
+
+function QuickAction({ icon, label, tone, onPress }: QuickActionProps) {
+  const { theme } = useAppTheme();
+
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      onPress={onPress}
+      style={({ pressed }) => [
+        styles.quickAction,
+        {
+          backgroundColor: theme.colors.surface,
+          borderColor: theme.colors.border,
+          opacity: pressed ? 0.72 : 1,
+        },
+      ]}
+    >
+      <IconBadge icon={icon} tone={tone} size={38} iconSize={18} />
+      <AppText
+        variant="micro"
+        color={theme.colors.textSecondary}
+        align="center"
+        numberOfLines={2}
+      >
+        {label.toUpperCase()}
+      </AppText>
+    </Pressable>
+  );
+}
+
+const styles = StyleSheet.create({
+  avatar: {
+    width: 46,
+    height: 46,
+    borderRadius: 23,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  quickActions: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+    marginTop: spacing.xl,
+  },
+  quickAction: {
+    flex: 1,
+    minHeight: 84,
+    borderRadius: radii.lg,
+    borderWidth: StyleSheet.hairlineWidth,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.sm,
+    paddingVertical: spacing.md,
+    paddingHorizontal: 4,
+  },
+  section: {
+    gap: spacing.md,
+    marginTop: spacing.xxxl,
+  },
+  grid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.md,
+  },
+  listCard: {
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.xs,
+  },
+  goalCard: {
+    gap: spacing.md,
+  },
+  goalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+  },
+  goalCopy: {
+    flex: 1,
+    gap: 2,
+  },
+  goalFooter: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: spacing.sm,
+  },
+  goalHint: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  assistantCard: {
+    gap: spacing.lg,
+    marginTop: spacing.xxxl,
+  },
+  assistantHeader: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: spacing.md,
+  },
+  assistantCopy: {
+    flex: 1,
+    gap: 4,
+  },
+});
