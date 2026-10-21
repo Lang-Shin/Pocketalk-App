@@ -10,7 +10,7 @@
     "web": "expo start --web",
     "typecheck": "tsc --noEmit",
     "lint": "expo lint",
-    "test": "tsx --test tests/finance.test.ts tests/layout.test.ts"
+    "test": "tsx --test tests/finance.test.ts tests/layout.test.ts tests/database.test.ts tests/financeEngine.test.ts tests/reporting.test.ts tests/unallocated.test.ts"
   },
   "dependencies": {
     "@expo/metro-runtime": "~57.0.17",
