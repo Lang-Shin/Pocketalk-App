@@ -97,7 +97,9 @@ The exact dashboard card order and whether balances are shown per wallet on the 
 
 ### 3.2 Budget containers
 
-Budget containers are user-owned data records, not hardcoded categories or screen components. A user must be able to shape containers around their actual needs.
+User-created budget containers are data records, not hardcoded categories or screen components. A user must be able to shape containers around their actual needs.
+
+Separately, the app maintains exactly one system-managed **Unallocated** account for recorded income that has not been assigned to a user container. It is not a user-created category and is not exposed as an ordinary container for rename, archive, budget-limit, or delete operations. See §7.9 for its accounting behavior.
 
 Required container capabilities:
 
@@ -108,13 +110,13 @@ Required container capabilities:
 - Change a monthly budget limit without changing actual wallet or container balances.
 - Keep changes to a monthly budget limit from silently rewriting prior months’ historical budget performance. The exact effective scope of recurring and mid-month limit changes is `UNRESOLVED`.
 - Allow transfers between containers without creating income or expense.
-- Prevent funding or monthly limit changes from violating balance or allocation policy; the exact policy is `UNRESOLVED`.
+- Prevent funding or monthly limit changes from violating balance or allocation policy. Monthly limits are non-negative planning values; actual allocations cannot exceed available recorded funds, and overdrafts are blocked in the current model.
 - Support active and archived containers, including archiving a container with a remaining balance.
 - Support seasonal use cases such as archiving Rent or Bills during summer vacation and reactivating them when needed.
 - Reactivate an archived container for the current and future months without retroactively creating budgets for the archived months.
 - Preserve all transaction history, postings, budget limits, and audit records when a container is renamed, recolored, re-iconed, archived, or reactivated.
 - Show archived containers and their remaining balances in a clearly labeled archived area so funds do not appear to vanish.
-- Exclude archived containers from new spending and active monthly planning until reactivated, unless an explicit policy allows otherwise.
+- Exclude archived containers from new spending and active monthly planning until reactivated. The current model rejects new income, expenses, and transfers involving an archived container; its balances and history remain visible.
 - Include archived containers in historical reports for every period in which they had activity, a budget limit, or a balance.
 - Prevent duplicate or ambiguous container names if the approved policy requires unique names; the uniqueness policy is `UNRESOLVED`.
 - Validate names, icons, colors, and limits and provide accessible labels for every customization control.
@@ -135,7 +137,7 @@ Terminology:
 - **Budget spending** is the sum of external expense postings assigned to the container in the selected period.
 - Changing a monthly budget limit must never be confused with funding a container or transferring actual money.
 
-The exact icon set, color validation rules, name-length limits, sorting behavior, per-month limit overrides, and archived-container transaction policy are `UNRESOLVED`.
+The exact icon set, color validation rules, name-length limits, sorting behavior, and per-month limit overrides are `UNRESOLVED`.
 
 ### 3.3 Virtual wallet
 
@@ -144,7 +146,7 @@ The exact icon set, color validation rules, name-length limits, sorting behavior
 - Make clear that the virtual GCash wallet is manually maintained and is not connected to GCash.
 - Never request or store GCash credentials, PINs, passwords, or OTPs.
 - Show wallet-level history.
-- Support wallet creation/archiving only if later approved; the MVP wallet set is `UNRESOLVED`.
+- The initial UI exposes one primary, manually maintained virtual wallet. The storage layer retains multi-wallet support, but containers are global and must not imply per-wallet allocation. Additional wallet-management UI remains `UNRESOLVED`.
 
 ### 3.4 Transactions
 
@@ -162,7 +164,7 @@ The exact icon set, color validation rules, name-length limits, sorting behavior
 - Prevent duplicate submission through idempotency handling across retries and app restarts.
 - Show confirmation before saving a chatbot-proposed transaction.
 - Keep transaction calculations separate from AI output.
-- Treat future-dated transactions according to an explicit policy; that policy is `UNRESOLVED`.
+- Future-dated entries are blocked in the current model. Late entries remain allowed.
 
 ### 3.5 AI chatbot
 
@@ -414,13 +416,14 @@ sum(all wallet balances) == sum(all container balances)
 | External income | Positive on destination wallet | Positive on destination container | Increases recorded funds on both axes |
 | Expense | Negative on source wallet | Negative on source container | Decreases recorded funds on both axes |
 | Actual container funding / container-to-container transfer | None | Positive on destination container, negative on source container | Sums to zero; no income or expense |
+| Unallocated allocation / return | None | Positive on destination container, negative on source container | Internal allocation transfer; sums to zero; no income, expense, or savings contribution |
 | Wallet transfer | Positive on destination wallet, negative on source wallet | None | Sums to zero; no income or expense |
 | Savings contribution | None | Positive on savings container, negative on source container | Sums to zero; not an expense |
 | Adjustment | Paired wallet and container postings | Paired wallet and container postings | Corrects records while preserving the ledger invariant |
 
 A monthly budget limit change creates **no postings**. It changes only the planning limit for the affected period and must never move money between containers or wallets.
 
-The earlier term “allocation” is overloaded. It must not be used ambiguously in implementation. Monthly budget limits are planning data; actual movement of funds into a container is a container transfer posting.
+In the Unallocated model, **allocation** means an actual internal transfer between Unallocated and a user container. It creates container postings, not wallet postings, and is not a monthly budget limit. Monthly budget limits remain planning data and never move funds. Implementation and UI copy must keep these meanings distinct.
 
 ### 7.3 Explicit exclusions
 
@@ -460,7 +463,7 @@ The earlier term “allocation” is overloaded. It must not be used ambiguously
 9. Commit only if all constraints pass.
 10. Return a receipt derived from committed records.
 
-Negative balances and overdraft behavior are `UNRESOLVED` and must be explicitly decided before production use.
+Negative wallet and container balances are blocked in the current model. Overdrafts and any future change to this policy require explicit approval.
 
 ### 7.6 Month rollover accounting
 
@@ -498,6 +501,18 @@ Negative balances and overdraft behavior are `UNRESOLVED` and must be explicitly
 - Deleting an unused container with no balance, history, or references may be allowed after explicit confirmation; the exact hard-delete versus tombstone policy is `UNRESOLVED`.
 - Historical reports must preserve the container’s identity and effective display metadata even after renaming or archiving.
 - A container transfer remains balanced at all times and must not alter the invariant `sum(wallet balances) == sum(container balances)`.
+
+### 7.9 System Unallocated account
+
+- Exactly one system-managed Unallocated account exists. It represents recorded funds that have not yet been assigned to a user container.
+- Its identity is stable and app-owned. It is created idempotently during database initialization or before the first operation that needs it. Reopening the database must not create duplicates.
+- External income with no selected user container posts to Unallocated by default. Income may also be assigned directly to a user container.
+- Moving money between Unallocated and a user container is an internal allocation transfer with container-only postings. Allocations from Unallocated target user-owned budget containers; returns may come from any user-owned container. These transfers must not change wallet balances, income, expenses, savings contributions, or net savings.
+- Expenses cannot be posted directly from Unallocated. Funds must first be allocated to a user container.
+- Unallocated cannot be renamed, recolored, re-iconed, archived, reactivated, limited, or deleted by user workflows. Database guards enforce the same restrictions.
+- Unallocated is excluded from ordinary container-management lists but remains visible in balances, snapshots, and reports that explain the full allocation of recorded funds.
+- Unallocated participates in the global invariant and historical reporting. Its balance must never be silently swept, reset, or moved at month rollover.
+- Its stable internal identifier must not become the normal way UI code or users identify an allocation target. Allocation operations accept user-container IDs.
 
 ## 8. AI and Chatbot Workflow
 
@@ -765,7 +780,7 @@ The sequence is a planning proposal. Each phase requires user approval before th
 
 ## 14. Unresolved Decisions
 
-The following must not be treated as settled:
+The following remain open unless explicitly marked resolved. Resolved items record approved decisions and must be treated as settled:
 
 1. **Master specification:** The original document has not been provided; this file is a reconstruction.
 2. **App name:** Pocketa versus Pocketalk-App.
@@ -779,9 +794,9 @@ The following must not be treated as settled:
 10. **Database access layer:** Drizzle versus raw SQL or a hybrid.
 11. **Exact schema:** Columns, indexes, constraints, migration sequence, and audit fields.
 12. **Budget period model:** Calendar months are established for the MVP. Non-calendar weekly/semi-monthly/custom periods, unused-limit carry-forward, and completed-month locking remain `UNRESOLVED`.
-13. **Container scope:** Global containers versus per-wallet containers.
-14. **Overdraft policy:** Whether negative wallet/container balances are allowed and how they are presented.
-15. **Allocation policy:** Whether monthly budget limits or actual container funding may exceed available funds and how the app warns or blocks.
+13. **Container scope (resolved):** Containers are global allocations of recorded funds. Per-wallet container allocation is not supported in the current model.
+14. **Overdraft policy (resolved):** Negative wallet and container balances are blocked. Any change requires explicit approval.
+15. **Allocation policy (resolved):** Monthly limits are planning values and may be set independently. Actual allocation cannot exceed available funds. Unallocated income must be allocated to a user container before it can be spent.
 16. **Savings policy:** Withdrawal, goal completion, target adjustment, and archiving behavior.
 17. **Reversal policy:** Undo window, audit presentation, and whether reversal requires a reason.
 18. **Encryption and authentication:** Whether to use SQLCipher, biometric/device authentication, or neither in the MVP.
@@ -798,7 +813,7 @@ The following must not be treated as settled:
 29. **Container deletion:** Hard delete versus tombstone, retention period, and whether deletion is ever offered after history exists.
 30. **Container identity rules:** Name uniqueness, reserved names, sorting, icon/color sets, and validation limits.
 31. **Monthly limits:** Recurring default versus per-month overrides, mid-month changes, limits for newly created or reactivated containers, and whether limits can be zero.
-32. **Archived containers:** Whether they are strictly read-only or can receive transfers while archived, and how their balances appear in active totals.
+32. **Archived containers (resolved):** New income, expenses, and transfers involving archived containers are blocked. Archived balances remain part of recorded totals and remain visible in labeled archived/reporting views.
 33. **Month comparison:** Which months, metrics, and visual/layout model are used.
 34. **Monthly history empty states:** Whether months without activity appear in the history list and how they are presented.
 35. **Whole-data deletion:** Exact warning, confirmation, export-before-delete, and irreversibility behavior for explicit local-data deletion.
