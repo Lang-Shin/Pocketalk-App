@@ -32,6 +32,11 @@ import {
   type WalletRow,
 } from './financeRepository';
 import type { SqlDatabase } from './sqlDatabase';
+import {
+  ensureSystemUnallocatedContainer,
+  UNALLOCATED_CONTAINER_ID,
+  UNALLOCATED_SYSTEM_KEY,
+} from './systemContainers';
 
 export interface FinanceEngineOptions {
   now?: () => Date;
@@ -93,6 +98,42 @@ export interface CreateTransactionInput {
   idempotencyKey: string;
 }
 
+type TransactionDetails = Omit<CreateTransactionInput, 'idempotencyKey'>;
+
+export interface RecordIncomeInput {
+  title: string;
+  amountMinor: number;
+  effectiveDate: string;
+  walletId: string;
+  containerId?: string;
+  idempotencyKey: string;
+}
+
+export interface AllocateToContainerInput {
+  containerId: string;
+  amountMinor: number;
+  effectiveDate: string;
+  title?: string;
+  idempotencyKey: string;
+}
+
+export interface ReturnToUnallocatedInput {
+  containerId: string;
+  amountMinor: number;
+  effectiveDate: string;
+  title?: string;
+  idempotencyKey: string;
+}
+
+export interface TransferBetweenContainersInput {
+  sourceContainerId: string;
+  destinationContainerId: string;
+  amountMinor: number;
+  effectiveDate: string;
+  title?: string;
+  idempotencyKey: string;
+}
+
 export interface ReverseTransactionInput {
   transactionId: string;
   reason?: string;
@@ -146,12 +187,6 @@ interface PreparedTransaction {
   postings: PostingDraft[];
 }
 
-interface TransactionBuildOptions {
-  allowArchivedContainers?: boolean;
-  correctionOfId?: string | null;
-  reversalOfId?: string | null;
-}
-
 const TONES: readonly Tone[] = ['emerald', 'amber', 'coral', 'blue', 'violet'];
 const CONTAINER_KINDS: readonly ContainerKind[] = ['budget', 'savings'];
 const WALLET_KINDS: readonly WalletKind[] = ['cash', 'virtual_gcash'];
@@ -186,26 +221,19 @@ export class FinanceEngine {
     }
     requireIcon(input.icon);
     requireTone(input.tone);
-    const wallets = await this.repository.listWallets();
-    const id = input.id?.trim() || this.idFactory('wallet');
-    if (wallets.some((wallet) => wallet.id === id)) {
-      throw new FinanceError('VALIDATION', 'A wallet with that ID already exists.');
-    }
-    const sortOrder =
-      input.sortOrder ??
-      (wallets.reduce((max, wallet) => Math.max(max, wallet.sortOrder), 0) + 1);
-    if (!Number.isInteger(sortOrder)) {
+    if (input.sortOrder !== undefined && !Number.isInteger(input.sortOrder)) {
       throw new FinanceError('VALIDATION', 'Wallet sort order must be an integer.');
     }
+    const providedId = input.id?.trim() || null;
 
     const fingerprint = fingerprintOf({
       operation: 'create_wallet',
-      id,
+      id: providedId,
       name,
       kind: input.kind,
       icon: input.icon,
       tone: input.tone,
-      sortOrder,
+      sortOrder: input.sortOrder ?? null,
     });
 
     return this.runIdempotent(
@@ -214,6 +242,17 @@ export class FinanceEngine {
       fingerprint,
       context,
       async () => {
+        const wallets = await this.repository.listWallets();
+        const id = providedId ?? this.idFactory('wallet');
+        if (wallets.some((wallet) => wallet.id === id)) {
+          throw new FinanceError(
+            'VALIDATION',
+            'A wallet with that ID already exists.',
+          );
+        }
+        const sortOrder =
+          input.sortOrder ??
+          wallets.reduce((max, wallet) => Math.max(max, wallet.sortOrder), 0) + 1;
         await this.repository.insertWallet({
           id,
           name,
@@ -243,16 +282,11 @@ export class FinanceEngine {
     }
     const limitMinor = input.limitMinor ?? 0;
     requireNonNegativeInteger(limitMinor, 'Monthly limit');
+    const providedId = input.id?.trim() || null;
 
-    const id = input.id?.trim() || this.idFactory('container');
-    if (await this.repository.getContainer(id, true)) {
-      throw new FinanceError('VALIDATION', 'A container with that ID already exists.');
-    }
-
-    const sortOrder = await this.repository.nextContainerSortOrder();
     const fingerprint = fingerprintOf({
       operation: 'create_container',
-      id,
+      id: providedId,
       name,
       description,
       icon: input.icon,
@@ -267,6 +301,20 @@ export class FinanceEngine {
       fingerprint,
       context,
       async () => {
+        const id = providedId ?? this.idFactory('container');
+        if (id === UNALLOCATED_CONTAINER_ID) {
+          throw new FinanceError(
+            'SYSTEM_CONTAINER',
+            'The Unallocated account is managed by the app and cannot be created manually.',
+          );
+        }
+        if (await this.repository.getContainer(id, true)) {
+          throw new FinanceError(
+            'VALIDATION',
+            'A container with that ID already exists.',
+          );
+        }
+        const sortOrder = await this.repository.nextContainerSortOrder();
         await this.repository.insertContainer({
           id,
           kind,
@@ -276,6 +324,7 @@ export class FinanceEngine {
           createdAt: context.recordedAt,
           archivedAt: null,
           deletedAt: null,
+          systemKey: null,
         });
         await this.repository.insertMetadata(
           metadataRow(id, context.todayMonthKey, {
@@ -311,23 +360,17 @@ export class FinanceEngine {
   ): Promise<ContainerMutationResult> {
     const context = this.operationContext();
     const key = requireIdempotencyKey(input.idempotencyKey);
-    const container = await this.requireActiveContainer(input.containerId);
+    const containerId = requireEntityId(input.containerId, 'container');
     const name = requireText(input.name, 'Container name', 40);
     const description = optionalText(input.description, 'Description', 90);
     requireIcon(input.icon);
     requireTone(input.tone);
     const effectiveMonthKey = input.effectiveMonthKey ?? context.todayMonthKey;
     requireEditableMonth(effectiveMonthKey, context.todayMonthKey);
-    if (effectiveMonthKey < container.createdMonthKey) {
-      throw new FinanceError(
-        'VALIDATION',
-        'The selected month is before this container existed.',
-      );
-    }
 
     const fingerprint = fingerprintOf({
       operation: 'update_container_metadata',
-      containerId: container.id,
+      containerId,
       effectiveMonthKey,
       name,
       description,
@@ -341,13 +384,26 @@ export class FinanceEngine {
       fingerprint,
       context,
       async () => {
+        const container = await this.requireActiveContainer(containerId);
+        this.requireUserContainer(container);
+        if (effectiveMonthKey < container.createdMonthKey) {
+          throw new FinanceError(
+            'VALIDATION',
+            'The selected month is before this container existed.',
+          );
+        }
         await this.repository.upsertMetadata(
-          metadataRow(container.id, effectiveMonthKey, {
-            name,
-            description,
-            icon: input.icon,
-            tone: input.tone,
-          }, context.recordedAt),
+          metadataRow(
+            container.id,
+            effectiveMonthKey,
+            {
+              name,
+              description,
+              icon: input.icon,
+              tone: input.tone,
+            },
+            context.recordedAt,
+          ),
         );
         await this.repository.insertLifecycleEvent({
           id: 0,
@@ -370,20 +426,14 @@ export class FinanceEngine {
   async setBudgetLimit(input: SetBudgetLimitInput): Promise<ContainerMutationResult> {
     const context = this.operationContext();
     const key = requireIdempotencyKey(input.idempotencyKey);
-    const container = await this.requireActiveContainer(input.containerId);
+    const containerId = requireEntityId(input.containerId, 'container');
     requireNonNegativeInteger(input.limitMinor, 'Monthly limit');
     const monthKey = input.monthKey ?? context.todayMonthKey;
     requireEditableMonth(monthKey, context.todayMonthKey);
-    if (monthKey < container.createdMonthKey) {
-      throw new FinanceError(
-        'VALIDATION',
-        'The selected month is before this container existed.',
-      );
-    }
 
     const fingerprint = fingerprintOf({
       operation: 'set_budget_limit',
-      containerId: container.id,
+      containerId,
       monthKey,
       limitMinor: input.limitMinor,
     });
@@ -394,6 +444,14 @@ export class FinanceEngine {
       fingerprint,
       context,
       async () => {
+        const container = await this.requireActiveContainer(containerId);
+        this.requireUserContainer(container);
+        if (monthKey < container.createdMonthKey) {
+          throw new FinanceError(
+            'VALIDATION',
+            'The selected month is before this container existed.',
+          );
+        }
         await this.repository.upsertBudgetLimit(
           container.id,
           monthKey,
@@ -418,13 +476,10 @@ export class FinanceEngine {
   ): Promise<ContainerMutationResult> {
     const context = this.operationContext();
     const key = requireIdempotencyKey(input.idempotencyKey);
-    const container = await this.requireExistingContainer(input.containerId);
-    if (container.status === 'archived') {
-      throw new FinanceError('INVALID_STATE', 'That container is already archived.');
-    }
+    const containerId = requireEntityId(input.containerId, 'container');
     const fingerprint = fingerprintOf({
       operation: 'archive_container',
-      containerId: container.id,
+      containerId,
     });
 
     return this.runIdempotent(
@@ -433,6 +488,14 @@ export class FinanceEngine {
       fingerprint,
       context,
       async () => {
+        const container = await this.requireExistingContainer(containerId);
+        this.requireUserContainer(container);
+        if (container.status === 'archived') {
+          throw new FinanceError(
+            'INVALID_STATE',
+            'That container is already archived.',
+          );
+        }
         await this.repository.setContainerArchived(
           container.id,
           context.recordedAt,
@@ -455,13 +518,10 @@ export class FinanceEngine {
   ): Promise<ContainerMutationResult> {
     const context = this.operationContext();
     const key = requireIdempotencyKey(input.idempotencyKey);
-    const container = await this.requireExistingContainer(input.containerId);
-    if (container.status === 'active') {
-      throw new FinanceError('INVALID_STATE', 'That container is already active.');
-    }
+    const containerId = requireEntityId(input.containerId, 'container');
     const fingerprint = fingerprintOf({
       operation: 'reactivate_container',
-      containerId: container.id,
+      containerId,
     });
 
     return this.runIdempotent(
@@ -470,6 +530,14 @@ export class FinanceEngine {
       fingerprint,
       context,
       async () => {
+        const container = await this.requireExistingContainer(containerId);
+        this.requireUserContainer(container);
+        if (container.status === 'active') {
+          throw new FinanceError(
+            'INVALID_STATE',
+            'That container is already active.',
+          );
+        }
         await this.repository.setContainerArchived(container.id, null);
         await this.repository.insertLifecycleEvent({
           id: 0,
@@ -489,19 +557,10 @@ export class FinanceEngine {
   ): Promise<ContainerMutationResult> {
     const context = this.operationContext();
     const key = requireIdempotencyKey(input.idempotencyKey);
-    const container = await this.repository.getContainer(input.containerId);
-    if (!container) {
-      throw new FinanceError('NOT_FOUND', 'That container no longer exists.');
-    }
-    if (await this.repository.hasContainerFinancialHistory(container.id)) {
-      throw new FinanceError(
-        'INVALID_STATE',
-        'This container has a balance or financial history and cannot be deleted. Move any remaining balance, then archive it instead.',
-      );
-    }
+    const containerId = requireEntityId(input.containerId, 'container');
     const fingerprint = fingerprintOf({
       operation: 'delete_container',
-      containerId: container.id,
+      containerId,
     });
 
     return this.runIdempotent(
@@ -510,6 +569,20 @@ export class FinanceEngine {
       fingerprint,
       context,
       async () => {
+        const container = await this.repository.getContainer(containerId);
+        if (!container) {
+          throw new FinanceError(
+            'NOT_FOUND',
+            'That container no longer exists.',
+          );
+        }
+        this.requireUserContainer(container);
+        if (await this.repository.hasContainerFinancialHistory(container.id)) {
+          throw new FinanceError(
+            'INVALID_STATE',
+            'This container has a balance or financial history and cannot be deleted. Move any remaining balance, then archive it instead.',
+          );
+        }
         await this.repository.setContainerDeleted(
           container.id,
           context.recordedAt,
@@ -530,9 +603,121 @@ export class FinanceEngine {
   async recordTransaction(
     input: CreateTransactionInput,
   ): Promise<TransactionMutationResult> {
+    return this.recordTransactionInternal(input, false);
+  }
+
+  async recordIncome(
+    input: RecordIncomeInput,
+  ): Promise<TransactionMutationResult> {
+    return this.recordTransactionInternal(
+      {
+        kind: 'income',
+        title: input.title,
+        amountMinor: input.amountMinor,
+        effectiveDate: input.effectiveDate,
+        walletId: input.walletId,
+        containerId: input.containerId,
+        idempotencyKey: input.idempotencyKey,
+      },
+      false,
+    );
+  }
+
+  async allocateToContainer(
+    input: AllocateToContainerInput,
+  ): Promise<TransactionMutationResult> {
+    const containerId = requireEntityId(input.containerId, 'container');
+    if (containerId === UNALLOCATED_CONTAINER_ID) {
+      throw new FinanceError(
+        'VALIDATION',
+        'Choose a user-owned container to receive an allocation.',
+      );
+    }
+    return this.recordTransactionInternal(
+      {
+        kind: 'container_transfer',
+        title:
+          optionalText(input.title, 'Description', 80) || 'Allocate to container',
+        amountMinor: input.amountMinor,
+        effectiveDate: input.effectiveDate,
+        containerId: UNALLOCATED_CONTAINER_ID,
+        destinationContainerId: containerId,
+        idempotencyKey: input.idempotencyKey,
+      },
+      true,
+      true,
+    );
+  }
+
+  async returnToUnallocated(
+    input: ReturnToUnallocatedInput,
+  ): Promise<TransactionMutationResult> {
+    const containerId = requireEntityId(input.containerId, 'container');
+    if (containerId === UNALLOCATED_CONTAINER_ID) {
+      throw new FinanceError(
+        'VALIDATION',
+        'Choose a user-owned container to return funds from.',
+      );
+    }
+    return this.recordTransactionInternal(
+      {
+        kind: 'container_transfer',
+        title:
+          optionalText(input.title, 'Description', 80) || 'Return to Unallocated',
+        amountMinor: input.amountMinor,
+        effectiveDate: input.effectiveDate,
+        containerId,
+        destinationContainerId: UNALLOCATED_CONTAINER_ID,
+        idempotencyKey: input.idempotencyKey,
+      },
+      true,
+    );
+  }
+
+  async transferBetweenContainers(
+    input: TransferBetweenContainersInput,
+  ): Promise<TransactionMutationResult> {
+    const sourceContainerId = requireEntityId(
+      input.sourceContainerId,
+      'source container',
+    );
+    const destinationContainerId = requireEntityId(
+      input.destinationContainerId,
+      'destination container',
+    );
+    if (
+      sourceContainerId === UNALLOCATED_CONTAINER_ID ||
+      destinationContainerId === UNALLOCATED_CONTAINER_ID
+    ) {
+      throw new FinanceError(
+        'VALIDATION',
+        'Use the allocation operations to move money between Unallocated and a container.',
+      );
+    }
+    return this.recordTransactionInternal(
+      {
+        kind: 'container_transfer',
+        title:
+          optionalText(input.title, 'Description', 80) || 'Container transfer',
+        amountMinor: input.amountMinor,
+        effectiveDate: input.effectiveDate,
+        containerId: sourceContainerId,
+        destinationContainerId,
+        idempotencyKey: input.idempotencyKey,
+      },
+      false,
+    );
+  }
+
+  private async recordTransactionInternal(
+    input: CreateTransactionInput,
+    allowSystemContainerTransfers: boolean,
+    requireBudgetDestination = false,
+  ): Promise<TransactionMutationResult> {
     const context = this.operationContext();
     const key = requireIdempotencyKey(input.idempotencyKey);
-    const normalized = normalizeTransactionInput(input);
+    const resolvedInput = await this.resolveUnallocatedInput(input);
+    const normalized = normalizeTransactionInput(resolvedInput);
     const fingerprint = fingerprintOf({
       operation: 'record_transaction',
       ...normalized,
@@ -547,11 +732,13 @@ export class FinanceEngine {
         const transactionId = this.idFactory('txn');
         const prepared = await this.buildForwardTransaction(
           context,
-          input,
+          resolvedInput,
           {
             transactionId,
             idempotencyKey: key,
             requestFingerprint: fingerprint,
+            allowSystemContainerTransfers,
+            requireBudgetDestination,
           },
         );
         await this.insertPreparedTransaction(prepared);
@@ -596,7 +783,10 @@ export class FinanceEngine {
     const context = this.operationContext();
     const key = requireIdempotencyKey(input.idempotencyKey);
     const reason = optionalText(input.reason, 'Reason', 200);
-    const replacement = normalizeTransactionInput(input.replacement);
+    const resolvedReplacement = await this.resolveUnallocatedInput(
+      input.replacement,
+    );
+    const replacement = normalizeTransactionInput(resolvedReplacement);
     const fingerprint = fingerprintOf({
       operation: 'correct_transaction',
       transactionId: input.transactionId,
@@ -618,13 +808,14 @@ export class FinanceEngine {
         const replacementId = this.idFactory('txn');
         const prepared = await this.buildForwardTransaction(
           context,
-          input.replacement,
+          resolvedReplacement,
           {
             transactionId: replacementId,
             idempotencyKey: `correction:${replacementId}`,
             requestFingerprint: fingerprint,
             correctionOfId: input.transactionId,
             allowArchivedContainers: true,
+            allowSystemContainerTransfers: true,
           },
         );
         await this.insertPreparedTransaction(prepared);
@@ -638,8 +829,30 @@ export class FinanceEngine {
     return this.repository.listWallets();
   }
 
-  async listContainers(includeDeleted = false): Promise<ContainerRow[]> {
-    return this.repository.listContainers(includeDeleted);
+  async listContainers(
+    includeDeleted = false,
+    includeSystem = false,
+  ): Promise<ContainerRow[]> {
+    return this.repository.listContainers(includeDeleted, includeSystem);
+  }
+
+  async ensureUnallocatedContainer(): Promise<{ containerId: string }> {
+    const context = this.operationContext();
+    return ensureSystemUnallocatedContainer(this.database, {
+      recordedAt: context.recordedAt,
+    });
+  }
+
+  async getUnallocatedContainer(): Promise<ContainerRow> {
+    const { containerId } = await this.ensureUnallocatedContainer();
+    const container = await this.repository.getContainer(containerId, true);
+    if (!container || container.systemKey !== UNALLOCATED_SYSTEM_KEY) {
+      throw new FinanceError(
+        'INVALID_STATE',
+        'The system Unallocated container is unavailable.',
+      );
+    }
+    return container;
   }
 
   async getMetadataHistory(containerId: string): Promise<MetadataRow[]> {
@@ -658,6 +871,19 @@ export class FinanceEngine {
   async getContainerSnapshots(monthKey: string): Promise<ContainerSnapshot[]> {
     requireMonthKey(monthKey);
     return this.repository.getContainerSnapshots(monthKey);
+  }
+
+  async getUnallocatedSnapshot(
+    monthKey: string,
+  ): Promise<ContainerSnapshot | null> {
+    requireMonthKey(monthKey);
+    await this.ensureUnallocatedContainer();
+    const snapshots = await this.repository.getContainerSnapshots(monthKey);
+    return (
+      snapshots.find(
+        (container) => container.systemKey === UNALLOCATED_SYSTEM_KEY,
+      ) ?? null
+    );
   }
 
   async getContainerMonthResults(monthKey: string): Promise<ContainerMonthResult[]> {
@@ -699,7 +925,7 @@ export class FinanceEngine {
     asOfDateKey: string,
   ): Promise<Record<string, number>> {
     requireDateKey(asOfDateKey, 'As-of date');
-    const containers = await this.repository.listContainers(false);
+    const containers = await this.repository.listContainers(false, true);
     const balances = await Promise.all(
       containers.map(async (container) => [
         container.id,
@@ -711,13 +937,15 @@ export class FinanceEngine {
 
   private async buildForwardTransaction(
     context: OperationContext,
-    input: CreateTransactionInput,
+    input: TransactionDetails,
     meta: {
       transactionId: string;
       idempotencyKey: string;
       requestFingerprint: string;
       correctionOfId?: string;
       allowArchivedContainers?: boolean;
+      allowSystemContainerTransfers?: boolean;
+      requireBudgetDestination?: boolean;
     },
   ): Promise<PreparedTransaction> {
     const title = requireText(input.title, 'Description', 80);
@@ -753,6 +981,12 @@ export class FinanceEngine {
         effectiveMonthKey,
         meta.allowArchivedContainers ?? false,
       );
+      if (input.kind === 'expense' && container.systemKey) {
+        throw new FinanceError(
+          'SYSTEM_CONTAINER',
+          'Unallocated funds are not a spending container. Allocate money to a budget container before recording an expense.',
+        );
+      }
       const label = await this.requireContainerLabel(
         container.id,
         effectiveMonthKey,
@@ -871,6 +1105,21 @@ export class FinanceEngine {
       throw new FinanceError(
         'VALIDATION',
         'Choose two different containers for a transfer.',
+      );
+    }
+    if (
+      (source.systemKey || destination.systemKey) &&
+      !meta.allowSystemContainerTransfers
+    ) {
+      throw new FinanceError(
+        'SYSTEM_CONTAINER',
+        'Use the allocation operations to move money between Unallocated and a container.',
+      );
+    }
+    if (meta.requireBudgetDestination && destination.kind !== 'budget') {
+      throw new FinanceError(
+        'VALIDATION',
+        'Allocate Unallocated funds to a budget container. Use a separate transfer for savings.',
       );
     }
     const destinationLabel = await this.requireContainerLabel(
@@ -1039,7 +1288,7 @@ export class FinanceEngine {
     return reversalId;
   }
 
-  private async assertLedgerInvariant(context: OperationContext): Promise<void> {
+  private async assertLedgerInvariant(): Promise<void> {
     const matches = await this.repository.allWalletContainerTotalsMatch(
       '9999-12-31',
     );
@@ -1110,6 +1359,40 @@ export class FinanceEngine {
     return container;
   }
 
+  private requireUserContainer(container: ContainerRow): void {
+    if (container.systemKey) {
+      throw new FinanceError(
+        'SYSTEM_CONTAINER',
+        'The Unallocated account is managed by the app and cannot be renamed, archived, limited, or deleted.',
+      );
+    }
+  }
+
+  private async resolveUnallocatedInput(
+    input: TransactionDetails,
+  ): Promise<TransactionDetails> {
+    const containerId = input.containerId?.trim();
+    const destinationContainerId = input.destinationContainerId?.trim();
+    const needsDefaultContainer =
+      input.kind === 'income' && !containerId;
+    const referencesUnallocated =
+      ((input.kind === 'income' || input.kind === 'expense') &&
+        containerId === UNALLOCATED_CONTAINER_ID) ||
+      ((input.kind === 'container_transfer' || input.kind === 'savings') &&
+        (containerId === UNALLOCATED_CONTAINER_ID ||
+          destinationContainerId === UNALLOCATED_CONTAINER_ID));
+
+    if (!needsDefaultContainer && !referencesUnallocated) {
+      return input;
+    }
+
+    const { containerId: systemContainerId } =
+      await this.ensureUnallocatedContainer();
+    return needsDefaultContainer
+      ? { ...input, containerId: systemContainerId }
+      : input;
+  }
+
   private async requireContainerLabel(
     containerId: string,
     effectiveMonthKey: string,
@@ -1166,7 +1449,6 @@ export class FinanceEngine {
     const stamp = captureRecordedStamp(now);
     const todayDateKey = toLocalDateKey(now);
     return {
-      now,
       recordedAt: stamp.recordedAt,
       recordedTimeZone: stamp.recordedTimeZone,
       recordedOffsetMinutes: stamp.recordedOffsetMinutes,
@@ -1182,39 +1464,48 @@ export class FinanceEngine {
     context: OperationContext,
     work: () => Promise<T>,
   ): Promise<T> {
-    return this.repository['database'].withTransactionAsync(async () => {
-      const existing = await this.repository.getReceipt(idempotencyKey);
-      if (existing) {
-        if (
-          existing.operationType !== operationType ||
-          existing.requestFingerprint !== requestFingerprint
-        ) {
-          throw new FinanceError(
-            'IDEMPOTENCY_CONFLICT',
-            'That idempotency key was already used for a different operation.',
-          );
+    try {
+      return await this.database.withTransactionAsync(async () => {
+        const existing = await this.repository.getReceipt(idempotencyKey);
+        if (existing) {
+          if (
+            existing.operationType !== operationType ||
+            existing.requestFingerprint !== requestFingerprint
+          ) {
+            throw new FinanceError(
+              'IDEMPOTENCY_CONFLICT',
+              'That idempotency key was already used for a different operation.',
+            );
+          }
+          try {
+            return JSON.parse(existing.resultJson) as T;
+          } catch (error) {
+            throw new FinanceError(
+              'DATABASE',
+              'The stored operation receipt is invalid.',
+              { cause: error },
+            );
+          }
         }
-        try {
-          return JSON.parse(existing.resultJson) as T;
-        } catch (error) {
-          throw new FinanceError(
-            'DATABASE',
-            'The stored operation receipt is invalid.',
-            { cause: error },
-          );
-        }
-      }
 
-      const result = await work();
-      await this.repository.insertReceipt({
-        idempotencyKey,
-        operationType,
-        requestFingerprint,
-        resultJson: JSON.stringify(result),
-        createdAt: context.recordedAt,
+        const result = await work();
+        await this.repository.insertReceipt({
+          idempotencyKey,
+          operationType,
+          requestFingerprint,
+          resultJson: JSON.stringify(result),
+          createdAt: context.recordedAt,
+        });
+        return result;
       });
-      return result;
-    });
+    } catch (error) {
+      if (error instanceof FinanceError) throw error;
+      throw new FinanceError(
+        'DATABASE',
+        'The database operation failed and was rolled back.',
+        { cause: error },
+      );
+    }
   }
 }
 
@@ -1355,7 +1646,35 @@ function validatePostingSet(
   }
 }
 
-function normalizeTransactionInput(input: Omit<CreateTransactionInput, 'idempotencyKey'>) {
+function validateReversalPostings(
+  original: readonly PostingRow[],
+  reversal: readonly PostingDraft[],
+): void {
+  if (original.length !== 2 || reversal.length !== 2) {
+    throw new FinanceError(
+      'INVALID_STATE',
+      'A reversal must mirror exactly two original postings.',
+    );
+  }
+
+  for (const [index, originalPosting] of original.entries()) {
+    const reversalPosting = reversal[index];
+    if (
+      !reversalPosting ||
+      reversalPosting.accountType !== originalPosting.accountType ||
+      reversalPosting.accountId !== originalPosting.accountId ||
+      reversalPosting.amountMinor !== -originalPosting.amountMinor ||
+      reversalPosting.amountMinor === 0
+    ) {
+      throw new FinanceError(
+        'INVALID_STATE',
+        'Reversal postings must exactly negate the original postings.',
+      );
+    }
+  }
+}
+
+function normalizeTransactionInput(input: TransactionDetails) {
   return {
     kind: input.kind,
     title: input.title.trim(),
@@ -1377,6 +1696,17 @@ function requireIdempotencyKey(value: string): string {
     );
   }
   return key;
+}
+
+function requireEntityId(value: string, label: string): string {
+  const id = value.trim();
+  if (!id || id.length > 120) {
+    throw new FinanceError(
+      'VALIDATION',
+      `A valid ${label} ID is required.`,
+    );
+  }
+  return id;
 }
 
 function requireText(value: string, label: string, maxLength: number): string {
@@ -1500,8 +1830,4 @@ function defaultIdFactory(prefix: string): string {
   return `${prefix}-${Date.now().toString(36)}-${fallbackIdSequence.toString(
     36,
   )}-${Math.random().toString(36).slice(2, 10)}`;
-}
-
-export function assertDateWithinMonth(dateKey: string, monthKey: string): boolean {
-  return dateKey.startsWith(`${getCalendarMonth(monthKey).key}-`);
 }
