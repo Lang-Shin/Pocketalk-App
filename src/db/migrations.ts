@@ -352,6 +352,107 @@ BEGIN
 END;
 `;
 
+const SYSTEM_UNALLOCATED_SQL = `
+ALTER TABLE containers ADD COLUMN system_key TEXT
+  CHECK (system_key IS NULL OR system_key = 'unallocated');
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_containers_system_key
+  ON containers(system_key)
+  WHERE system_key IS NOT NULL;
+
+CREATE TRIGGER IF NOT EXISTS containers_reserved_system_id
+BEFORE INSERT ON containers
+WHEN NEW.id = 'system-unallocated'
+  AND (NEW.system_key IS NULL OR NEW.system_key <> 'unallocated')
+BEGIN
+  SELECT RAISE(ABORT, 'Reserved system container ID');
+END;
+
+CREATE TRIGGER IF NOT EXISTS containers_system_requires_reserved_id
+BEFORE INSERT ON containers
+WHEN NEW.system_key IS NOT NULL AND NEW.id <> 'system-unallocated'
+BEGIN
+  SELECT RAISE(ABORT, 'System container must use the reserved ID');
+END;
+
+CREATE TRIGGER IF NOT EXISTS containers_system_key_immutable
+BEFORE UPDATE OF system_key ON containers
+WHEN OLD.system_key IS NOT NEW.system_key
+BEGIN
+  SELECT RAISE(ABORT, 'System container identity is immutable');
+END;
+
+CREATE TRIGGER IF NOT EXISTS containers_system_key_update_requires_reserved_id
+BEFORE UPDATE OF system_key ON containers
+WHEN NEW.system_key IS NOT NULL AND NEW.id <> 'system-unallocated'
+BEGIN
+  SELECT RAISE(ABORT, 'System container must use the reserved ID');
+END;
+
+CREATE TRIGGER IF NOT EXISTS containers_system_lifecycle_guard
+BEFORE UPDATE OF status, archived_at, deleted_at ON containers
+WHEN OLD.system_key IS NOT NULL
+  AND (
+    NEW.status <> 'active'
+    OR NEW.archived_at IS NOT NULL
+    OR NEW.deleted_at IS NOT NULL
+  )
+BEGIN
+  SELECT RAISE(ABORT, 'System container cannot be archived or deleted');
+END;
+
+CREATE TRIGGER IF NOT EXISTS containers_system_no_delete
+BEFORE DELETE ON containers
+WHEN OLD.system_key IS NOT NULL
+BEGIN
+  SELECT RAISE(ABORT, 'System container cannot be deleted');
+END;
+
+CREATE TRIGGER IF NOT EXISTS metadata_system_no_insert
+BEFORE INSERT ON container_metadata_history
+WHEN EXISTS (
+  SELECT 1 FROM containers
+  WHERE id = NEW.container_id AND system_key IS NOT NULL
+)
+AND EXISTS (
+  SELECT 1 FROM container_metadata_history
+  WHERE container_id = NEW.container_id
+)
+BEGIN
+  SELECT RAISE(ABORT, 'System container metadata is immutable');
+END;
+
+CREATE TRIGGER IF NOT EXISTS metadata_system_no_update
+BEFORE UPDATE ON container_metadata_history
+WHEN EXISTS (
+  SELECT 1 FROM containers
+  WHERE id = NEW.container_id AND system_key IS NOT NULL
+)
+BEGIN
+  SELECT RAISE(ABORT, 'System container metadata is immutable');
+END;
+
+CREATE TRIGGER IF NOT EXISTS budget_limits_system_no_insert
+BEFORE INSERT ON budget_limits
+WHEN EXISTS (
+  SELECT 1 FROM containers
+  WHERE id = NEW.container_id AND system_key IS NOT NULL
+)
+BEGIN
+  SELECT RAISE(ABORT, 'System container cannot have a budget limit');
+END;
+
+CREATE TRIGGER IF NOT EXISTS budget_limits_system_no_update
+BEFORE UPDATE ON budget_limits
+WHEN EXISTS (
+  SELECT 1 FROM containers
+  WHERE id = NEW.container_id AND system_key IS NOT NULL
+)
+BEGIN
+  SELECT RAISE(ABORT, 'System container cannot have a budget limit');
+END;
+`;
+
 export const MIGRATIONS: readonly Migration[] = [
   {
     version: 1,
@@ -362,6 +463,11 @@ export const MIGRATIONS: readonly Migration[] = [
     version: 2,
     name: 'operation_receipts',
     sql: OPERATION_RECEIPTS_SQL,
+  },
+  {
+    version: 3,
+    name: 'system_unallocated_container',
+    sql: SYSTEM_UNALLOCATED_SQL,
   },
 ] as const;
 
