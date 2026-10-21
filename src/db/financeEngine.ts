@@ -1,0 +1,1507 @@
+import type {
+  ContainerKind,
+  ContainerLabel,
+  ContainerMonthResult,
+  ContainerSnapshot,
+  MonthSummary,
+  Transaction,
+  TransactionDirection,
+  TransactionKind,
+  WalletKind,
+  WalletSnapshot,
+} from '@/data/models';
+import { captureRecordedStamp } from '@/lib/date';
+import type { IconName } from '@/lib/icons';
+import {
+  isValidDateKey,
+  isValidMonthKey,
+  monthKeyForDateKey,
+  toLocalDateKey,
+} from '@/lib/period';
+import type { Tone } from '@/theme';
+
+import { FinanceError } from './errors';
+import {
+  FinanceRepository,
+  type ContainerRow,
+  type MetadataRow,
+  type NewPostingRow,
+  type NewTransactionRow,
+  type PostingRow,
+  type TransactionRow,
+  type WalletRow,
+} from './financeRepository';
+import type { SqlDatabase } from './sqlDatabase';
+
+export interface FinanceEngineOptions {
+  now?: () => Date;
+  idFactory?: (prefix: string) => string;
+}
+
+export interface CreateWalletInput {
+  id?: string;
+  name: string;
+  kind: WalletKind;
+  icon: IconName;
+  tone: Tone;
+  sortOrder?: number;
+  idempotencyKey: string;
+}
+
+export interface CreateContainerInput {
+  id?: string;
+  name: string;
+  description?: string;
+  icon: IconName;
+  tone: Tone;
+  kind?: ContainerKind;
+  limitMinor?: number;
+  idempotencyKey: string;
+}
+
+export interface UpdateContainerMetadataInput {
+  containerId: string;
+  effectiveMonthKey?: string;
+  name: string;
+  description?: string;
+  icon: IconName;
+  tone: Tone;
+  idempotencyKey: string;
+}
+
+export interface SetBudgetLimitInput {
+  containerId: string;
+  monthKey?: string;
+  limitMinor: number;
+  idempotencyKey: string;
+}
+
+export interface ContainerMutationInput {
+  containerId: string;
+  idempotencyKey: string;
+}
+
+export interface CreateTransactionInput {
+  kind: TransactionKind;
+  title: string;
+  amountMinor: number;
+  effectiveDate: string;
+  walletId?: string;
+  containerId?: string;
+  destinationWalletId?: string;
+  destinationContainerId?: string;
+  idempotencyKey: string;
+}
+
+export interface ReverseTransactionInput {
+  transactionId: string;
+  reason?: string;
+  idempotencyKey: string;
+}
+
+export interface CorrectTransactionInput {
+  transactionId: string;
+  reason?: string;
+  replacement: Omit<CreateTransactionInput, 'idempotencyKey'>;
+  idempotencyKey: string;
+}
+
+export interface TransactionMutationResult {
+  transactionId: string;
+}
+
+export interface ReversalResult {
+  reversalId: string;
+}
+
+export interface CorrectionResult {
+  reversalId: string;
+  replacementId: string;
+}
+
+export interface ContainerMutationResult {
+  containerId: string;
+}
+
+export interface WalletMutationResult {
+  walletId: string;
+}
+
+interface OperationContext {
+  recordedAt: string;
+  recordedTimeZone: string;
+  recordedOffsetMinutes: number;
+  todayDateKey: string;
+  todayMonthKey: string;
+}
+
+interface PostingDraft {
+  accountType: 'wallet' | 'container';
+  accountId: string;
+  amountMinor: number;
+}
+
+interface PreparedTransaction {
+  row: NewTransactionRow;
+  postings: PostingDraft[];
+}
+
+interface TransactionBuildOptions {
+  allowArchivedContainers?: boolean;
+  correctionOfId?: string | null;
+  reversalOfId?: string | null;
+}
+
+const TONES: readonly Tone[] = ['emerald', 'amber', 'coral', 'blue', 'violet'];
+const CONTAINER_KINDS: readonly ContainerKind[] = ['budget', 'savings'];
+const WALLET_KINDS: readonly WalletKind[] = ['cash', 'virtual_gcash'];
+const TRANSFER_ICON: IconName = 'swap-horizontal-outline';
+const SAVINGS_ICON: IconName = 'flag-outline';
+
+let fallbackIdSequence = 0;
+
+export class FinanceEngine {
+  readonly repository: FinanceRepository;
+
+  private readonly database: SqlDatabase;
+  private readonly now: () => Date;
+  private readonly idFactory: (prefix: string) => string;
+
+  constructor(
+    database: SqlDatabase,
+    options: FinanceEngineOptions = {},
+  ) {
+    this.database = database;
+    this.repository = new FinanceRepository(database);
+    this.now = options.now ?? (() => new Date());
+    this.idFactory = options.idFactory ?? defaultIdFactory;
+  }
+
+  async createWallet(input: CreateWalletInput): Promise<WalletMutationResult> {
+    const context = this.operationContext();
+    const key = requireIdempotencyKey(input.idempotencyKey);
+    const name = requireText(input.name, 'Wallet name', 40);
+    if (!WALLET_KINDS.includes(input.kind)) {
+      throw new FinanceError('VALIDATION', 'Choose a valid wallet kind.');
+    }
+    requireIcon(input.icon);
+    requireTone(input.tone);
+    const wallets = await this.repository.listWallets();
+    const id = input.id?.trim() || this.idFactory('wallet');
+    if (wallets.some((wallet) => wallet.id === id)) {
+      throw new FinanceError('VALIDATION', 'A wallet with that ID already exists.');
+    }
+    const sortOrder =
+      input.sortOrder ??
+      (wallets.reduce((max, wallet) => Math.max(max, wallet.sortOrder), 0) + 1);
+    if (!Number.isInteger(sortOrder)) {
+      throw new FinanceError('VALIDATION', 'Wallet sort order must be an integer.');
+    }
+
+    const fingerprint = fingerprintOf({
+      operation: 'create_wallet',
+      id,
+      name,
+      kind: input.kind,
+      icon: input.icon,
+      tone: input.tone,
+      sortOrder,
+    });
+
+    return this.runIdempotent(
+      'create_wallet',
+      key,
+      fingerprint,
+      context,
+      async () => {
+        await this.repository.insertWallet({
+          id,
+          name,
+          kind: input.kind,
+          icon: input.icon,
+          tone: input.tone,
+          sortOrder,
+          createdAt: context.recordedAt,
+        });
+        return { walletId: id };
+      },
+    );
+  }
+
+  async createContainer(
+    input: CreateContainerInput,
+  ): Promise<ContainerMutationResult> {
+    const context = this.operationContext();
+    const key = requireIdempotencyKey(input.idempotencyKey);
+    const name = requireText(input.name, 'Container name', 40);
+    const description = optionalText(input.description, 'Description', 90);
+    requireIcon(input.icon);
+    requireTone(input.tone);
+    const kind = input.kind ?? 'budget';
+    if (!CONTAINER_KINDS.includes(kind)) {
+      throw new FinanceError('VALIDATION', 'Choose a valid container kind.');
+    }
+    const limitMinor = input.limitMinor ?? 0;
+    requireNonNegativeInteger(limitMinor, 'Monthly limit');
+
+    const id = input.id?.trim() || this.idFactory('container');
+    if (await this.repository.getContainer(id, true)) {
+      throw new FinanceError('VALIDATION', 'A container with that ID already exists.');
+    }
+
+    const sortOrder = await this.repository.nextContainerSortOrder();
+    const fingerprint = fingerprintOf({
+      operation: 'create_container',
+      id,
+      name,
+      description,
+      icon: input.icon,
+      tone: input.tone,
+      kind,
+      limitMinor,
+    });
+
+    return this.runIdempotent(
+      'create_container',
+      key,
+      fingerprint,
+      context,
+      async () => {
+        await this.repository.insertContainer({
+          id,
+          kind,
+          status: 'active',
+          sortOrder,
+          createdMonthKey: context.todayMonthKey,
+          createdAt: context.recordedAt,
+          archivedAt: null,
+          deletedAt: null,
+        });
+        await this.repository.insertMetadata(
+          metadataRow(id, context.todayMonthKey, {
+            name,
+            description,
+            icon: input.icon,
+            tone: input.tone,
+          }, context.recordedAt),
+        );
+        if (limitMinor > 0) {
+          await this.repository.upsertBudgetLimit(
+            id,
+            context.todayMonthKey,
+            limitMinor,
+            context.recordedAt,
+          );
+        }
+        await this.repository.insertLifecycleEvent({
+          id: 0,
+          containerId: id,
+          eventType: 'created',
+          effectiveMonthKey: context.todayMonthKey,
+          recordedAt: context.recordedAt,
+          detailsJson: JSON.stringify({ kind, limitMinor }),
+        });
+        return { containerId: id };
+      },
+    );
+  }
+
+  async updateContainerMetadata(
+    input: UpdateContainerMetadataInput,
+  ): Promise<ContainerMutationResult> {
+    const context = this.operationContext();
+    const key = requireIdempotencyKey(input.idempotencyKey);
+    const container = await this.requireActiveContainer(input.containerId);
+    const name = requireText(input.name, 'Container name', 40);
+    const description = optionalText(input.description, 'Description', 90);
+    requireIcon(input.icon);
+    requireTone(input.tone);
+    const effectiveMonthKey = input.effectiveMonthKey ?? context.todayMonthKey;
+    requireEditableMonth(effectiveMonthKey, context.todayMonthKey);
+    if (effectiveMonthKey < container.createdMonthKey) {
+      throw new FinanceError(
+        'VALIDATION',
+        'The selected month is before this container existed.',
+      );
+    }
+
+    const fingerprint = fingerprintOf({
+      operation: 'update_container_metadata',
+      containerId: container.id,
+      effectiveMonthKey,
+      name,
+      description,
+      icon: input.icon,
+      tone: input.tone,
+    });
+
+    return this.runIdempotent(
+      'update_container_metadata',
+      key,
+      fingerprint,
+      context,
+      async () => {
+        await this.repository.upsertMetadata(
+          metadataRow(container.id, effectiveMonthKey, {
+            name,
+            description,
+            icon: input.icon,
+            tone: input.tone,
+          }, context.recordedAt),
+        );
+        await this.repository.insertLifecycleEvent({
+          id: 0,
+          containerId: container.id,
+          eventType: 'metadata_changed',
+          effectiveMonthKey,
+          recordedAt: context.recordedAt,
+          detailsJson: JSON.stringify({
+            name,
+            description,
+            icon: input.icon,
+            tone: input.tone,
+          }),
+        });
+        return { containerId: container.id };
+      },
+    );
+  }
+
+  async setBudgetLimit(input: SetBudgetLimitInput): Promise<ContainerMutationResult> {
+    const context = this.operationContext();
+    const key = requireIdempotencyKey(input.idempotencyKey);
+    const container = await this.requireActiveContainer(input.containerId);
+    requireNonNegativeInteger(input.limitMinor, 'Monthly limit');
+    const monthKey = input.monthKey ?? context.todayMonthKey;
+    requireEditableMonth(monthKey, context.todayMonthKey);
+    if (monthKey < container.createdMonthKey) {
+      throw new FinanceError(
+        'VALIDATION',
+        'The selected month is before this container existed.',
+      );
+    }
+
+    const fingerprint = fingerprintOf({
+      operation: 'set_budget_limit',
+      containerId: container.id,
+      monthKey,
+      limitMinor: input.limitMinor,
+    });
+
+    return this.runIdempotent(
+      'set_budget_limit',
+      key,
+      fingerprint,
+      context,
+      async () => {
+        await this.repository.upsertBudgetLimit(
+          container.id,
+          monthKey,
+          input.limitMinor,
+          context.recordedAt,
+        );
+        await this.repository.insertLifecycleEvent({
+          id: 0,
+          containerId: container.id,
+          eventType: 'limit_changed',
+          effectiveMonthKey: monthKey,
+          recordedAt: context.recordedAt,
+          detailsJson: JSON.stringify({ limitMinor: input.limitMinor }),
+        });
+        return { containerId: container.id };
+      },
+    );
+  }
+
+  async archiveContainer(
+    input: ContainerMutationInput,
+  ): Promise<ContainerMutationResult> {
+    const context = this.operationContext();
+    const key = requireIdempotencyKey(input.idempotencyKey);
+    const container = await this.requireExistingContainer(input.containerId);
+    if (container.status === 'archived') {
+      throw new FinanceError('INVALID_STATE', 'That container is already archived.');
+    }
+    const fingerprint = fingerprintOf({
+      operation: 'archive_container',
+      containerId: container.id,
+    });
+
+    return this.runIdempotent(
+      'archive_container',
+      key,
+      fingerprint,
+      context,
+      async () => {
+        await this.repository.setContainerArchived(
+          container.id,
+          context.recordedAt,
+        );
+        await this.repository.insertLifecycleEvent({
+          id: 0,
+          containerId: container.id,
+          eventType: 'archived',
+          effectiveMonthKey: context.todayMonthKey,
+          recordedAt: context.recordedAt,
+          detailsJson: '{}',
+        });
+        return { containerId: container.id };
+      },
+    );
+  }
+
+  async reactivateContainer(
+    input: ContainerMutationInput,
+  ): Promise<ContainerMutationResult> {
+    const context = this.operationContext();
+    const key = requireIdempotencyKey(input.idempotencyKey);
+    const container = await this.requireExistingContainer(input.containerId);
+    if (container.status === 'active') {
+      throw new FinanceError('INVALID_STATE', 'That container is already active.');
+    }
+    const fingerprint = fingerprintOf({
+      operation: 'reactivate_container',
+      containerId: container.id,
+    });
+
+    return this.runIdempotent(
+      'reactivate_container',
+      key,
+      fingerprint,
+      context,
+      async () => {
+        await this.repository.setContainerArchived(container.id, null);
+        await this.repository.insertLifecycleEvent({
+          id: 0,
+          containerId: container.id,
+          eventType: 'reactivated',
+          effectiveMonthKey: context.todayMonthKey,
+          recordedAt: context.recordedAt,
+          detailsJson: '{}',
+        });
+        return { containerId: container.id };
+      },
+    );
+  }
+
+  async deleteContainer(
+    input: ContainerMutationInput,
+  ): Promise<ContainerMutationResult> {
+    const context = this.operationContext();
+    const key = requireIdempotencyKey(input.idempotencyKey);
+    const container = await this.repository.getContainer(input.containerId);
+    if (!container) {
+      throw new FinanceError('NOT_FOUND', 'That container no longer exists.');
+    }
+    if (await this.repository.hasContainerFinancialHistory(container.id)) {
+      throw new FinanceError(
+        'INVALID_STATE',
+        'This container has a balance or financial history and cannot be deleted. Move any remaining balance, then archive it instead.',
+      );
+    }
+    const fingerprint = fingerprintOf({
+      operation: 'delete_container',
+      containerId: container.id,
+    });
+
+    return this.runIdempotent(
+      'delete_container',
+      key,
+      fingerprint,
+      context,
+      async () => {
+        await this.repository.setContainerDeleted(
+          container.id,
+          context.recordedAt,
+        );
+        await this.repository.insertLifecycleEvent({
+          id: 0,
+          containerId: container.id,
+          eventType: 'deleted',
+          effectiveMonthKey: context.todayMonthKey,
+          recordedAt: context.recordedAt,
+          detailsJson: '{}',
+        });
+        return { containerId: container.id };
+      },
+    );
+  }
+
+  async recordTransaction(
+    input: CreateTransactionInput,
+  ): Promise<TransactionMutationResult> {
+    const context = this.operationContext();
+    const key = requireIdempotencyKey(input.idempotencyKey);
+    const normalized = normalizeTransactionInput(input);
+    const fingerprint = fingerprintOf({
+      operation: 'record_transaction',
+      ...normalized,
+    });
+
+    return this.runIdempotent(
+      'record_transaction',
+      key,
+      fingerprint,
+      context,
+      async () => {
+        const transactionId = this.idFactory('txn');
+        const prepared = await this.buildForwardTransaction(
+          context,
+          input,
+          {
+            transactionId,
+            idempotencyKey: key,
+            requestFingerprint: fingerprint,
+          },
+        );
+        await this.insertPreparedTransaction(prepared);
+        await this.assertLedgerInvariant();
+        return { transactionId };
+      },
+    );
+  }
+
+  async reverseTransaction(
+    input: ReverseTransactionInput,
+  ): Promise<ReversalResult> {
+    const context = this.operationContext();
+    const key = requireIdempotencyKey(input.idempotencyKey);
+    const reason = optionalText(input.reason, 'Reason', 200);
+    const fingerprint = fingerprintOf({
+      operation: 'reverse_transaction',
+      transactionId: input.transactionId,
+      reason,
+    });
+
+    return this.runIdempotent(
+      'reverse_transaction',
+      key,
+      fingerprint,
+      context,
+      async () => {
+        const reversalId = await this.reverseTransactionInternal(
+          context,
+          input.transactionId,
+          fingerprint,
+        );
+        await this.assertLedgerInvariant();
+        return { reversalId };
+      },
+    );
+  }
+
+  async correctTransaction(
+    input: CorrectTransactionInput,
+  ): Promise<CorrectionResult> {
+    const context = this.operationContext();
+    const key = requireIdempotencyKey(input.idempotencyKey);
+    const reason = optionalText(input.reason, 'Reason', 200);
+    const replacement = normalizeTransactionInput(input.replacement);
+    const fingerprint = fingerprintOf({
+      operation: 'correct_transaction',
+      transactionId: input.transactionId,
+      reason,
+      replacement,
+    });
+
+    return this.runIdempotent(
+      'correct_transaction',
+      key,
+      fingerprint,
+      context,
+      async () => {
+        const reversalId = await this.reverseTransactionInternal(
+          context,
+          input.transactionId,
+          fingerprint,
+        );
+        const replacementId = this.idFactory('txn');
+        const prepared = await this.buildForwardTransaction(
+          context,
+          input.replacement,
+          {
+            transactionId: replacementId,
+            idempotencyKey: `correction:${replacementId}`,
+            requestFingerprint: fingerprint,
+            correctionOfId: input.transactionId,
+            allowArchivedContainers: true,
+          },
+        );
+        await this.insertPreparedTransaction(prepared);
+        await this.assertLedgerInvariant();
+        return { reversalId, replacementId };
+      },
+    );
+  }
+
+  async listWallets(): Promise<WalletRow[]> {
+    return this.repository.listWallets();
+  }
+
+  async listContainers(includeDeleted = false): Promise<ContainerRow[]> {
+    return this.repository.listContainers(includeDeleted);
+  }
+
+  async getMetadataHistory(containerId: string): Promise<MetadataRow[]> {
+    return this.repository.listMetadataHistory(containerId);
+  }
+
+  async getLifecycleEvents(containerId: string) {
+    return this.repository.listLifecycleEvents(containerId);
+  }
+
+  async getWalletSnapshots(asOfDateKey: string): Promise<WalletSnapshot[]> {
+    requireDateKey(asOfDateKey, 'As-of date');
+    return this.repository.getWalletSnapshots(asOfDateKey);
+  }
+
+  async getContainerSnapshots(monthKey: string): Promise<ContainerSnapshot[]> {
+    requireMonthKey(monthKey);
+    return this.repository.getContainerSnapshots(monthKey);
+  }
+
+  async getContainerMonthResults(monthKey: string): Promise<ContainerMonthResult[]> {
+    requireMonthKey(monthKey);
+    return this.repository.getContainerMonthResults(monthKey);
+  }
+
+  async getMonthSummary(
+    monthKey: string,
+    activeMonthKey: string,
+  ): Promise<MonthSummary> {
+    requireMonthKey(monthKey);
+    requireMonthKey(activeMonthKey);
+    return this.repository.getMonthSummary(monthKey, activeMonthKey);
+  }
+
+  async getTransactionsForMonth(monthKey: string): Promise<Transaction[]> {
+    requireMonthKey(monthKey);
+    return this.repository.getTransactionsForMonth(monthKey);
+  }
+
+  async getRecentTransactions(limit = 20): Promise<Transaction[]> {
+    return this.repository.getRecentTransactions(limit);
+  }
+
+  async getTransaction(transactionId: string): Promise<TransactionRow | null> {
+    return this.repository.getTransaction(transactionId);
+  }
+
+  async getWalletBalances(asOfDateKey: string): Promise<Record<string, number>> {
+    requireDateKey(asOfDateKey, 'As-of date');
+    const wallets = await this.repository.getWalletSnapshots(asOfDateKey);
+    return Object.fromEntries(
+      wallets.map((wallet) => [wallet.id, wallet.balanceMinor]),
+    );
+  }
+
+  async getContainerBalances(
+    asOfDateKey: string,
+  ): Promise<Record<string, number>> {
+    requireDateKey(asOfDateKey, 'As-of date');
+    const containers = await this.repository.listContainers(false);
+    const balances = await Promise.all(
+      containers.map(async (container) => [
+        container.id,
+        await this.repository.getContainerBalance(container.id, asOfDateKey),
+      ] as const),
+    );
+    return Object.fromEntries(balances);
+  }
+
+  private async buildForwardTransaction(
+    context: OperationContext,
+    input: CreateTransactionInput,
+    meta: {
+      transactionId: string;
+      idempotencyKey: string;
+      requestFingerprint: string;
+      correctionOfId?: string;
+      allowArchivedContainers?: boolean;
+    },
+  ): Promise<PreparedTransaction> {
+    const title = requireText(input.title, 'Description', 80);
+    requirePositiveInteger(input.amountMinor, 'Amount');
+    requireDateKey(input.effectiveDate, 'Effective date');
+    if (input.effectiveDate > context.todayDateKey) {
+      throw new FinanceError(
+        'VALIDATION',
+        'Future-dated entries are not allowed.',
+      );
+    }
+    const effectiveMonthKey = monthKeyForDateKey(input.effectiveDate);
+    const recorded = {
+      id: meta.transactionId,
+      idempotencyKey: meta.idempotencyKey,
+      requestFingerprint: meta.requestFingerprint,
+      amountMinor: input.amountMinor,
+      effectiveDate: input.effectiveDate,
+      effectiveMonthKey,
+      recordedAt: context.recordedAt,
+      recordedTimeZone: context.recordedTimeZone,
+      recordedOffsetMinutes: context.recordedOffsetMinutes,
+      status: 'posted' as const,
+      reversalOfId: null,
+      correctionOfId: meta.correctionOfId ?? null,
+      createdAt: context.recordedAt,
+    };
+
+    if (input.kind === 'expense' || input.kind === 'income') {
+      const wallet = await this.requireWallet(input.walletId);
+      const container = await this.requireContainer(
+        input.containerId,
+        effectiveMonthKey,
+        meta.allowArchivedContainers ?? false,
+      );
+      const label = await this.requireContainerLabel(
+        container.id,
+        effectiveMonthKey,
+      );
+
+      if (input.kind === 'expense') {
+        await this.requireSufficientWalletBalance(
+          wallet.id,
+          input.amountMinor,
+          input.effectiveDate,
+        );
+        await this.requireSufficientContainerBalance(
+          container.id,
+          input.amountMinor,
+          input.effectiveDate,
+        );
+      }
+
+      const isIncome = input.kind === 'income';
+      const row = makeTransactionRow(recorded, {
+        kind: input.kind,
+        title,
+        category: label.name,
+        direction: isIncome ? 'in' : 'out',
+        sourceWalletId: isIncome ? null : wallet.id,
+        destinationWalletId: isIncome ? wallet.id : null,
+        sourceContainerId: isIncome ? null : container.id,
+        destinationContainerId: isIncome ? container.id : null,
+        sourceWalletName: isIncome ? null : wallet.name,
+        destinationWalletName: isIncome ? wallet.name : null,
+        sourceContainerName: isIncome ? null : label.name,
+        destinationContainerName: isIncome ? label.name : null,
+        icon: isIncome ? 'arrow-down' : label.icon,
+        tone: isIncome ? 'emerald' : label.tone,
+      });
+      const signedAmount = isIncome ? input.amountMinor : -input.amountMinor;
+      return {
+        row,
+        postings: [
+          {
+            accountType: 'wallet',
+            accountId: wallet.id,
+            amountMinor: signedAmount,
+          },
+          {
+            accountType: 'container',
+            accountId: container.id,
+            amountMinor: signedAmount,
+          },
+        ],
+      };
+    }
+
+    if (input.kind === 'wallet_transfer') {
+      const source = await this.requireWallet(input.walletId);
+      const destination = await this.requireWallet(input.destinationWalletId);
+      if (source.id === destination.id) {
+        throw new FinanceError(
+          'VALIDATION',
+          'Choose two different wallets for a transfer.',
+        );
+      }
+      await this.requireSufficientWalletBalance(
+        source.id,
+        input.amountMinor,
+        input.effectiveDate,
+      );
+      const row = makeTransactionRow(recorded, {
+        kind: 'wallet_transfer',
+        title,
+        category: 'Wallet transfer',
+        direction: 'neutral',
+        sourceWalletId: source.id,
+        destinationWalletId: destination.id,
+        sourceContainerId: null,
+        destinationContainerId: null,
+        sourceWalletName: source.name,
+        destinationWalletName: destination.name,
+        sourceContainerName: null,
+        destinationContainerName: null,
+        icon: TRANSFER_ICON,
+        tone: 'blue',
+      });
+      return {
+        row,
+        postings: [
+          {
+            accountType: 'wallet',
+            accountId: source.id,
+            amountMinor: -input.amountMinor,
+          },
+          {
+            accountType: 'wallet',
+            accountId: destination.id,
+            amountMinor: input.amountMinor,
+          },
+        ],
+      };
+    }
+
+    if (input.kind !== 'container_transfer' && input.kind !== 'savings') {
+      throw new FinanceError('VALIDATION', 'Choose a valid transaction type.');
+    }
+
+    const source = await this.requireContainer(
+      input.containerId,
+      effectiveMonthKey,
+      meta.allowArchivedContainers ?? false,
+    );
+    const destination = await this.requireContainer(
+      input.destinationContainerId,
+      effectiveMonthKey,
+      meta.allowArchivedContainers ?? false,
+    );
+    if (source.id === destination.id) {
+      throw new FinanceError(
+        'VALIDATION',
+        'Choose two different containers for a transfer.',
+      );
+    }
+    const destinationLabel = await this.requireContainerLabel(
+      destination.id,
+      effectiveMonthKey,
+    );
+    const kind: TransactionKind =
+      destination.kind === 'savings' ? 'savings' : 'container_transfer';
+    if (input.kind === 'savings' && kind !== 'savings') {
+      throw new FinanceError(
+        'VALIDATION',
+        'Savings contributions must go into a savings container.',
+      );
+    }
+    await this.requireSufficientContainerBalance(
+      source.id,
+      input.amountMinor,
+      input.effectiveDate,
+    );
+    const row = makeTransactionRow(recorded, {
+      kind,
+      title,
+      category: kind === 'savings' ? 'Savings transfer' : 'Container transfer',
+      direction: 'neutral',
+      sourceWalletId: null,
+      destinationWalletId: null,
+      sourceContainerId: source.id,
+      destinationContainerId: destination.id,
+      sourceWalletName: null,
+      destinationWalletName: null,
+      sourceContainerName: destinationLabel.name,
+      destinationContainerName: destinationLabel.name,
+      icon: kind === 'savings' ? SAVINGS_ICON : TRANSFER_ICON,
+      tone: kind === 'savings' ? 'emerald' : 'violet',
+    });
+
+    const sourceLabel = await this.requireContainerLabel(
+      source.id,
+      effectiveMonthKey,
+    );
+    row.sourceContainerName = sourceLabel.name;
+
+    return {
+      row,
+      postings: [
+        {
+          accountType: 'container',
+          accountId: source.id,
+          amountMinor: -input.amountMinor,
+        },
+        {
+          accountType: 'container',
+          accountId: destination.id,
+          amountMinor: input.amountMinor,
+        },
+      ],
+    };
+  }
+
+  private async insertPreparedTransaction(
+    prepared: PreparedTransaction,
+  ): Promise<void> {
+    validatePostingSet(
+      prepared.row.kind,
+      prepared.row.amountMinor,
+      prepared.postings,
+    );
+    await this.repository.insertTransaction(prepared.row);
+    await this.repository.insertPostings(
+      prepared.postings.map<NewPostingRow>((posting) => ({
+        transactionId: prepared.row.id,
+        accountType: posting.accountType,
+        accountId: posting.accountId,
+        amountMinor: posting.amountMinor,
+        recordedAt: prepared.row.recordedAt,
+      })),
+    );
+  }
+
+  private async reverseTransactionInternal(
+    context: OperationContext,
+    transactionId: string,
+    requestFingerprint: string,
+  ): Promise<string> {
+    const original = await this.repository.getTransaction(transactionId);
+    if (!original) {
+      throw new FinanceError('NOT_FOUND', 'That transaction no longer exists.');
+    }
+    if (original.reversalOfId) {
+      throw new FinanceError(
+        'INVALID_STATE',
+        'A reversal transaction cannot itself be reversed.',
+      );
+    }
+    if (original.status !== 'posted') {
+      throw new FinanceError(
+        'INVALID_STATE',
+        'That transaction has already been reversed.',
+      );
+    }
+    const originalPostings = await this.repository.getPostingsForTransaction(
+      original.id,
+    );
+    if (originalPostings.length !== 2) {
+      throw new FinanceError(
+        'INVALID_STATE',
+        'The original transaction does not have a valid posting set.',
+      );
+    }
+
+    const reversalId = this.idFactory('txn');
+    const title = `Reversal: ${original.title}`.slice(0, 80);
+    const reversal = makeTransactionRow(
+      {
+        id: reversalId,
+        idempotencyKey: `reversal:${reversalId}`,
+        requestFingerprint,
+        amountMinor: original.amountMinor,
+        effectiveDate: original.effectiveDate,
+        effectiveMonthKey: original.effectiveMonthKey,
+        recordedAt: context.recordedAt,
+        recordedTimeZone: context.recordedTimeZone,
+        recordedOffsetMinutes: context.recordedOffsetMinutes,
+        status: 'posted',
+        reversalOfId: original.id,
+        correctionOfId: null,
+        createdAt: context.recordedAt,
+      },
+      {
+        kind: original.kind,
+        title,
+        category: original.category,
+        direction: original.direction,
+        sourceWalletId: original.sourceWalletId,
+        destinationWalletId: original.destinationWalletId,
+        sourceContainerId: original.sourceContainerId,
+        destinationContainerId: original.destinationContainerId,
+        sourceWalletName: original.sourceWalletName,
+        destinationWalletName: original.destinationWalletName,
+        sourceContainerName: original.sourceContainerName,
+        destinationContainerName: original.destinationContainerName,
+        icon: original.icon,
+        tone: original.tone,
+      },
+    );
+
+    validateReversalPostings(
+      originalPostings,
+      originalPostings.map<PostingDraft>((posting) => ({
+        accountType: posting.accountType,
+        accountId: posting.accountId,
+        amountMinor: -posting.amountMinor,
+      })),
+    );
+    await this.repository.insertTransaction(reversal);
+    await this.repository.insertPostings(
+      originalPostings.map<NewPostingRow>((posting) => ({
+        transactionId: reversalId,
+        accountType: posting.accountType,
+        accountId: posting.accountId,
+        amountMinor: -posting.amountMinor,
+        recordedAt: context.recordedAt,
+      })),
+    );
+    await this.repository.markTransactionReversed(original.id);
+    return reversalId;
+  }
+
+  private async assertLedgerInvariant(context: OperationContext): Promise<void> {
+    const matches = await this.repository.allWalletContainerTotalsMatch(
+      '9999-12-31',
+    );
+    if (!matches) {
+      throw new FinanceError(
+        'INVALID_STATE',
+        'The wallet and container totals do not match.',
+      );
+    }
+  }
+
+  private async requireWallet(walletId: string | undefined): Promise<WalletRow> {
+    if (!walletId) {
+      throw new FinanceError('VALIDATION', 'Choose a wallet.');
+    }
+    const wallet = await this.repository.getWallet(walletId);
+    if (!wallet) {
+      throw new FinanceError('NOT_FOUND', 'That wallet no longer exists.');
+    }
+    return wallet;
+  }
+
+  private async requireContainer(
+    containerId: string | undefined,
+    effectiveMonthKey: string,
+    allowArchived: boolean,
+  ): Promise<ContainerRow> {
+    if (!containerId) {
+      throw new FinanceError('VALIDATION', 'Choose a container.');
+    }
+    const container = await this.repository.getContainer(containerId);
+    if (!container) {
+      throw new FinanceError('NOT_FOUND', 'That container no longer exists.');
+    }
+    if (container.createdMonthKey > effectiveMonthKey) {
+      throw new FinanceError(
+        'VALIDATION',
+        'That container did not exist on the selected date.',
+      );
+    }
+    if (container.status === 'archived' && !allowArchived) {
+      throw new FinanceError(
+        'ARCHIVED_CONTAINER',
+        'Archived containers cannot receive new activity.',
+      );
+    }
+    return container;
+  }
+
+  private async requireExistingContainer(
+    containerId: string,
+  ): Promise<ContainerRow> {
+    const container = await this.repository.getContainer(containerId);
+    if (!container) {
+      throw new FinanceError('NOT_FOUND', 'That container no longer exists.');
+    }
+    return container;
+  }
+
+  private async requireActiveContainer(containerId: string): Promise<ContainerRow> {
+    const container = await this.requireExistingContainer(containerId);
+    if (container.status === 'archived') {
+      throw new FinanceError(
+        'ARCHIVED_CONTAINER',
+        'Reactivate this container before changing it.',
+      );
+    }
+    return container;
+  }
+
+  private async requireContainerLabel(
+    containerId: string,
+    effectiveMonthKey: string,
+  ): Promise<ContainerLabel> {
+    const metadata = await this.repository.getMetadataAsOf(
+      containerId,
+      effectiveMonthKey,
+    );
+    if (!metadata) {
+      throw new FinanceError(
+        'INVALID_STATE',
+        'Historical container details are missing.',
+      );
+    }
+    return metadata.label;
+  }
+
+  private async requireSufficientWalletBalance(
+    walletId: string,
+    amountMinor: number,
+    effectiveDate: string,
+  ): Promise<void> {
+    const balance = await this.repository.getWalletBalance(
+      walletId,
+      effectiveDate,
+    );
+    if (balance < amountMinor) {
+      throw new FinanceError(
+        'INSUFFICIENT_FUNDS',
+        'That wallet does not have enough money on the selected date.',
+      );
+    }
+  }
+
+  private async requireSufficientContainerBalance(
+    containerId: string,
+    amountMinor: number,
+    effectiveDate: string,
+  ): Promise<void> {
+    const balance = await this.repository.getContainerBalance(
+      containerId,
+      effectiveDate,
+    );
+    if (balance < amountMinor) {
+      throw new FinanceError(
+        'INSUFFICIENT_FUNDS',
+        'That container does not have enough money on the selected date.',
+      );
+    }
+  }
+
+  private operationContext(): OperationContext {
+    const now = this.now();
+    const stamp = captureRecordedStamp(now);
+    const todayDateKey = toLocalDateKey(now);
+    return {
+      now,
+      recordedAt: stamp.recordedAt,
+      recordedTimeZone: stamp.recordedTimeZone,
+      recordedOffsetMinutes: stamp.recordedOffsetMinutes,
+      todayDateKey,
+      todayMonthKey: monthKeyForDateKey(todayDateKey),
+    };
+  }
+
+  private async runIdempotent<T>(
+    operationType: string,
+    idempotencyKey: string,
+    requestFingerprint: string,
+    context: OperationContext,
+    work: () => Promise<T>,
+  ): Promise<T> {
+    return this.repository['database'].withTransactionAsync(async () => {
+      const existing = await this.repository.getReceipt(idempotencyKey);
+      if (existing) {
+        if (
+          existing.operationType !== operationType ||
+          existing.requestFingerprint !== requestFingerprint
+        ) {
+          throw new FinanceError(
+            'IDEMPOTENCY_CONFLICT',
+            'That idempotency key was already used for a different operation.',
+          );
+        }
+        try {
+          return JSON.parse(existing.resultJson) as T;
+        } catch (error) {
+          throw new FinanceError(
+            'DATABASE',
+            'The stored operation receipt is invalid.',
+            { cause: error },
+          );
+        }
+      }
+
+      const result = await work();
+      await this.repository.insertReceipt({
+        idempotencyKey,
+        operationType,
+        requestFingerprint,
+        resultJson: JSON.stringify(result),
+        createdAt: context.recordedAt,
+      });
+      return result;
+    });
+  }
+}
+
+function makeTransactionRow(
+  base: {
+    id: string;
+    idempotencyKey: string;
+    requestFingerprint: string;
+    amountMinor: number;
+    effectiveDate: string;
+    effectiveMonthKey: string;
+    recordedAt: string;
+    recordedTimeZone: string;
+    recordedOffsetMinutes: number;
+    status: 'posted';
+    reversalOfId: string | null;
+    correctionOfId: string | null;
+    createdAt: string;
+  },
+  fields: {
+    kind: TransactionKind;
+    title: string;
+    category: string;
+    direction: TransactionDirection;
+    sourceWalletId: string | null;
+    destinationWalletId: string | null;
+    sourceContainerId: string | null;
+    destinationContainerId: string | null;
+    sourceWalletName: string | null;
+    destinationWalletName: string | null;
+    sourceContainerName: string | null;
+    destinationContainerName: string | null;
+    icon: IconName;
+    tone: Tone;
+  },
+): NewTransactionRow {
+  return {
+    ...base,
+    ...fields,
+  };
+}
+
+function metadataRow(
+  containerId: string,
+  effectiveMonthKey: string,
+  label: ContainerLabel,
+  recordedAt: string,
+): MetadataRow {
+  return {
+    id: 0,
+    containerId,
+    effectiveMonthKey,
+    label,
+    recordedAt,
+  };
+}
+
+function validatePostingSet(
+  kind: TransactionKind,
+  amountMinor: number,
+  postings: readonly PostingDraft[],
+): void {
+  if (postings.length !== 2) {
+    throw new FinanceError(
+      'INVALID_STATE',
+      'A transaction must create exactly two postings.',
+    );
+  }
+  for (const posting of postings) {
+    if (!Number.isInteger(posting.amountMinor) || posting.amountMinor === 0) {
+      throw new FinanceError(
+        'INVALID_STATE',
+        'Every posting must be a non-zero integer amount.',
+      );
+    }
+  }
+
+  const walletPostings = postings.filter(
+    (posting) => posting.accountType === 'wallet',
+  );
+  const containerPostings = postings.filter(
+    (posting) => posting.accountType === 'container',
+  );
+
+  if (kind === 'income') {
+    if (
+      walletPostings.length !== 1 ||
+      containerPostings.length !== 1 ||
+      postings.some((posting) => posting.amountMinor !== amountMinor)
+    ) {
+      throw new FinanceError('INVALID_STATE', 'Invalid income postings.');
+    }
+    return;
+  }
+
+  if (kind === 'expense') {
+    if (
+      walletPostings.length !== 1 ||
+      containerPostings.length !== 1 ||
+      postings.some((posting) => posting.amountMinor !== -amountMinor)
+    ) {
+      throw new FinanceError('INVALID_STATE', 'Invalid expense postings.');
+    }
+    return;
+  }
+
+  if (kind === 'wallet_transfer') {
+    if (
+      walletPostings.length !== 2 ||
+      containerPostings.length !== 0 ||
+      walletPostings[0]?.accountId === walletPostings[1]?.accountId
+    ) {
+      throw new FinanceError(
+        'INVALID_STATE',
+        'Invalid wallet transfer postings.',
+      );
+    }
+  } else if (
+    containerPostings.length !== 2 ||
+    walletPostings.length !== 0 ||
+    containerPostings[0]?.accountId === containerPostings[1]?.accountId
+  ) {
+    throw new FinanceError(
+      'INVALID_STATE',
+      'Invalid container transfer postings.',
+    );
+  }
+
+  const total = postings.reduce(
+    (sum, posting) => sum + posting.amountMinor,
+    0,
+  );
+  if (total !== 0) {
+    throw new FinanceError(
+      'INVALID_STATE',
+      'Transfer postings must balance to zero.',
+    );
+  }
+}
+
+function normalizeTransactionInput(input: Omit<CreateTransactionInput, 'idempotencyKey'>) {
+  return {
+    kind: input.kind,
+    title: input.title.trim(),
+    amountMinor: input.amountMinor,
+    effectiveDate: input.effectiveDate,
+    walletId: input.walletId?.trim() ?? null,
+    containerId: input.containerId?.trim() ?? null,
+    destinationWalletId: input.destinationWalletId?.trim() ?? null,
+    destinationContainerId: input.destinationContainerId?.trim() ?? null,
+  };
+}
+
+function requireIdempotencyKey(value: string): string {
+  const key = value.trim();
+  if (!key || key.length > 200) {
+    throw new FinanceError(
+      'VALIDATION',
+      'An idempotency key between 1 and 200 characters is required.',
+    );
+  }
+  return key;
+}
+
+function requireText(value: string, label: string, maxLength: number): string {
+  const text = value.trim();
+  if (!text) {
+    throw new FinanceError('VALIDATION', `Add a ${label.toLowerCase()}.`);
+  }
+  if (text.length > maxLength) {
+    throw new FinanceError(
+      'VALIDATION',
+      `${label} must be ${maxLength} characters or fewer.`,
+    );
+  }
+  return text;
+}
+
+function optionalText(
+  value: string | undefined,
+  label: string,
+  maxLength: number,
+): string {
+  const text = value?.trim() ?? '';
+  if (text.length > maxLength) {
+    throw new FinanceError(
+      'VALIDATION',
+      `${label} must be ${maxLength} characters or fewer.`,
+    );
+  }
+  return text;
+}
+
+function requireIcon(icon: string): void {
+  if (!icon.trim()) {
+    throw new FinanceError('VALIDATION', 'Choose an icon.');
+  }
+}
+
+function requireTone(tone: string): asserts tone is Tone {
+  if (!TONES.includes(tone as Tone)) {
+    throw new FinanceError('VALIDATION', 'Choose a valid theme tone.');
+  }
+}
+
+function requirePositiveInteger(value: number, label: string): void {
+  if (!Number.isSafeInteger(value) || value <= 0) {
+    throw new FinanceError(
+      'VALIDATION',
+      `${label} must be a whole number of centavos greater than zero.`,
+    );
+  }
+}
+
+function requireNonNegativeInteger(value: number, label: string): void {
+  if (!Number.isSafeInteger(value) || value < 0) {
+    throw new FinanceError(
+      'VALIDATION',
+      `${label} must be zero or more centavos.`,
+    );
+  }
+}
+
+function requireDateKey(value: string, label: string): void {
+  if (!isValidDateKey(value)) {
+    throw new FinanceError(
+      'VALIDATION',
+      `${label} must be a valid date in YYYY-MM-DD format.`,
+    );
+  }
+}
+
+function requireMonthKey(value: string): void {
+  if (!isValidMonthKey(value)) {
+    throw new FinanceError(
+      'VALIDATION',
+      'Use a valid calendar month in YYYY-MM format.',
+    );
+  }
+}
+
+function requireEditableMonth(monthKey: string, todayMonthKey: string): void {
+  requireMonthKey(monthKey);
+  if (monthKey < todayMonthKey) {
+    throw new FinanceError(
+      'VALIDATION',
+      'Past months are read-only. Choose the current or a future month.',
+    );
+  }
+}
+
+function fingerprintOf(value: unknown): string {
+  return stableSerialize(value);
+}
+
+function stableSerialize(value: unknown): string {
+  if (value === null || typeof value !== 'object') {
+    const serialized = JSON.stringify(value);
+    return serialized === undefined ? 'null' : serialized;
+  }
+  if (Array.isArray(value)) {
+    return `[${value.map((item) => stableSerialize(item)).join(',')}]`;
+  }
+  const record = value as Record<string, unknown>;
+  const keys = Object.keys(record).sort();
+  return `{${keys
+    .filter((key) => record[key] !== undefined)
+    .map(
+      (key) =>
+        `${JSON.stringify(key)}:${stableSerialize(record[key])}`,
+    )
+    .join(',')}}`;
+}
+
+function defaultIdFactory(prefix: string): string {
+  const cryptoObject = globalThis.crypto as
+    | { randomUUID?: () => string }
+    | undefined;
+  if (cryptoObject?.randomUUID) {
+    return `${prefix}-${cryptoObject.randomUUID()}`;
+  }
+  fallbackIdSequence += 1;
+  return `${prefix}-${Date.now().toString(36)}-${fallbackIdSequence.toString(
+    36,
+  )}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+export function assertDateWithinMonth(dateKey: string, monthKey: string): boolean {
+  return dateKey.startsWith(`${getCalendarMonth(monthKey).key}-`);
+}
