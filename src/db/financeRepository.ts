@@ -5,6 +5,7 @@ import type {
   ContainerSnapshot,
   ContainerStatus,
   MonthSummary,
+  SystemContainerKey,
   Transaction,
   TransactionDirection,
   TransactionKind,
@@ -39,6 +40,7 @@ export interface ContainerRow {
   createdAt: string;
   archivedAt: string | null;
   deletedAt: string | null;
+  systemKey: SystemContainerKey | null;
 }
 
 export interface MetadataRow {
@@ -135,6 +137,7 @@ interface ContainerRowResult {
   created_at: string;
   archived_at: string | null;
   deleted_at: string | null;
+  system_key: SystemContainerKey | null;
 }
 
 interface MetadataRowResult {
@@ -267,12 +270,22 @@ export class FinanceRepository {
     return (row?.sort_order ?? 0) + 1;
   }
 
-  async listContainers(includeDeleted = false): Promise<ContainerRow[]> {
+  async listContainers(
+    includeDeleted = false,
+    includeSystem = true,
+  ): Promise<ContainerRow[]> {
+    const clauses: string[] = [];
+    if (!includeDeleted) {
+      clauses.push('deleted_at IS NULL');
+    }
+    if (!includeSystem) {
+      clauses.push('system_key IS NULL');
+    }
     const rows = await this.database.getAllAsync<ContainerRowResult>(
       `SELECT id, kind, status, sort_order, created_month_key, created_at,
-              archived_at, deleted_at
+              archived_at, deleted_at, system_key
        FROM containers
-       ${includeDeleted ? '' : 'WHERE deleted_at IS NULL'}
+       ${clauses.length > 0 ? `WHERE ${clauses.join(' AND ')}` : ''}
        ORDER BY sort_order ASC, created_at ASC`,
     );
     return rows.map(mapContainerRow);
@@ -284,10 +297,23 @@ export class FinanceRepository {
   ): Promise<ContainerRow | null> {
     const row = await this.database.getFirstAsync<ContainerRowResult>(
       `SELECT id, kind, status, sort_order, created_month_key, created_at,
-              archived_at, deleted_at
+              archived_at, deleted_at, system_key
        FROM containers
        WHERE id = ? ${includeDeleted ? '' : 'AND deleted_at IS NULL'}`,
       [containerId],
+    );
+    return row ? mapContainerRow(row) : null;
+  }
+
+  async getContainerBySystemKey(
+    systemKey: SystemContainerKey,
+  ): Promise<ContainerRow | null> {
+    const row = await this.database.getFirstAsync<ContainerRowResult>(
+      `SELECT id, kind, status, sort_order, created_month_key, created_at,
+              archived_at, deleted_at, system_key
+       FROM containers
+       WHERE system_key = ?`,
+      [systemKey],
     );
     return row ? mapContainerRow(row) : null;
   }
@@ -296,8 +322,8 @@ export class FinanceRepository {
     await this.database.runAsync(
       `INSERT INTO containers (
          id, kind, status, sort_order, created_month_key, created_at,
-         archived_at, deleted_at
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+         archived_at, deleted_at, system_key
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         container.id,
         container.kind,
@@ -307,6 +333,7 @@ export class FinanceRepository {
         container.createdAt,
         container.archivedAt,
         container.deletedAt,
+        container.systemKey,
       ],
     );
   }
@@ -528,7 +555,7 @@ export class FinanceRepository {
     const month = getCalendarMonth(monthKey);
     const rows = await this.database.getAllAsync<ContainerSnapshotRowResult>(
       `SELECT c.id, c.kind, c.status, c.sort_order, c.created_month_key,
-              c.created_at, c.archived_at, c.deleted_at,
+              c.created_at, c.archived_at, c.deleted_at, c.system_key,
               m.name, m.description, m.icon, m.tone,
               COALESCE(bl.limit_minor, 0) AS limit_minor,
               COALESCE((
@@ -570,6 +597,7 @@ export class FinanceRepository {
     return rows
       .filter(
         (row) =>
+          row.status === 'active' ||
           row.limit_minor > 0 ||
           row.spent_minor > 0 ||
           row.balance_minor !== 0 ||
@@ -589,6 +617,7 @@ export class FinanceRepository {
           status: row.status,
           sortOrder: row.sort_order,
           createdMonthKey: row.created_month_key,
+          systemKey: row.system_key,
           ...(row.archived_at ? { archivedAt: row.archived_at } : {}),
           limitsByMonth: { [monthKey]: row.limit_minor },
           labelsByMonth: { [monthKey]: label },
@@ -613,6 +642,7 @@ export class FinanceRepository {
       tone: container.tone,
       kind: container.kind,
       status: container.status,
+      systemKey: container.systemKey,
       limitMinor: container.limitMinor,
       spentMinor: container.spentMinor,
       remainingMinor: container.remainingMinor,
@@ -890,6 +920,7 @@ function mapContainerRow(row: ContainerRowResult): ContainerRow {
     createdAt: row.created_at,
     archivedAt: row.archived_at,
     deletedAt: row.deleted_at,
+    systemKey: row.system_key,
   };
 }
 
