@@ -7,7 +7,7 @@
 - **Requirements revision:** This revision adds monthly calendar budget cycles with permanent savings history, and fully customizable budget-container lifecycle requirements.
 - **Repository name:** `Pocketalk-App`.
 - **Product name:** **Pocketa** is used in this document. The repository and README still use “Pocketalk-App”; the naming conflict is unresolved.
-- **Implementation status:** Phase 1 was research and planning only. Phase 2 has not been approved or completed. An uncommitted, exploratory Expo UI scaffold exists in the working tree from earlier work, but it is not accepted as Phase 2 and must not be treated as satisfying this specification. No approved database, ledger engine, AI integration, or automated tests exist.
+- **Implementation status:** Phase 1 was research and planning only. Phase 2 (UI foundation) exists as an uncommitted exploratory Expo scaffold but is not approved as Phase 2 completion. Phase 3 (SQLite data layer and financial engine) is implemented and awaiting final review: migrations v1–v4, a deterministic `FinanceEngine`, the system Unallocated and Savings containers, automatic monthly rollover, savings transfers, idempotency, reversals, corrections, effective-dated container metadata, container lifecycle, and 65 passing SQLite-backed tests. Phase 4 (UI integration) and Phase 5+ (AI, hardening) have not been started.
 - **Authority:** Until the original master specification is supplied, this document is the working source of truth for requirements and scope. Requirements that were not established are marked `ASSUMPTION`, `PROPOSED`, or `UNRESOLVED`.
 
 Status labels used in this document:
@@ -52,7 +52,7 @@ The exact target Android versions, minimum device specifications, and minimum RA
 - Support transfers between wallets and between containers without creating income or expense.
 - Support calendar-month budget cycles that become active automatically from the device’s local date, without a manual reset.
 - Preserve monthly income, expense, net-savings, and budget-performance history permanently, with month selection and comparison.
-- Track savings goals separately from spending targets, with savings balances represented by dedicated containers and clearly distinguished from net savings.
+- Maintain one permanent Savings container that accumulates money across months and is clearly distinguished from monthly net savings.
 - Support user-defined budget containers with custom names, icons, colors, optional monthly limits, and a safe archive/reactivate/delete lifecycle.
 - Provide a transaction history that supports review, reversal, and effective-date-based historical correction.
 - Provide a local AI chatbot that proposes transactions in a structured format for user confirmation.
@@ -66,6 +66,7 @@ The exact target Android versions, minimum device specifications, and minimum RA
 - Collection or storage of GCash PINs, passwords, OTPs, or other financial credentials.
 - Cloud-hosted LLM inference or an account/backend dependency for core budgeting.
 - Production financial logic in the Phase 2 UI-foundation phase.
+- Separate long-term savings goals, target amounts, or goal-progress tracking.
 - Investment, credit, tax, or lending advice.
 - Multi-user accounts, social features, or shared budgets unless later approved.
 - Multi-currency support in the MVP; PHP is the working assumption.
@@ -84,7 +85,7 @@ Required capabilities:
 - Show wallet balances, including the manually maintained virtual GCash wallet.
 - Show budget container summaries: monthly limit, spent amount, and remaining amount for the active period.
 - Show container actual balances separately from monthly budget usage where both are displayed.
-- Show savings goal progress and distinguish it from monthly net savings.
+- Show the permanent Savings balance and distinguish it from monthly net savings and monthly Savings contributions.
 - Show recent transactions, including entries whose effective date belongs to a prior month.
 - Provide a clear entry point for adding a transaction.
 - Provide a clear entry point for the AI assistant.
@@ -182,15 +183,15 @@ The exact icon set, color validation rules, name-length limits, sorting behavior
 - Never calculate authoritative balances or write financial records directly.
 - Never create, rename, archive, reactivate, or delete containers, and never change monthly budget limits.
 
-### 3.6 Savings goals
+### 3.6 Permanent Savings
 
-- Represent each savings goal with a dedicated savings container.
-- Show target amount and progress based on the container’s actual balance.
-- Treat contributions as transfers into the savings container, not expenses.
-- Do not treat the target amount as money held.
-- Distinguish monthly net savings from the balance of a savings container and from contributions transferred into that container.
-- Show savings-container contribution and ending-balance history separately from net-savings history.
-- Support completing, archiving, or adjusting a goal only according to a policy that is `UNRESOLVED`.
+- Provide one system-managed Savings container with a stable identity.
+- Create it idempotently during database initialization; it cannot be duplicated, renamed, archived, or deleted.
+- Treat contributions and withdrawals as internal container transfers, not income or expenses.
+- Allow transfers between Savings, Unallocated, and active ordinary budget containers.
+- Exclude Savings from automatic month-end rollover.
+- Show the Savings balance, monthly contributions, and monthly withdrawals separately from net savings.
+- Do not provide separate long-term savings goals, target amounts, progress percentages, or goal-completion workflows.
 
 ### 3.7 Profile and settings
 
@@ -212,13 +213,14 @@ Monthly budget-period reporting, monthly savings history, historical month selec
 - **Default period:** Calendar months. Each period starts on the first day of the month and ends on the last day of that month in the user’s local calendar, including the correct length of February in leap and non-leap years.
 - **Active period:** Derived automatically from the device’s current local date. No “start new month” or reset button is required.
 - **Automatic rollover:** The app must determine the active period on launch, on foreground/resume, when the local date changes, and when the device time zone changes. A period must be correct even if the app was closed on the first day or for several months.
+- **Closed-month sweep:** For each closed calendar month that has not yet been processed, positive balances in ordinary budget containers are transferred into Unallocated through an internal `container_transfer`. Savings and Unallocated are excluded. Archived ordinary containers are swept if they still hold a positive balance.
+- **No new money:** Rollover is not income or an expense, creates no new allowance, and leaves all wallet balances unchanged. It moves only container allocations.
 - **Fresh monthly plan:** The active month exposes that period’s budget limits and spending totals. Limits are period-scoped planning values derived from the user’s configured container budgets or an approved per-month override.
-- **No automatic money movement:** A new month must not create, erase, transfer, or sweep funds. Actual wallet and container balances carry forward unchanged.
-- **No automatic reset of balances:** Budget usage resets only because it is filtered to the new period; actual balances do not reset. Unused budget limits are not money and are not automatically carried forward as funds.
+- **No automatic reset of balances:** Budget usage resets only because it is filtered to the new period. Unused budget limits are not money. Rollover moves actual unused ordinary-container balances to Unallocated; Savings balances are never swept.
 - **Spending totals:** Monthly spending is calculated from external expense postings whose effective date falls within the selected calendar month.
 - **Historical permanence:** Transactions, postings, monthly summaries, and prior-month results must be preserved permanently unless the user explicitly deletes all local data. No rollover process may overwrite or discard them.
-- **Historical corrections:** Late entries and audited corrections post to the transaction’s effective period. Corrections must update the affected month’s report and preserve an audit trail.
-- **Time-zone stability:** Historical reports use the effective local date recorded with each transaction. Changing the device time zone must not silently move past transactions into different months. The active period may change with the device’s current local date.
+- **Historical corrections:** Late entries and audited corrections post to the transaction’s effective period. Corrections must update the affected month’s report and preserve an audit trail. If a late write changes a closed month’s ordinary-container balances, existing rollover sweeps from that month onward are reversed and replayed atomically under a new revision.
+- **Time-zone stability:** Historical reports use the effective local date recorded with each transaction. Changing the device time zone must not silently move past transactions into different months. The active period may change with the device’s current local date. Moving the clock backward must not undo a completed rollover.
 - **Offline operation:** Monthly rollover, reporting, and comparison must work entirely from local data without a server or network connection.
 - **Month state:** Whether completed months are locked against ordinary edits, and how a time-zone change that alters the active month is communicated to the user, are `UNRESOLVED`.
 - **Limit rollover:** Carrying unused budget limits into a future month as a planning feature is `UNRESOLVED`; if ever supported, it must never create money or change actual balances.
@@ -236,9 +238,13 @@ Monthly budget-period reporting, monthly savings history, historical month selec
   - Total budget spending.
   - Total budget remaining or over-budget amount.
   - Per-container budget performance.
-- **Net savings definition:** External income minus external expenses for the selected month, calculated from transactions by effective date. Net savings is a flow metric, not a wallet or container balance.
-- **Exclusions:** Wallet transfers, container transfers, actual container funding, savings contributions, monthly budget limits, and goal targets must not increase or decrease net savings.
-- **Savings containers:** Show savings-container contributions and ending balances separately from net savings. A transfer into a savings container is not an expense, and an external income deposited into a savings container is counted as income exactly once.
+  - Monthly Savings contributions and withdrawals.
+  - System Savings ending balance.
+  - Unallocated carryover from the prior month.
+  - Current available budget, including Unallocated and active ordinary-container balances.
+- **Net savings definition:** External income minus external expenses for the selected month, calculated from transactions by effective date. Net savings is a flow metric, not a wallet or container balance or an ending balance.
+- **Exclusions:** Wallet transfers, container transfers, actual container funding, Savings contributions, and monthly budget limits must not increase or decrease net savings.
+- **Savings containers:** Show Savings contributions, withdrawals, and ending balances separately from net savings. A transfer into Savings is not an expense, and an external income deposited into a user savings container is counted as income exactly once.
 - **No double counting:** The app must never count a transfer into a savings container as both a saving and an expense or as additional income.
 - **Historical results:** Reports must update when a prior-period transaction is added or corrected through the approved audited workflow. Past results must not be silently rewritten by a new month’s budget configuration.
 - **Empty periods:** When a month with no activity is selected, show an explicit empty state rather than a missing-data or error state. Whether such months appear in the main history list is `UNRESOLVED`.
@@ -357,7 +363,7 @@ The following is the Phase 1 conceptual schema. Exact SQL columns, indexes, cons
 | `postings` | Signed ledger entries referencing a wallet and/or container. | Single source of truth for balances. Amounts are integer centavos. Historical container references must survive archiving and safe deletion. |
 | `monthly_summaries` | Preserved monthly results and comparison inputs. | Required fields include period, income, expenses, net savings, total limits, total spending, over/under amount, and generation metadata. Derived-or-stored policy is `UNRESOLVED`; summaries must never replace the ledger. |
 | `monthly_container_results` | Per-container monthly budget performance. | Stores or derives monthly limit, spending, remaining/over amount, and historical container display label. Exact schema is `UNRESOLVED`. |
-| `savings_goals` | User savings targets. | Linked 1:1 to a dedicated savings container. Target is not money held. |
+| `month_rollover_runs` | Records of completed monthly rollover sweeps. | `month_key` primary key; includes sweep transaction IDs and revision number for idempotency and late-correction replay. |
 | `ai_drafts` | Audit record of chatbot-proposed actions. | Stores input, proposed structured payload, validation state, model/runtime metadata, effective date, and confirmation status. |
 | `app_meta` | Schema version, local settings, and model metadata. | Must not contain GCash credentials or other secrets. |
 
@@ -368,7 +374,7 @@ The following is the Phase 1 conceptual schema. Exact SQL columns, indexes, cons
 - Container-only postings are valid only for actual container funding/transfers and savings contributions.
 - Income and expenses require matched wallet and container postings.
 - Every transaction must have an effective local date, an idempotency key or equivalent duplicate-prevention mechanism, and audit timestamps.
-- A savings goal references exactly one dedicated savings container.
+- Exactly one system Savings container exists with stable `id = 'system-savings'` and `system_key = 'savings'`; user containers cannot reuse either identity.
 - Archived records remain available for historical reporting.
 - A container’s identity must not change when it is renamed, recolored, re-iconed, archived, or reactivated.
 - Referential relationships from transactions, postings, limits, and summaries to containers must not cascade-delete financial history.
@@ -385,7 +391,7 @@ The following is the Phase 1 conceptual schema. Exact SQL columns, indexes, cons
 - An archived container must remain present in reports for periods where it had activity, a limit, or a balance.
 - A safe container deletion must never remove rows required to reconstruct prior reports.
 - Monthly summaries must be reproducible from preserved ledger data. If they are materialized for performance, corrections must update them through an auditable process.
-- The exact schema, indexes, queries, and migration strategy for periods, limits, metadata history, and summaries remain `UNRESOLVED` and require Phase 3 approval.
+- Migration v4 implements the current container, rollover-run, period, limit, and metadata-history schema. Materialized monthly summaries remain unimplemented; summaries are currently derived from the ledger.
 
 ## 7. Financial Accounting Rules
 
@@ -403,11 +409,11 @@ sum(all wallet balances) == sum(all container balances)
 ```
 
 - Balances are derived from postings. Do not store a second independently editable balance field.
-- Planned monthly budget limits, goal targets, and progress percentages are not balances.
+- Planned monthly budget limits are not balances.
 - **Monthly budget spending** is the sum of external expense postings assigned to a container whose effective date falls inside the selected period.
 - **Monthly net savings** is external income minus external expenses for the selected period. It is a flow metric, not a balance.
 - A container’s **ending balance** for a period is its posting-derived balance at the period end. It must not be presented as that month’s net savings.
-- Actual balances carry across month boundaries unchanged unless a valid transaction changes them.
+- Actual balances carry across month boundaries unchanged unless a valid transaction, including an approved rollover sweep, changes them.
 
 ### 7.2 Posting rules
 
@@ -418,7 +424,9 @@ sum(all wallet balances) == sum(all container balances)
 | Actual container funding / container-to-container transfer | None | Positive on destination container, negative on source container | Sums to zero; no income or expense |
 | Unallocated allocation / return | None | Positive on destination container, negative on source container | Internal allocation transfer; sums to zero; no income, expense, or savings contribution |
 | Wallet transfer | Positive on destination wallet, negative on source wallet | None | Sums to zero; no income or expense |
-| Savings contribution | None | Positive on savings container, negative on source container | Sums to zero; not an expense |
+| Savings contribution | None | Positive on Savings, negative on source container | Sums to zero; not an expense |
+| Savings withdrawal | None | Negative on Savings, positive on destination container | Sums to zero; not income or an expense |
+| Rollover sweep | None | Negative on ordinary container, positive on Unallocated | Sums to zero; not income or an expense |
 | Adjustment | Paired wallet and container postings | Paired wallet and container postings | Corrects records while preserving the ledger invariant |
 
 A monthly budget limit change creates **no postings**. It changes only the planning limit for the affected period and must never move money between containers or wallets.
@@ -429,12 +437,11 @@ In the Unallocated model, **allocation** means an actual internal transfer betwe
 
 - Transfers between containers must not create income or expenses.
 - Wallet transfers must not create income or expenses.
-- Savings contributions must not be recorded as expenses.
-- Actual container funding must not create income or expenses.
+- Savings contributions and withdrawals must not be recorded as expenses or income.
+- Actual container funding and rollover sweeps must not create income or expenses.
 - Planned monthly budget limits must not reduce actual balances and must not be treated as spending.
 - Creating, renaming, recoloring, archiving, reactivating, or safely deleting a container must not create income, expenses, or money.
-- Savings goal target amounts must not be treated as money held.
-- A savings-container ending balance must not be labeled as monthly net savings.
+- A Savings ending balance must not be labeled as monthly net savings or monthly contributions.
 - Do not count both the wallet balance and the container balance as separate spendable totals.
 - Do not auto-sweep unused budget limits or container balances at month rollover.
 - The AI model must never directly modify a balance or write a transaction.
@@ -468,13 +475,18 @@ Negative wallet and container balances are blocked in the current model. Overdra
 ### 7.6 Month rollover accounting
 
 - The active calendar month is derived from the current local clock. It is not a mutable “current period” flag that a user must advance.
-- Rollover performs no financial writes. It must not create money, delete money, move funds, or reset actual balances.
-- At the start of a month, budget usage is fresh because reports filter by the new period; actual balances and prior-month summaries remain unchanged.
+- When a calendar month closes, remaining positive balances in ordinary budget containers are transferred to Unallocated. This is an internal container transfer with no wallet postings.
+- Savings and Unallocated are never swept. Archived ordinary containers with remaining funds are swept.
+- Rollover creates no income, expense, allowance, or wallet balance change. It does not erase money. It only reallocates container balances.
+- At the start of a month, budget usage is fresh because reports filter by the new period; prior-month summaries remain unchanged.
 - A container’s optional monthly limit for the new month is planning data. It creates no posting and does not reserve funds.
-- If the app was closed through one or more month boundaries, reopening must compute the correct current month and retain all intervening historical periods.
+- If the app was closed through one or more month boundaries, reopening must process every pending closed month in order and retain all historical periods.
+- The first processed closed month establishes the rollover baseline. Months before that baseline are not retrospectively swept; this avoids inventing rollover history for periods that were never processed.
 - A month with no transactions must still be representable in history and comparisons.
-- Late entries and corrections may target a prior month while actual balances update immediately.
-- Unused budget limits never become funds. Actual unused balances remain in their wallets/containers unless the user explicitly transfers them.
+- Late entries and corrections may target a prior month while actual balances update immediately. If they affect an ordinary container balance in a closed month, rollover sweeps from that month through the latest processed month are reversed and recomputed in the same transaction.
+- A late correction is rejected atomically if the replay would make any wallet or container balance negative, including at intermediate dates. This prevents reclaiming rollover funds that were already spent while preserving the non-negative balance rule.
+- Rollover writes are recorded in `month_rollover_runs` with a revision number and sweep transaction IDs. Processing is atomic and idempotent; repeated initialization, restarts, or clock changes must not duplicate a sweep.
+- Unused budget limits never become funds. Actual unused ordinary-container balances move to Unallocated; Savings balances remain in Savings.
 - Non-calendar cycles and automatic limit carry-forward are not established and are `UNRESOLVED`.
 
 ### 7.7 Net savings and savings-container rules
@@ -482,12 +494,12 @@ Negative wallet and container balances are blocked in the current model. Overdra
 - **Net savings** for a month = external income for that month minus external expenses for that month.
 - External income increases recorded funds and is counted once, even when deposited directly into a savings container.
 - External expenses decrease recorded funds and are counted once.
-- Wallet transfers, container transfers, actual container funding, and savings contributions never change net savings.
-- A savings-container ending balance is a stock measure. It must be displayed separately from net savings.
-- Savings contributions are memo/reporting information and transfers, not expenses.
-- A withdrawal from a savings container is a transfer, not negative income or an expense, unless it is explicitly categorized as an external event by an approved workflow.
-- The monthly history screen must show enough labels and explanatory text to prevent users from adding net savings and savings contributions together as if they were independent money.
-- Budget-performance spending excludes savings contributions.
+- Wallet transfers, container transfers, actual container funding, rollover sweeps, and Savings contributions never change net savings.
+- A Savings ending balance is a stock measure. It must be displayed separately from net savings and from monthly contributions/withdrawals.
+- Savings contributions and withdrawals are transfers, not expenses or negative income.
+- The monthly history screen must show enough labels and explanatory text to prevent users from adding net savings and Savings contributions together as if they were independent money.
+- Budget-performance spending excludes Savings contributions.
+- Current available budget includes Unallocated and active ordinary budget-container balances. It excludes Savings, archived balances, and monthly limits.
 
 ### 7.8 Container lifecycle accounting
 
@@ -513,6 +525,20 @@ Negative wallet and container balances are blocked in the current model. Overdra
 - Unallocated is excluded from ordinary container-management lists but remains visible in balances, snapshots, and reports that explain the full allocation of recorded funds.
 - Unallocated participates in the global invariant and historical reporting. Its balance must never be silently swept, reset, or moved at month rollover.
 - Its stable internal identifier must not become the normal way UI code or users identify an allocation target. Allocation operations accept user-container IDs.
+
+### 7.10 System Savings container
+
+- Exactly one system-managed Savings container exists with `id = 'system-savings'` and `system_key = 'savings'`. Both are immutable.
+- The Savings container is created idempotently alongside Unallocated during database initialization.
+- Its `kind` is `'savings'` and its `status` is always `'active'`. Database triggers prevent archiving, deletion, budget limits, and metadata changes. No other container may use its ID or system key.
+- Savings accumulates across months. Monthly rollover never sweeps funds out of Savings.
+- Users contribute to Savings (from any active ordinary budget container or from Unallocated) through a `savings`-kind `container_transfer` with no wallet postings.
+- Users withdraw from Savings (to any active ordinary budget container or to Unallocated) through a `savings`-kind `container_transfer` with no wallet postings.
+- Expenses cannot be posted directly from Savings. Funds must first be transferred to an ordinary active container.
+- Savings has no target amount, progress percentage, goal-completion state, or separate long-term goal workflow.
+- Savings transfers must not affect net savings, income, or expense totals.
+- Savings participates in the global invariant: `sum(wallet balances) == sum(container balances)` holds including Savings balances.
+- Monthly reporting must provide: `savingsContributionsMinor` (in-transfers that month), `savingsWithdrawalsMinor` (out-transfers that month), and `systemSavingsEndingBalanceMinor` (cumulative balance at end of period).
 
 ## 8. AI and Chatbot Workflow
 
@@ -605,7 +631,7 @@ These thresholds require user approval and a physical-device benchmark.
 
 ## 11. Testing and Verification Strategy
 
-No tests exist yet. The following strategy is required for later phases.
+The following testing strategy is established. Phase 3 tests are implemented and passing (65 tests as of the final Phase 3 update). Phases 4-7 tests are required but not yet implemented.
 
 ### 11.1 Unit tests
 
@@ -621,7 +647,7 @@ No tests exist yet. The following strategy is required for later phases.
 - Effective-date assignment, late entries, prior-period corrections, and time-zone changes.
 - Calendar-month boundaries for 28-, 29-, 30-, and 31-day months.
 - Year transitions, including December to January, and leap-year February.
-- Automatic month rollover based on an injected clock, with no balance changes and no user reset action.
+- Automatic month rollover based on an injected clock, sweeping ordinary-container balances to Unallocated without changing wallets or creating income/expense, with no user reset action.
 - AI draft schema validation and rejection of malformed output.
 - Domain validation that blocks AI-originated invalid writes, archived references, and invalid effective dates.
 
@@ -676,8 +702,10 @@ At minimum, later implementation must include automated tests for:
 - Late entries into each prior month and their effect on historical reports.
 - Corrections that reverse a prior-period transaction and apply a replacement.
 - Duplicate submissions, retries, and repeated confirmation taps.
-- Rollover with no write: balances, postings, and prior summaries unchanged.
-- Fresh monthly limits with no automatic fund movement.
+- Rollover sweep of ordinary and archived container balances into Unallocated, with wallet balances and prior summaries unchanged.
+- Exclusion of Savings and Unallocated from rollover, including across multiple missed months and repeated initialization.
+- Late closed-month entries and corrections that reverse and replay rollover without duplicating money.
+- Fresh monthly limits create no automatic income or fund movement beyond the approved closed-month sweep.
 - Net savings excluding wallet transfers, container transfers, funding, and savings contributions.
 - Income deposited directly into a savings container counted exactly once.
 - Savings-container contributions not counted as expenses or additional savings.
@@ -727,20 +755,20 @@ The sequence is a planning proposal. Each phase requires user approval before th
 - No LLM integration, cloud backend, database persistence, or production financial logic.
 - Status: not started or accepted. An uncommitted exploratory UI scaffold exists but is not approved Phase 2 completion.
 
-### Phase 3 — SQLite data layer
+### Phase 3 — SQLite data layer and deterministic financial engine
 
-- Implement schema, migrations, repositories, and query boundaries.
-- Add calendar-period, budget-limit, container-metadata-history, lifecycle, and monthly-summary storage requirements.
-- Move mock-backed screens to SQLite-backed data.
+- Implement schema, migrations, repositories, query boundaries, and the deterministic engine.
+- Implement transactions, postings, budget limits, container funding, transfers, permanent Savings, automatic calendar rollover, reversals, effective-date corrections, idempotency, container lifecycle, and invariant validation.
+- Add calendar-period, budget-limit, container-metadata-history, rollover-run, and reporting storage.
 - Add database integration and migration tests, including preservation of historical data.
+- Status: implemented and awaiting final review. Screens remain mock-backed.
 
-### Phase 4 — Deterministic financial engine
+### Phase 4 — UI integration
 
-- Implement transactions, postings, budget limits, container funding, transfers, savings, reversals, effective-date corrections, idempotency, and invariant validation.
-- Implement deterministic calendar rollover and monthly reporting/query services.
-- Implement container lifecycle rules, effective-dated metadata, and safe deletion.
-- Add comprehensive unit and integration tests, including all cases in Section 11.5.
-- Resolve overdraft, month-locking, period, and container policies before production use.
+- Move the approved screens from mock data to SQLite-backed repositories and use cases.
+- Wire active-month display, historical month selection, container management, Savings transfers, and reporting to the deterministic engine.
+- Add UI, accessibility, and end-to-end tests for the integrated flows.
+- Do not add AI, cloud sync, GCash integration, or automatic allowance deposits.
 
 ### Phase 5 — On-device AI feasibility spike
 
@@ -797,7 +825,7 @@ The following remain open unless explicitly marked resolved. Resolved items reco
 13. **Container scope (resolved):** Containers are global allocations of recorded funds. Per-wallet container allocation is not supported in the current model.
 14. **Overdraft policy (resolved):** Negative wallet and container balances are blocked. Any change requires explicit approval.
 15. **Allocation policy (resolved):** Monthly limits are planning values and may be set independently. Actual allocation cannot exceed available funds. Unallocated income must be allocated to a user container before it can be spent.
-16. **Savings policy:** Withdrawal, goal completion, target adjustment, and archiving behavior.
+16. **Savings policy (resolved):** Exactly one permanent system Savings container. Users may contribute from Unallocated or ordinary budget containers and withdraw to Unallocated or active ordinary containers. Savings is excluded from rollover and cannot be renamed, archived, limited, deleted, or spent from directly. Separate long-term savings goals and targets are not in scope.
 17. **Reversal policy:** Undo window, audit presentation, and whether reversal requires a reason.
 18. **Encryption and authentication:** Whether to use SQLCipher, biometric/device authentication, or neither in the MVP.
 19. **Backup/export:** Format, encryption, destination, import validation, and retention.

@@ -29,8 +29,8 @@ Current status when these instructions were updated:
 - Phase 1 was research and planning only.
 - Phase 2 (UI foundation) has **not** been approved or completed.
 - An uncommitted, exploratory Expo UI scaffold exists in the working tree from earlier work. It is not accepted as Phase 2 and must not be treated as feature-complete or as approval to continue.
-- No approved database, financial engine, LLM integration, or automated tests exist.
-- The project specification was expanded with calendar-month cycles, permanent monthly savings history, and dynamic container lifecycle requirements. These are documentation requirements only; no feature is implemented merely because it is documented.
+- Phase 3 (SQLite data layer and deterministic financial engine) is implemented and awaiting final review: migrations v1-v4, the finance engine, system Unallocated and Savings containers, automatic monthly rollover, reversals/corrections, and 69 passing SQLite-backed tests. The screens remain mock-backed.
+- Phase 4 (UI integration) has not been started. There is no LLM integration, cloud sync, or GCash integration.
 
 ## 3. Preserve Existing Work
 
@@ -76,7 +76,8 @@ Current status when these instructions were updated:
 - Transfers between containers must not create income or expenses.
 - Wallet transfers must not create income or expenses.
 - Savings contributions are transfers, not expenses.
-- Monthly budget limits, planned allocations, and goal targets are not balances and must not affect spendable funds or create postings.
+- Monthly budget limits and planned allocations are not balances and must not affect spendable funds or create postings.
+- Do not add separate long-term savings goals, target amounts, or goal-progress tracking. Use the single permanent system Savings container.
 - Actual container funding is a transfer, not a monthly budget limit, income, or expense.
 - External income increases recorded funds; expenses decrease recorded funds.
 - Void or reverse transactions rather than deleting financial history.
@@ -90,8 +91,10 @@ Current status when these instructions were updated:
 - Use calendar months as the default budget period: the first through the last local calendar day, including correct February/leap-year behavior.
 - Derive the active month from the device’s current local date. Do not require a manual “start month” or reset action.
 - Recompute the active period on launch, foreground/resume, local date change, and time-zone change. If the app was closed across month or year boundaries, reopening must show the correct current month.
-- Do not perform financial writes at rollover. A new month must not create, erase, transfer, or sweep money. Actual wallet and container balances carry forward unchanged.
-- Reset only period-scoped budget usage and plan limits. Unused budget limits are not money.
+- The first processed closed month establishes the rollover baseline; earlier months are not retrospectively swept.
+- At each closed calendar month, sweep positive ordinary-container balances into Unallocated through an atomic, idempotent internal container transfer. Exclude Savings and Unallocated; include archived ordinary containers. Never change wallet balances or create income/expense. A new month creates no allowance.
+- Late entries or corrections that change a closed month's ordinary-container balances must reverse and replay affected rollover sweeps in the same transaction under a new revision. Reject the correction atomically if replay would make any balance negative at any affected date.
+- Reset only period-scoped budget usage and plan limits. Unused budget limits are not money; actual unused ordinary-container balances are swept, while Savings is never swept.
 - Store each transaction’s effective local date explicitly, with recorded time zone/offset and audit timestamp. Never recompute historical months from a UTC timestamp after the fact.
 - Report monthly income, expenses, budget performance, and savings by effective date, not by the date the transaction was entered.
 - Allow late entries and audited corrections to update the appropriate prior month. A correction must reverse the original in its original effective period and post any replacement in the correct destination period.
@@ -159,7 +162,7 @@ For UI phases:
 - Make layouts responsive to Android phone sizes, safe areas, keyboard insets, and long text.
 - Build reusable components instead of duplicating screen-specific implementations.
 - Clearly identify screens backed by mock data.
-- Show the active month clearly and distinguish actual balances from monthly limits, budget spending, savings contributions, and net savings.
+- Show the active month clearly and distinguish actual balances from monthly limits, budget spending, Savings contributions/withdrawals, the Savings balance, carryover, available budget, and net savings.
 - Provide accessible month selection, historical-period labeling, container customization, archive/reactivate, and safe-delete flows when those features are in the approved phase.
 - Do not add production financial logic or LLM integration during a UI-foundation phase.
 
@@ -167,7 +170,7 @@ For UI phases:
 
 - Add tests for important logic, especially accounting, validation, idempotency, reversals, effective dates, monthly rollover, and AI draft handling.
 - Test calendar-month boundaries, 28/29/30/31-day months, leap years, year transitions, historical reports, late entries, late corrections, time-zone changes, duplicate transactions, and rollover.
-- Test that month rollover performs no financial writes and that balances and prior summaries remain unchanged.
+- Test that rollover sweeps only ordinary/archived container balances into Unallocated, excludes Savings and Unallocated, preserves wallet balances and prior summaries, and is idempotent across restarts and missed months.
 - Test net savings excludes all internal transfers and savings contributions, and never double-counts savings-container money.
 - Test container create, rename, recolor/re-icon, archive, reactivate, safe delete, historical metadata, and transfer invariants.
 - Test database migrations and constraints when a database exists, including preservation of historical periods and label metadata.
