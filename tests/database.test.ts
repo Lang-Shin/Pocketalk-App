@@ -6,6 +6,7 @@ import test from 'node:test';
 
 import { FinanceEngine } from '../src/db/financeEngine';
 import { MIGRATIONS, migrateDatabase } from '../src/db/migrations';
+import { ensureSystemSavingsContainer } from '../src/db/systemContainers';
 import { NodeSqlDatabase } from './helpers/nodeSqlDatabase';
 import {
   createTestIdFactory,
@@ -50,11 +51,11 @@ test('fresh initialization creates the finance schema and enables foreign keys',
         'SELECT version FROM schema_migrations ORDER BY version ASC',
       );
 
-    assert.equal(version?.user_version, 3);
+    assert.equal(version?.user_version, 4);
     assert.equal(foreignKeys?.foreign_keys, 1);
     assert.deepEqual(
       migrations.map((row) => row.version),
-      [1, 2, 3],
+      [1, 2, 3, 4],
     );
   } finally {
     database.close();
@@ -82,7 +83,7 @@ test('repeated initialization preserves data and does not duplicate migration re
     );
 
     assert.equal(value?.value, 'preserved');
-    assert.equal(count?.count, 3);
+    assert.equal(count?.count, 4);
   } finally {
     database.close();
   }
@@ -119,7 +120,7 @@ test('a version 1 database upgrades to the full schema without losing records', 
       'PRAGMA table_info(containers)',
     );
 
-    assert.equal(after?.user_version, 3);
+    assert.equal(after?.user_version, 4);
     assert.equal(value?.value, 'kept');
     assert.equal(receipts?.name, 'operation_receipts');
     assert.ok(columns.some((column) => column.name === 'system_key'));
@@ -128,7 +129,7 @@ test('a version 1 database upgrades to the full schema without losing records', 
   }
 });
 
-test('a version 2 database upgrades to version 3 without losing financial records', async () => {
+test('a version 2 database upgrades to version 4 without losing financial records', async () => {
   const database = new NodeSqlDatabase();
   try {
     await migrateDatabase(database, MIGRATIONS.slice(0, 2));
@@ -230,11 +231,104 @@ test('a version 2 database upgrades to version 3 without losing financial record
       'SELECT COUNT(*) AS count FROM postings',
     );
 
-    assert.equal(after?.user_version, 3);
+    assert.equal(after?.user_version, 4);
     assert.equal(container?.id, 'container-food');
     assert.equal(container?.system_key, null);
     assert.equal(transactionCount?.count, 1);
     assert.equal(postingCount?.count, 2);
+  } finally {
+    database.close();
+  }
+});
+
+test('a version 3 database upgrades to version 4 and preserves container history', async () => {
+  const database = new NodeSqlDatabase();
+  try {
+    await migrateDatabase(database, MIGRATIONS.slice(0, 3));
+    await database.runAsync(
+      `INSERT INTO containers (
+         id, kind, status, sort_order, created_month_key, created_at,
+         archived_at, deleted_at, system_key
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        'container-food',
+        'budget',
+        'active',
+        1,
+        '2026-10',
+        '2026-10-20T00:00:00.000Z',
+        null,
+        null,
+        null,
+      ],
+    );
+    await database.runAsync(
+      `INSERT INTO container_metadata_history (
+         container_id, effective_month_key, name, description, icon, tone,
+         recorded_at
+       ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [
+        'container-food',
+        '2026-10',
+        'Food',
+        '',
+        'fast-food-outline',
+        'amber',
+        '2026-10-20T00:00:00.000Z',
+      ],
+    );
+
+    await migrateDatabase(database);
+    const container = await database.getFirstAsync<{
+      id: string;
+      system_key: string | null;
+    }>('SELECT id, system_key FROM containers WHERE id = ?', [
+      'container-food',
+    ]);
+    const schema = await database.getFirstAsync<{ sql: string }>(
+      `SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'containers'`,
+    );
+    const violations = await database.getAllAsync<{ table: string }>(
+      'PRAGMA foreign_key_check',
+    );
+
+    assert.equal(container?.id, 'container-food');
+    assert.equal(container?.system_key, null);
+    assert.match(schema?.sql ?? '', /'unallocated', 'savings'/);
+    assert.deepEqual(violations, []);
+
+    await assert.rejects(
+      database.runAsync(
+        `INSERT INTO containers (
+           id, kind, status, sort_order, created_month_key, created_at,
+           archived_at, deleted_at, system_key
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          'system-savings',
+          'budget',
+          'active',
+          2,
+          '1970-01',
+          '2026-10-20T00:00:00.000Z',
+          null,
+          null,
+          'unallocated',
+        ],
+      ),
+      /reserved/i,
+    );
+
+    const savings = await ensureSystemSavingsContainer(database, {
+      recordedAt: '2026-10-20T00:00:00.000Z',
+    });
+    const savingsRow = await database.getFirstAsync<{
+      kind: string;
+      system_key: string;
+    }>('SELECT kind, system_key FROM containers WHERE id = ?', [
+      savings.containerId,
+    ]);
+    assert.equal(savingsRow?.kind, 'savings');
+    assert.equal(savingsRow?.system_key, 'savings');
   } finally {
     database.close();
   }

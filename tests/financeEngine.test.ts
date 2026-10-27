@@ -557,8 +557,18 @@ test('renames preserve historical transaction labels and current-month display',
       accounts.foodContainerId,
     );
 
-    assert.equal(septemberContainers[0]?.name, 'Food & drinks');
-    assert.equal(octoberContainers[0]?.name, 'Groceries');
+    assert.equal(
+      septemberContainers.find(
+        (container) => container.id === accounts.foodContainerId,
+      )?.name,
+      'Food & drinks',
+    );
+    assert.equal(
+      octoberContainers.find(
+        (container) => container.id === accounts.foodContainerId,
+      )?.name,
+      'Groceries',
+    );
     assert.equal(septemberTransactions[0]?.destinationContainerName, 'Food & drinks');
     assert.equal(metadataHistory.length, 2);
 
