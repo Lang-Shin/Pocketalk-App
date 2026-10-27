@@ -4,6 +4,7 @@ export {
   type AllocateToContainerInput,
   type ContainerMutationInput,
   type ContainerMutationResult,
+  type ContributeToSavingsInput,
   type CorrectTransactionInput,
   type CorrectionResult,
   type CreateContainerInput,
@@ -14,11 +15,13 @@ export {
   type ReversalResult,
   type ReturnToUnallocatedInput,
   type ReverseTransactionInput,
+  type RolloverResult,
   type SetBudgetLimitInput,
   type TransactionMutationResult,
   type TransferBetweenContainersInput,
   type UpdateContainerMetadataInput,
   type WalletMutationResult,
+  type WithdrawFromSavingsInput,
 } from './financeEngine';
 export {
   FinanceRepository,
@@ -30,15 +33,22 @@ export {
   type NewTransactionRow,
   type PostingRow,
   type ReceiptRow,
+  type RolloverRunRow,
   type TransactionRow,
   type WalletRow,
 } from './financeRepository';
 export { MIGRATIONS, migrateDatabase, type Migration } from './migrations';
 export {
+  SAVINGS_CONTAINER_ID,
+  SAVINGS_EFFECTIVE_MONTH_KEY,
+  SAVINGS_SYSTEM_KEY,
   UNALLOCATED_CONTAINER_ID,
   UNALLOCATED_EFFECTIVE_MONTH_KEY,
   UNALLOCATED_SYSTEM_KEY,
+  ensureSystemSavingsContainer,
   ensureSystemUnallocatedContainer,
+  type EnsureSavingsContainerOptions,
+  type EnsureSavingsContainerResult,
   type EnsureUnallocatedContainerOptions,
   type EnsureUnallocatedContainerResult,
 } from './systemContainers';

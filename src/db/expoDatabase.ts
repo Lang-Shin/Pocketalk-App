@@ -5,11 +5,9 @@ import {
 } from 'expo-sqlite';
 import { Platform } from 'react-native';
 
-import { captureRecordedStamp } from '@/lib/date';
-
+import { FinanceEngine } from './financeEngine';
 import { migrateDatabase } from './migrations';
 import type { SqlDatabase, SqlValue } from './sqlDatabase';
-import { ensureSystemUnallocatedContainer } from './systemContainers';
 
 export const POCKETA_DATABASE_NAME = 'pocketa.db';
 
@@ -73,8 +71,7 @@ async function initializeDatabase(): Promise<SqlDatabase> {
   `);
   const adapter = createExpoSqlDatabase(database);
   await migrateDatabase(adapter);
-  await ensureSystemUnallocatedContainer(adapter, {
-    recordedAt: captureRecordedStamp(new Date()).recordedAt,
-  });
+  const engine = new FinanceEngine(adapter);
+  await engine.initialize();
   return adapter;
 }
