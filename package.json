@@ -10,17 +10,17 @@
     "web": "expo start --web",
     "typecheck": "tsc --noEmit",
     "lint": "expo lint",
-    "test": "tsx --test tests/finance.test.ts tests/layout.test.ts tests/database.test.ts tests/financeEngine.test.ts tests/reporting.test.ts tests/unallocated.test.ts"
+    "test": "tsx --test tests/finance.test.ts tests/layout.test.ts tests/database.test.ts tests/financeEngine.test.ts tests/reporting.test.ts tests/unallocated.test.ts tests/savingsRollover.test.ts"
   },
   "dependencies": {
     "@expo/metro-runtime": "~57.0.17",
     "@expo/vector-icons": "^15.0.2",
-    "expo": "~57.0.28",
+    "expo": "~57.0.31",
     "expo-constants": "~57.0.22",
     "expo-font": "~57.0.4",
     "expo-linear-gradient": "~57.0.2",
     "expo-linking": "~57.0.13",
-    "expo-router": "~57.0.28",
+    "expo-router": "~57.0.29",
     "expo-sqlite": "~57.0.4",
     "expo-status-bar": "~57.0.1",
     "react": "19.2.3",
