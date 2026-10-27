@@ -5,6 +5,7 @@ export interface Migration {
   version: number;
   name: string;
   sql: string;
+  disableForeignKeys?: boolean;
 }
 
 const CORE_SCHEMA_SQL = `
@@ -453,6 +454,183 @@ BEGIN
 END;
 `;
 
+const SYSTEM_SAVINGS_AND_ROLLOVER_SQL = `
+DROP TRIGGER IF EXISTS containers_identity_immutable;
+DROP TRIGGER IF EXISTS containers_reserved_system_id;
+DROP TRIGGER IF EXISTS containers_system_requires_reserved_id;
+DROP TRIGGER IF EXISTS containers_system_key_immutable;
+DROP TRIGGER IF EXISTS containers_system_key_update_requires_reserved_id;
+DROP TRIGGER IF EXISTS containers_system_lifecycle_guard;
+DROP TRIGGER IF EXISTS containers_system_no_delete;
+DROP TRIGGER IF EXISTS metadata_system_no_insert;
+DROP TRIGGER IF EXISTS metadata_system_no_update;
+DROP TRIGGER IF EXISTS budget_limits_system_no_insert;
+DROP TRIGGER IF EXISTS budget_limits_system_no_update;
+DROP INDEX IF EXISTS idx_containers_system_key;
+
+CREATE TABLE containers_new (
+  id TEXT PRIMARY KEY CHECK (length(trim(id)) > 0),
+  kind TEXT NOT NULL CHECK (kind IN ('budget', 'savings')),
+  status TEXT NOT NULL CHECK (status IN ('active', 'archived')),
+  sort_order INTEGER NOT NULL DEFAULT 0,
+  created_month_key TEXT NOT NULL
+    CHECK (created_month_key GLOB '[0-9][0-9][0-9][0-9]-[0-1][0-9]'),
+  created_at TEXT NOT NULL,
+  archived_at TEXT,
+  deleted_at TEXT,
+  system_key TEXT
+    CHECK (system_key IS NULL OR system_key IN ('unallocated', 'savings')),
+  CHECK (archived_at IS NULL OR status = 'archived' OR deleted_at IS NOT NULL)
+);
+
+INSERT INTO containers_new (
+  id, kind, status, sort_order, created_month_key, created_at, archived_at,
+  deleted_at, system_key
+)
+SELECT
+  id, kind, status, sort_order, created_month_key, created_at, archived_at,
+  deleted_at, system_key
+FROM containers;
+
+DROP TABLE containers;
+ALTER TABLE containers_new RENAME TO containers;
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_containers_system_key
+  ON containers(system_key)
+  WHERE system_key IS NOT NULL;
+
+CREATE TRIGGER IF NOT EXISTS containers_identity_immutable
+BEFORE UPDATE OF id, kind, created_month_key, created_at ON containers
+BEGIN
+  SELECT RAISE(ABORT, 'Container identity is immutable');
+END;
+
+CREATE TRIGGER IF NOT EXISTS containers_reserved_system_id
+BEFORE INSERT ON containers
+WHEN (
+  NEW.id = 'system-unallocated'
+  AND (NEW.system_key IS NULL OR NEW.system_key <> 'unallocated')
+)
+OR (
+  NEW.id = 'system-savings'
+  AND (NEW.system_key IS NULL OR NEW.system_key <> 'savings')
+)
+BEGIN
+  SELECT RAISE(ABORT, 'Reserved system container ID');
+END;
+
+CREATE TRIGGER IF NOT EXISTS containers_system_requires_reserved_id
+BEFORE INSERT ON containers
+WHEN NEW.system_key IS NOT NULL
+  AND NEW.id <> CASE NEW.system_key
+    WHEN 'unallocated' THEN 'system-unallocated'
+    ELSE 'system-savings'
+  END
+BEGIN
+  SELECT RAISE(ABORT, 'System container must use the reserved ID');
+END;
+
+CREATE TRIGGER IF NOT EXISTS containers_system_kind_guard
+BEFORE INSERT ON containers
+WHEN NEW.system_key IS NOT NULL
+  AND (
+    (NEW.system_key = 'unallocated' AND NEW.kind <> 'budget')
+    OR (NEW.system_key = 'savings' AND NEW.kind <> 'savings')
+  )
+BEGIN
+  SELECT RAISE(ABORT, 'System container has an invalid kind');
+END;
+
+CREATE TRIGGER IF NOT EXISTS containers_system_key_immutable
+BEFORE UPDATE OF system_key ON containers
+WHEN OLD.system_key IS NOT NEW.system_key
+BEGIN
+  SELECT RAISE(ABORT, 'System container identity is immutable');
+END;
+
+CREATE TRIGGER IF NOT EXISTS containers_system_key_update_requires_reserved_id
+BEFORE UPDATE OF system_key ON containers
+WHEN NEW.system_key IS NOT NULL
+  AND NEW.id <> CASE NEW.system_key
+    WHEN 'unallocated' THEN 'system-unallocated'
+    ELSE 'system-savings'
+  END
+BEGIN
+  SELECT RAISE(ABORT, 'System container must use the reserved ID');
+END;
+
+CREATE TRIGGER IF NOT EXISTS containers_system_lifecycle_guard
+BEFORE UPDATE OF status, archived_at, deleted_at ON containers
+WHEN OLD.system_key IS NOT NULL
+  AND (
+    NEW.status <> 'active'
+    OR NEW.archived_at IS NOT NULL
+    OR NEW.deleted_at IS NOT NULL
+  )
+BEGIN
+  SELECT RAISE(ABORT, 'System container cannot be archived or deleted');
+END;
+
+CREATE TRIGGER IF NOT EXISTS containers_system_no_delete
+BEFORE DELETE ON containers
+WHEN OLD.system_key IS NOT NULL
+BEGIN
+  SELECT RAISE(ABORT, 'System container cannot be deleted');
+END;
+
+CREATE TRIGGER IF NOT EXISTS metadata_system_no_insert
+BEFORE INSERT ON container_metadata_history
+WHEN EXISTS (
+  SELECT 1 FROM containers
+  WHERE id = NEW.container_id AND system_key IS NOT NULL
+)
+AND EXISTS (
+  SELECT 1 FROM container_metadata_history
+  WHERE container_id = NEW.container_id
+)
+BEGIN
+  SELECT RAISE(ABORT, 'System container metadata is immutable');
+END;
+
+CREATE TRIGGER IF NOT EXISTS metadata_system_no_update
+BEFORE UPDATE ON container_metadata_history
+WHEN EXISTS (
+  SELECT 1 FROM containers
+  WHERE id = NEW.container_id AND system_key IS NOT NULL
+)
+BEGIN
+  SELECT RAISE(ABORT, 'System container metadata is immutable');
+END;
+
+CREATE TRIGGER IF NOT EXISTS budget_limits_system_no_insert
+BEFORE INSERT ON budget_limits
+WHEN EXISTS (
+  SELECT 1 FROM containers
+  WHERE id = NEW.container_id AND system_key IS NOT NULL
+)
+BEGIN
+  SELECT RAISE(ABORT, 'System container cannot have a budget limit');
+END;
+
+CREATE TRIGGER IF NOT EXISTS budget_limits_system_no_update
+BEFORE UPDATE ON budget_limits
+WHEN EXISTS (
+  SELECT 1 FROM containers
+  WHERE id = NEW.container_id AND system_key IS NOT NULL
+)
+BEGIN
+  SELECT RAISE(ABORT, 'System container cannot have a budget limit');
+END;
+
+CREATE TABLE IF NOT EXISTS month_rollover_runs (
+  month_key TEXT PRIMARY KEY
+    CHECK (month_key GLOB '[0-9][0-9][0-9][0-9]-[0-1][0-9]'),
+  processed_at TEXT NOT NULL,
+  sweep_transaction_ids_json TEXT NOT NULL DEFAULT '[]',
+  revision INTEGER NOT NULL DEFAULT 1 CHECK (revision >= 1)
+);
+`;
+
 export const MIGRATIONS: readonly Migration[] = [
   {
     version: 1,
@@ -468,6 +646,12 @@ export const MIGRATIONS: readonly Migration[] = [
     version: 3,
     name: 'system_unallocated_container',
     sql: SYSTEM_UNALLOCATED_SQL,
+  },
+  {
+    version: 4,
+    name: 'system_savings_and_month_rollover',
+    sql: SYSTEM_SAVINGS_AND_ROLLOVER_SQL,
+    disableForeignKeys: true,
   },
 ] as const;
 
@@ -500,24 +684,50 @@ export async function migrateDatabase(
   }
 
   const pending = ordered.filter((migration) => migration.version > currentVersion);
+  const disableForeignKeys = pending.some(
+    (migration) => migration.disableForeignKeys,
+  );
 
-  await database.withTransactionAsync(async () => {
-    for (const migration of pending) {
-      try {
-        await database.execAsync(migration.sql);
-        await database.runAsync(
-          'INSERT INTO schema_migrations (version, name, applied_at) VALUES (?, ?, ?)',
-          [migration.version, migration.name, new Date().toISOString()],
-        );
-      } catch (error) {
-        throw new FinanceError(
-          'DATABASE',
-          `Migration ${migration.version} (${migration.name}) failed.`,
-          { cause: error },
-        );
+  if (disableForeignKeys) {
+    await database.execAsync('PRAGMA foreign_keys = OFF');
+  }
+
+  try {
+    await database.withTransactionAsync(async () => {
+      for (const migration of pending) {
+        try {
+          await database.execAsync(migration.sql);
+          await database.runAsync(
+            'INSERT INTO schema_migrations (version, name, applied_at) VALUES (?, ?, ?)',
+            [migration.version, migration.name, new Date().toISOString()],
+          );
+        } catch (error) {
+          throw new FinanceError(
+            'DATABASE',
+            `Migration ${migration.version} (${migration.name}) failed.`,
+            { cause: error },
+          );
+        }
       }
+
+      if (disableForeignKeys) {
+        const violations = await database.getAllAsync<{
+          table: string;
+          parent: string;
+        }>('PRAGMA foreign_key_check');
+        if (violations.length > 0) {
+          throw new FinanceError(
+            'DATABASE',
+            'Migration left foreign key violations and was rolled back.',
+          );
+        }
+      }
+    });
+  } finally {
+    if (disableForeignKeys) {
+      await database.execAsync('PRAGMA foreign_keys = ON');
     }
-  });
+  }
 
   const expectedVersion = ordered.find(
     (migration) => migration.version === latestVersion,
