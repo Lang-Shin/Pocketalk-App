@@ -1,4 +1,3 @@
-import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
 import {
@@ -19,7 +18,6 @@ import { Card } from '@/components/ui/Card';
 import { Divider } from '@/components/ui/Divider';
 import { IconBadge } from '@/components/ui/IconBadge';
 import { PageHeader } from '@/components/ui/PageHeader';
-import { ProgressBar } from '@/components/ui/ProgressBar';
 import { Screen } from '@/components/ui/Screen';
 import { SectionHeader } from '@/components/ui/SectionHeader';
 import {
@@ -29,11 +27,10 @@ import {
   selectWalletSnapshots,
 } from '@/data/financeSelectors';
 import { useMockFinance, type EntryMode } from '@/data/financeStore';
-import { mockSavingsGoal } from '@/data/mockFinance';
 import type { ContainerSnapshot } from '@/data/models';
 import { formatLongDate } from '@/lib/date';
 import type { IconName } from '@/lib/icons';
-import { formatPercent, formatPeso } from '@/lib/money';
+import { formatPeso } from '@/lib/money';
 import { formatMonthKey, formatMonthPeriod } from '@/lib/period';
 import { getContentWidth, useAppTheme, radii, spacing } from '@/theme';
 
@@ -59,7 +56,7 @@ export function HomeScreen() {
     0,
   );
   const savingsContainer = activeContainers.find(
-    (container) => container.id === mockSavingsGoal.containerId,
+    (container) => container.kind === 'savings',
   );
   const contentWidth = getContentWidth(width, true);
   const useTwoColumns = contentWidth >= 680;
@@ -169,12 +166,12 @@ export function HomeScreen() {
 
       <View style={styles.section}>
         <SectionHeader
-          title="Savings goal"
+          title="Savings"
           subtitle="Savings contributions are transfers, not expenses."
           actionLabel="Review"
           onAction={() => router.push('/budgets')}
         />
-        <SavingsGoalCard container={savingsContainer} />
+        <SavingsCard container={savingsContainer} />
       </View>
 
       <View style={styles.section}>
@@ -244,54 +241,36 @@ export function HomeScreen() {
   );
 }
 
-function SavingsGoalCard({
+function SavingsCard({
   container,
 }: {
   container: ContainerSnapshot | undefined;
 }) {
   const { theme } = useAppTheme();
   const savedMinor = container?.balanceMinor ?? 0;
-  const targetMinor = mockSavingsGoal.targetMinor;
-  const progress = targetMinor > 0 ? savedMinor / targetMinor : 0;
 
   return (
     <Card style={styles.goalCard}>
       <View style={styles.goalHeader}>
         <IconBadge
-          icon={mockSavingsGoal.icon}
-          tone={mockSavingsGoal.tone}
+          icon={container?.icon ?? 'wallet-outline'}
+          tone={container?.tone ?? 'emerald'}
           size={44}
         />
         <View style={styles.goalCopy}>
-          <AppText variant="h3">{mockSavingsGoal.name}</AppText>
+          <AppText variant="h3">{container?.name ?? 'Savings'}</AppText>
           <AppText variant="caption" color={theme.colors.textSecondary}>
-            {formatPeso(savedMinor)} saved of {formatPeso(targetMinor)}
+            Permanent savings balance
           </AppText>
         </View>
         <AppText variant="h3" color={theme.colors.success}>
-          {formatPercent(progress)}
+          {formatPeso(savedMinor)}
         </AppText>
       </View>
-      <ProgressBar
-        value={progress}
-        tone="success"
-        accessibilityLabel={`${mockSavingsGoal.name} progress`}
-      />
-      <View style={styles.goalFooter}>
-        <AppText variant="caption" color={theme.colors.textSecondary}>
-          {formatPeso(Math.max(targetMinor - savedMinor, 0))} to go
-        </AppText>
-        <View style={styles.goalHint}>
-          <Ionicons
-            name="arrow-forward-circle-outline"
-            size={14}
-            color={theme.colors.textSecondary}
-          />
-          <AppText variant="caption" color={theme.colors.textSecondary}>
-            Balance, not monthly net savings
-          </AppText>
-        </View>
-      </View>
+      <AppText variant="caption" color={theme.colors.textSecondary}>
+        This balance carries forward and stays separate from monthly net
+        savings.
+      </AppText>
     </Card>
   );
 }
@@ -381,17 +360,6 @@ const styles = StyleSheet.create({
   goalCopy: {
     flex: 1,
     gap: 2,
-  },
-  goalFooter: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: spacing.sm,
-  },
-  goalHint: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
   },
   assistantCard: {
     gap: spacing.lg,
