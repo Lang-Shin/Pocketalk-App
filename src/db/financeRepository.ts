@@ -17,6 +17,7 @@ import type { IconName } from '@/lib/icons';
 import { getCalendarMonth } from '@/lib/period';
 import type { Tone } from '@/theme';
 
+import { FinanceError } from './errors';
 import type { SqlDatabase, SqlValue } from './sqlDatabase';
 
 export type AccountType = 'wallet' | 'container';
@@ -115,6 +116,13 @@ export interface LifecycleEventRow {
   effectiveMonthKey: string;
   recordedAt: string;
   detailsJson: string;
+}
+
+export interface RolloverRunRow {
+  monthKey: string;
+  processedAt: string;
+  sweepTransactionIds: string[];
+  revision: number;
 }
 
 interface WalletRowResult {
@@ -221,8 +229,16 @@ interface ContainerSnapshotRowResult extends ContainerRowResult {
 interface MonthTotalsRowResult {
   income_minor: number;
   expense_minor: number;
-  savings_minor: number;
+  savings_contributions_minor: number;
+  savings_withdrawals_minor: number;
   transaction_count: number;
+}
+
+interface RolloverRunRowResult {
+  month_key: string;
+  processed_at: string;
+  sweep_transaction_ids_json: string;
+  revision: number;
 }
 
 export class FinanceRepository {
@@ -488,6 +504,52 @@ export class FinanceRepository {
     }));
   }
 
+  async getRolloverRun(monthKey: string): Promise<RolloverRunRow | null> {
+    const row = await this.database.getFirstAsync<RolloverRunRowResult>(
+      `SELECT month_key, processed_at, sweep_transaction_ids_json, revision
+       FROM month_rollover_runs
+       WHERE month_key = ?`,
+      [monthKey],
+    );
+    return row ? mapRolloverRun(row) : null;
+  }
+
+  async listRolloverRunsFrom(monthKey: string): Promise<RolloverRunRow[]> {
+    const rows = await this.database.getAllAsync<RolloverRunRowResult>(
+      `SELECT month_key, processed_at, sweep_transaction_ids_json, revision
+       FROM month_rollover_runs
+       WHERE month_key >= ?
+       ORDER BY month_key ASC`,
+      [monthKey],
+    );
+    return rows.map(mapRolloverRun);
+  }
+
+  async getLastRolloverMonthKey(): Promise<string | null> {
+    const row = await this.database.getFirstAsync<{ month_key: string | null }>(
+      'SELECT MAX(month_key) AS month_key FROM month_rollover_runs',
+    );
+    return row?.month_key ?? null;
+  }
+
+  async upsertRolloverRun(run: RolloverRunRow): Promise<void> {
+    await this.database.runAsync(
+      `INSERT INTO month_rollover_runs (
+         month_key, processed_at, sweep_transaction_ids_json, revision
+       ) VALUES (?, ?, ?, ?)
+       ON CONFLICT (month_key) DO UPDATE SET
+         processed_at = excluded.processed_at,
+         sweep_transaction_ids_json = excluded.sweep_transaction_ids_json,
+         revision = excluded.revision`,
+      [
+        run.monthKey,
+        run.processedAt,
+        JSON.stringify(run.sweepTransactionIds),
+        run.revision,
+      ],
+    );
+  }
+
   async hasContainerFinancialHistory(containerId: string): Promise<boolean> {
     const row = await this.database.getFirstAsync<{ has_history: number }>(
       `SELECT CASE
@@ -526,6 +588,21 @@ export class FinanceRepository {
       [walletId, asOfDateKey],
     );
     return row?.balance_minor ?? 0;
+  }
+
+  async listPostingDateKeys(
+    fromDateKey: string,
+    toDateKey: string,
+  ): Promise<string[]> {
+    const rows = await this.database.getAllAsync<{ effective_date: string }>(
+      `SELECT DISTINCT t.effective_date
+       FROM postings p
+       JOIN transactions t ON t.id = p.transaction_id
+       WHERE t.effective_date >= ? AND t.effective_date <= ?
+       ORDER BY t.effective_date ASC`,
+      [fromDateKey, toDateKey],
+    );
+    return rows.map((row) => row.effective_date);
   }
 
   async getWalletSnapshots(asOfDateKey: string): Promise<WalletSnapshot[]> {
@@ -655,20 +732,54 @@ export class FinanceRepository {
     monthKey: string,
     activeMonthKey: string,
   ): Promise<MonthSummary> {
+    const month = getCalendarMonth(monthKey);
     const totals = await this.database.getFirstAsync<MonthTotalsRowResult>(
       `SELECT
-         COALESCE(SUM(CASE WHEN kind = 'income' THEN amount_minor ELSE 0 END), 0)
+         COALESCE(SUM(CASE WHEN t.kind = 'income' THEN t.amount_minor ELSE 0 END), 0)
            AS income_minor,
-         COALESCE(SUM(CASE WHEN kind = 'expense' THEN amount_minor ELSE 0 END), 0)
+         COALESCE(SUM(CASE WHEN t.kind = 'expense' THEN t.amount_minor ELSE 0 END), 0)
            AS expense_minor,
-         COALESCE(SUM(CASE WHEN kind = 'savings' THEN amount_minor ELSE 0 END), 0)
-           AS savings_minor,
+         COALESCE(SUM(CASE
+           WHEN t.kind = 'savings' AND destination.kind = 'savings'
+           THEN t.amount_minor ELSE 0
+         END), 0) AS savings_contributions_minor,
+         COALESCE(SUM(CASE
+           WHEN t.kind = 'savings' AND source.kind = 'savings'
+           THEN t.amount_minor ELSE 0
+         END), 0) AS savings_withdrawals_minor,
          COUNT(*) AS transaction_count
-       FROM transactions
-       WHERE effective_month_key = ?
-         AND status = 'posted'
-         AND reversal_of_id IS NULL`,
+       FROM transactions t
+       LEFT JOIN containers source ON source.id = t.source_container_id
+       LEFT JOIN containers destination ON destination.id = t.destination_container_id
+       WHERE t.effective_month_key = ?
+         AND t.status = 'posted'
+         AND t.reversal_of_id IS NULL`,
       [monthKey],
+    );
+    const carryover = await this.database.getFirstAsync<{
+      balance_minor: number;
+    }>(
+      `SELECT COALESCE(SUM(p.amount_minor), 0) AS balance_minor
+       FROM postings p
+       JOIN transactions t ON t.id = p.transaction_id
+       JOIN containers c ON c.id = p.container_id
+       WHERE c.system_key = 'unallocated'
+         AND (
+           t.effective_date < ?
+           OR (
+             t.effective_date = ?
+             AND (
+               t.idempotency_key LIKE 'rollover:%'
+               OR EXISTS (
+                 SELECT 1
+                 FROM transactions original
+                 WHERE original.id = t.reversal_of_id
+                   AND original.idempotency_key LIKE 'rollover:%'
+               )
+             )
+           )
+         )`,
+      [month.startDateKey, month.startDateKey],
     );
     const containers = await this.getContainerSnapshots(monthKey);
     const totalLimitMinor = containers.reduce(
@@ -682,6 +793,22 @@ export class FinanceRepository {
     const savingsEndingBalanceMinor = containers
       .filter((container) => container.kind === 'savings')
       .reduce((total, container) => total + container.balanceMinor, 0);
+    const systemSavingsEndingBalanceMinor = containers
+      .filter((container) => container.systemKey === 'savings')
+      .reduce((total, container) => total + container.balanceMinor, 0);
+    const unallocatedEndingBalanceMinor = containers
+      .filter((container) => container.systemKey === 'unallocated')
+      .reduce((total, container) => total + container.balanceMinor, 0);
+    const availableBudgetMinor =
+      unallocatedEndingBalanceMinor +
+      containers
+        .filter(
+          (container) =>
+            container.systemKey === null &&
+            container.kind === 'budget' &&
+            container.status === 'active',
+        )
+        .reduce((total, container) => total + container.balanceMinor, 0);
     const incomeMinor = totals?.income_minor ?? 0;
     const expenseMinor = totals?.expense_minor ?? 0;
     const postedTransactionCount = totals?.transaction_count ?? 0;
@@ -695,8 +822,13 @@ export class FinanceRepository {
       totalLimitMinor,
       totalSpentMinor,
       totalRemainingMinor: totalLimitMinor - totalSpentMinor,
-      savingsContributionsMinor: totals?.savings_minor ?? 0,
+      savingsContributionsMinor: totals?.savings_contributions_minor ?? 0,
+      savingsWithdrawalsMinor: totals?.savings_withdrawals_minor ?? 0,
       savingsEndingBalanceMinor,
+      systemSavingsEndingBalanceMinor,
+      unallocatedCarryoverMinor: carryover?.balance_minor ?? 0,
+      unallocatedEndingBalanceMinor,
+      availableBudgetMinor,
       postedTransactionCount,
       hasActivity: postedTransactionCount > 0 || totalLimitMinor > 0,
     };
@@ -968,6 +1100,34 @@ function mapTransactionRow(row: TransactionRowResult): TransactionRow {
     reversalOfId: row.reversal_of_id,
     correctionOfId: row.correction_of_id,
     createdAt: row.created_at,
+  };
+}
+
+function mapRolloverRun(row: RolloverRunRowResult): RolloverRunRow {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(row.sweep_transaction_ids_json);
+  } catch (error) {
+    throw new FinanceError(
+      'DATABASE',
+      'The stored monthly rollover record is invalid.',
+      { cause: error },
+    );
+  }
+  if (
+    !Array.isArray(parsed) ||
+    parsed.some((value) => typeof value !== 'string')
+  ) {
+    throw new FinanceError(
+      'DATABASE',
+      'The stored monthly rollover record is invalid.',
+    );
+  }
+  return {
+    monthKey: row.month_key,
+    processedAt: row.processed_at,
+    sweepTransactionIds: parsed,
+    revision: row.revision,
   };
 }
 
