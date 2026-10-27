@@ -2,7 +2,6 @@ import type {
   BudgetContainer,
   ContainerLabel,
   FinanceState,
-  SavingsGoal,
   Transaction,
   TransactionKind,
   TransactionStatus,
@@ -33,15 +32,6 @@ const wallets: Wallet[] = [
     tone: 'blue',
   },
 ];
-
-export const mockSavingsGoal: SavingsGoal = {
-  id: 'goal-emergency',
-  name: 'Emergency fund',
-  containerId: 'container-savings',
-  targetMinor: 500_000,
-  icon: 'flag-outline',
-  tone: 'emerald',
-};
 
 interface SeedInput {
   id: string;

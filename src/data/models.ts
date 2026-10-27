@@ -4,7 +4,7 @@ import type { Tone } from '@/theme';
 export type WalletKind = 'cash' | 'virtual_gcash';
 export type ContainerKind = 'budget' | 'savings';
 export type ContainerStatus = 'active' | 'archived';
-export type SystemContainerKey = 'unallocated';
+export type SystemContainerKey = 'unallocated' | 'savings';
 
 export interface Wallet {
   id: string;
@@ -35,15 +35,6 @@ export interface BudgetContainer {
   systemKey?: SystemContainerKey | null;
   limitsByMonth: Record<string, number>;
   labelsByMonth: Record<string, ContainerLabel>;
-}
-
-export interface SavingsGoal {
-  id: string;
-  name: string;
-  containerId: string;
-  targetMinor: number;
-  icon: IconName;
-  tone: Tone;
 }
 
 export type TransactionKind =
@@ -124,7 +115,12 @@ export interface MonthSummary {
   totalSpentMinor: number;
   totalRemainingMinor: number;
   savingsContributionsMinor: number;
+  savingsWithdrawalsMinor: number;
   savingsEndingBalanceMinor: number;
+  systemSavingsEndingBalanceMinor: number;
+  unallocatedCarryoverMinor: number;
+  unallocatedEndingBalanceMinor: number;
+  availableBudgetMinor: number;
   postedTransactionCount: number;
   hasActivity: boolean;
 }

@@ -197,8 +197,31 @@ export function selectMonthSummary(
   );
   const incomeMinor = sumByKind(monthTransactions, 'income');
   const expenseMinor = sumByKind(monthTransactions, 'expense');
-  const savingsContributionsMinor = sumByKind(monthTransactions, 'savings');
   const snapshots = selectContainerSnapshots(state, monthKey);
+  const savingsContributionsMinor = monthTransactions
+    .filter(
+      (transaction) =>
+        transaction.kind === 'savings' &&
+        transaction.destinationContainerId !== null &&
+        snapshots.some(
+          (c) =>
+            c.id === transaction.destinationContainerId &&
+            c.kind === 'savings',
+        ),
+    )
+    .reduce((total, t) => total + t.amountMinor, 0);
+  const savingsWithdrawalsMinor = monthTransactions
+    .filter(
+      (transaction) =>
+        transaction.kind === 'savings' &&
+        transaction.sourceContainerId !== null &&
+        snapshots.some(
+          (c) =>
+            c.id === transaction.sourceContainerId &&
+            c.kind === 'savings',
+        ),
+    )
+    .reduce((total, t) => total + t.amountMinor, 0);
   const totalLimitMinor = snapshots.reduce(
     (total, container) => total + container.limitMinor,
     0,
@@ -210,6 +233,22 @@ export function selectMonthSummary(
   const savingsEndingBalanceMinor = snapshots
     .filter((container) => container.kind === 'savings')
     .reduce((total, container) => total + container.balanceMinor, 0);
+  const systemSavingsEndingBalanceMinor = snapshots
+    .filter((container) => container.systemKey === 'savings')
+    .reduce((total, container) => total + container.balanceMinor, 0);
+  const unallocatedEndingBalanceMinor = snapshots
+    .filter((container) => container.systemKey === 'unallocated')
+    .reduce((total, container) => total + container.balanceMinor, 0);
+  const availableBudgetMinor =
+    unallocatedEndingBalanceMinor +
+    snapshots
+      .filter(
+        (container) =>
+          container.systemKey === null &&
+          container.kind === 'budget' &&
+          container.status === 'active',
+      )
+      .reduce((total, container) => total + container.balanceMinor, 0);
 
   return {
     monthKey,
@@ -221,7 +260,12 @@ export function selectMonthSummary(
     totalSpentMinor,
     totalRemainingMinor: totalLimitMinor - totalSpentMinor,
     savingsContributionsMinor,
+    savingsWithdrawalsMinor,
     savingsEndingBalanceMinor,
+    systemSavingsEndingBalanceMinor,
+    unallocatedCarryoverMinor: 0,
+    unallocatedEndingBalanceMinor,
+    availableBudgetMinor,
     postedTransactionCount: monthTransactions.length,
     hasActivity: monthTransactions.length > 0 || totalLimitMinor > 0,
   };
