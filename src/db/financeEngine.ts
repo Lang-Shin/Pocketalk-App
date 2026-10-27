@@ -13,9 +13,11 @@ import type {
 import { captureRecordedStamp } from '@/lib/date';
 import type { IconName } from '@/lib/icons';
 import {
+  getCalendarMonth,
   isValidDateKey,
   isValidMonthKey,
   monthKeyForDateKey,
+  shiftMonthKey,
   toLocalDateKey,
 } from '@/lib/period';
 import type { Tone } from '@/theme';
@@ -33,7 +35,10 @@ import {
 } from './financeRepository';
 import type { SqlDatabase } from './sqlDatabase';
 import {
+  ensureSystemSavingsContainer,
   ensureSystemUnallocatedContainer,
+  SAVINGS_CONTAINER_ID,
+  SAVINGS_SYSTEM_KEY,
   UNALLOCATED_CONTAINER_ID,
   UNALLOCATED_SYSTEM_KEY,
 } from './systemContainers';
@@ -134,6 +139,22 @@ export interface TransferBetweenContainersInput {
   idempotencyKey: string;
 }
 
+export interface ContributeToSavingsInput {
+  sourceContainerId: string;
+  amountMinor: number;
+  effectiveDate: string;
+  title?: string;
+  idempotencyKey: string;
+}
+
+export interface WithdrawFromSavingsInput {
+  destinationContainerId: string;
+  amountMinor: number;
+  effectiveDate: string;
+  title?: string;
+  idempotencyKey: string;
+}
+
 export interface ReverseTransactionInput {
   transactionId: string;
   reason?: string;
@@ -168,6 +189,11 @@ export interface WalletMutationResult {
   walletId: string;
 }
 
+export interface RolloverResult {
+  processedMonths: string[];
+  transactionIds: string[];
+}
+
 interface OperationContext {
   recordedAt: string;
   recordedTimeZone: string;
@@ -187,11 +213,17 @@ interface PreparedTransaction {
   postings: PostingDraft[];
 }
 
+interface ClosedMonthActivity {
+  effectiveMonthKey: string;
+  postings: readonly PostingDraft[];
+}
+
 const TONES: readonly Tone[] = ['emerald', 'amber', 'coral', 'blue', 'violet'];
 const CONTAINER_KINDS: readonly ContainerKind[] = ['budget', 'savings'];
 const WALLET_KINDS: readonly WalletKind[] = ['cash', 'virtual_gcash'];
 const TRANSFER_ICON: IconName = 'swap-horizontal-outline';
-const SAVINGS_ICON: IconName = 'flag-outline';
+const SAVINGS_ICON: IconName = 'wallet-outline';
+const ROLLOVER_IDEMPOTENCY_PREFIX = 'rollover:';
 
 let fallbackIdSequence = 0;
 
@@ -201,6 +233,7 @@ export class FinanceEngine {
   private readonly database: SqlDatabase;
   private readonly now: () => Date;
   private readonly idFactory: (prefix: string) => string;
+  private activeRolloverPromise: Promise<RolloverResult> | null = null;
 
   constructor(
     database: SqlDatabase,
@@ -302,10 +335,13 @@ export class FinanceEngine {
       context,
       async () => {
         const id = providedId ?? this.idFactory('container');
-        if (id === UNALLOCATED_CONTAINER_ID) {
+        if (
+          id === UNALLOCATED_CONTAINER_ID ||
+          id === SAVINGS_CONTAINER_ID
+        ) {
           throw new FinanceError(
             'SYSTEM_CONTAINER',
-            'The Unallocated account is managed by the app and cannot be created manually.',
+            'That container ID is reserved for an account managed by the app.',
           );
         }
         if (await this.repository.getContainer(id, true)) {
@@ -705,7 +741,81 @@ export class FinanceEngine {
         destinationContainerId,
         idempotencyKey: input.idempotencyKey,
       },
-      false,
+      true,
+    );
+  }
+
+  async contributeToSavings(
+    input: ContributeToSavingsInput,
+  ): Promise<TransactionMutationResult> {
+    const sourceContainerId = requireEntityId(
+      input.sourceContainerId,
+      'source container',
+    );
+    if (sourceContainerId === SAVINGS_CONTAINER_ID) {
+      throw new FinanceError(
+        'VALIDATION',
+        'Choose Unallocated or a budget container as the source of a Savings contribution.',
+      );
+    }
+    const source = await this.repository.getContainer(sourceContainerId);
+    if (source?.kind === 'savings') {
+      throw new FinanceError(
+        'VALIDATION',
+        'Choose Unallocated or a budget container as the source of a Savings contribution.',
+      );
+    }
+    return this.recordTransactionInternal(
+      {
+        kind: 'savings',
+        title: optionalText(input.title, 'Description', 80) || 'Add to Savings',
+        amountMinor: input.amountMinor,
+        effectiveDate: input.effectiveDate,
+        containerId: sourceContainerId,
+        destinationContainerId: SAVINGS_CONTAINER_ID,
+        idempotencyKey: input.idempotencyKey,
+      },
+      true,
+    );
+  }
+
+  async withdrawFromSavings(
+    input: WithdrawFromSavingsInput,
+  ): Promise<TransactionMutationResult> {
+    const destinationContainerId = requireEntityId(
+      input.destinationContainerId,
+      'destination container',
+    );
+    if (destinationContainerId === SAVINGS_CONTAINER_ID) {
+      throw new FinanceError(
+        'VALIDATION',
+        'Choose Unallocated or a budget container as the destination of a Savings withdrawal.',
+      );
+    }
+    if (destinationContainerId !== UNALLOCATED_CONTAINER_ID) {
+      const destination = await this.repository.getContainer(
+        destinationContainerId,
+      );
+      if (destination && destination.kind !== 'budget') {
+        throw new FinanceError(
+          'VALIDATION',
+          'Savings can only be moved to Unallocated or a budget container.',
+        );
+      }
+    }
+    return this.recordTransactionInternal(
+      {
+        kind: 'savings',
+        title:
+          optionalText(input.title, 'Description', 80) ||
+          'Withdraw from Savings',
+        amountMinor: input.amountMinor,
+        effectiveDate: input.effectiveDate,
+        containerId: SAVINGS_CONTAINER_ID,
+        destinationContainerId,
+        idempotencyKey: input.idempotencyKey,
+      },
+      true,
     );
   }
 
@@ -742,6 +852,12 @@ export class FinanceEngine {
           },
         );
         await this.insertPreparedTransaction(prepared);
+        await this.reconcileClosedMonthActivity(context, [
+          {
+            effectiveMonthKey: prepared.row.effectiveMonthKey,
+            postings: prepared.postings,
+          },
+        ]);
         await this.assertLedgerInvariant();
         return { transactionId };
       },
@@ -771,6 +887,7 @@ export class FinanceEngine {
           input.transactionId,
           fingerprint,
         );
+        await this.reconcileClosedMonthTransactions(context, [reversalId]);
         await this.assertLedgerInvariant();
         return { reversalId };
       },
@@ -819,6 +936,10 @@ export class FinanceEngine {
           },
         );
         await this.insertPreparedTransaction(prepared);
+        await this.reconcileClosedMonthTransactions(context, [
+          reversalId,
+          replacementId,
+        ]);
         await this.assertLedgerInvariant();
         return { reversalId, replacementId };
       },
@@ -844,6 +965,7 @@ export class FinanceEngine {
   }
 
   async getUnallocatedContainer(): Promise<ContainerRow> {
+    await this.ensureRolloverCurrent();
     const { containerId } = await this.ensureUnallocatedContainer();
     const container = await this.repository.getContainer(containerId, true);
     if (!container || container.systemKey !== UNALLOCATED_SYSTEM_KEY) {
@@ -853,6 +975,88 @@ export class FinanceEngine {
       );
     }
     return container;
+  }
+
+  async ensureSavingsContainer(): Promise<{ containerId: string }> {
+    const context = this.operationContext();
+    return ensureSystemSavingsContainer(this.database, {
+      recordedAt: context.recordedAt,
+    });
+  }
+
+  async getSavingsContainer(): Promise<ContainerRow> {
+    await this.ensureRolloverCurrent();
+    const { containerId } = await this.ensureSavingsContainer();
+    const container = await this.repository.getContainer(containerId, true);
+    if (!container || container.systemKey !== SAVINGS_SYSTEM_KEY) {
+      throw new FinanceError(
+        'INVALID_STATE',
+        'The system Savings container is unavailable.',
+      );
+    }
+    return container;
+  }
+
+  async initialize(): Promise<void> {
+    await this.ensureSystemContainers();
+    await this.processDueRollovers();
+  }
+
+  async processDueRollovers(): Promise<RolloverResult> {
+    if (this.activeRolloverPromise) {
+      return this.activeRolloverPromise;
+    }
+
+    const task = (async (): Promise<RolloverResult> => {
+      const context = this.operationContext();
+      await this.ensureSystemContainers();
+
+      return await this.database.withTransactionAsync(async () => {
+        const previousMonthKey = shiftMonthKey(context.todayMonthKey, -1);
+        const lastRolloverMonthKey =
+          await this.repository.getLastRolloverMonthKey();
+        let monthKey =
+          lastRolloverMonthKey === null
+            ? previousMonthKey
+            : shiftMonthKey(lastRolloverMonthKey, 1);
+        const processedMonths: string[] = [];
+        const transactionIds: string[] = [];
+
+        while (monthKey <= previousMonthKey) {
+          const existing = await this.repository.getRolloverRun(monthKey);
+          if (!existing) {
+            const nextMonthKey = shiftMonthKey(monthKey, 1);
+            const sweepTransactionIds = await this.createRolloverSweeps(
+              context,
+              monthKey,
+              getCalendarMonth(nextMonthKey).startDateKey,
+              1,
+            );
+            await this.repository.upsertRolloverRun({
+              monthKey,
+              processedAt: context.recordedAt,
+              sweepTransactionIds,
+              revision: 1,
+            });
+            processedMonths.push(monthKey);
+            transactionIds.push(...sweepTransactionIds);
+          }
+          monthKey = shiftMonthKey(monthKey, 1);
+        }
+
+        if (processedMonths.length > 0) {
+          await this.assertLedgerInvariant();
+        }
+        return { processedMonths, transactionIds };
+      });
+    })();
+
+    this.activeRolloverPromise = task;
+    try {
+      return await task;
+    } finally {
+      this.activeRolloverPromise = null;
+    }
   }
 
   async getMetadataHistory(containerId: string): Promise<MetadataRow[]> {
@@ -865,11 +1069,13 @@ export class FinanceEngine {
 
   async getWalletSnapshots(asOfDateKey: string): Promise<WalletSnapshot[]> {
     requireDateKey(asOfDateKey, 'As-of date');
+    await this.ensureRolloverCurrent();
     return this.repository.getWalletSnapshots(asOfDateKey);
   }
 
   async getContainerSnapshots(monthKey: string): Promise<ContainerSnapshot[]> {
     requireMonthKey(monthKey);
+    await this.ensureRolloverCurrent();
     return this.repository.getContainerSnapshots(monthKey);
   }
 
@@ -877,6 +1083,7 @@ export class FinanceEngine {
     monthKey: string,
   ): Promise<ContainerSnapshot | null> {
     requireMonthKey(monthKey);
+    await this.ensureRolloverCurrent();
     await this.ensureUnallocatedContainer();
     const snapshots = await this.repository.getContainerSnapshots(monthKey);
     return (
@@ -886,8 +1093,23 @@ export class FinanceEngine {
     );
   }
 
+  async getSavingsSnapshot(
+    monthKey: string,
+  ): Promise<ContainerSnapshot | null> {
+    requireMonthKey(monthKey);
+    await this.ensureRolloverCurrent();
+    await this.ensureSavingsContainer();
+    const snapshots = await this.repository.getContainerSnapshots(monthKey);
+    return (
+      snapshots.find(
+        (container) => container.systemKey === SAVINGS_SYSTEM_KEY,
+      ) ?? null
+    );
+  }
+
   async getContainerMonthResults(monthKey: string): Promise<ContainerMonthResult[]> {
     requireMonthKey(monthKey);
+    await this.ensureRolloverCurrent();
     return this.repository.getContainerMonthResults(monthKey);
   }
 
@@ -897,15 +1119,18 @@ export class FinanceEngine {
   ): Promise<MonthSummary> {
     requireMonthKey(monthKey);
     requireMonthKey(activeMonthKey);
+    await this.ensureRolloverCurrent();
     return this.repository.getMonthSummary(monthKey, activeMonthKey);
   }
 
   async getTransactionsForMonth(monthKey: string): Promise<Transaction[]> {
     requireMonthKey(monthKey);
+    await this.ensureRolloverCurrent();
     return this.repository.getTransactionsForMonth(monthKey);
   }
 
   async getRecentTransactions(limit = 20): Promise<Transaction[]> {
+    await this.ensureRolloverCurrent();
     return this.repository.getRecentTransactions(limit);
   }
 
@@ -915,6 +1140,7 @@ export class FinanceEngine {
 
   async getWalletBalances(asOfDateKey: string): Promise<Record<string, number>> {
     requireDateKey(asOfDateKey, 'As-of date');
+    await this.ensureRolloverCurrent();
     const wallets = await this.repository.getWalletSnapshots(asOfDateKey);
     return Object.fromEntries(
       wallets.map((wallet) => [wallet.id, wallet.balanceMinor]),
@@ -925,6 +1151,7 @@ export class FinanceEngine {
     asOfDateKey: string,
   ): Promise<Record<string, number>> {
     requireDateKey(asOfDateKey, 'As-of date');
+    await this.ensureRolloverCurrent();
     const containers = await this.repository.listContainers(false, true);
     const balances = await Promise.all(
       containers.map(async (container) => [
@@ -933,6 +1160,255 @@ export class FinanceEngine {
       ] as const),
     );
     return Object.fromEntries(balances);
+  }
+
+  private async ensureSystemContainers(): Promise<void> {
+    const context = this.operationContext();
+    await ensureSystemUnallocatedContainer(this.database, {
+      recordedAt: context.recordedAt,
+    });
+    await ensureSystemSavingsContainer(this.database, {
+      recordedAt: context.recordedAt,
+    });
+  }
+
+  private async ensureRolloverCurrent(): Promise<void> {
+    if (this.activeRolloverPromise) {
+      await this.activeRolloverPromise;
+      return;
+    }
+    const context = this.operationContext();
+    const previousMonthKey = shiftMonthKey(context.todayMonthKey, -1);
+    const lastRolloverMonthKey =
+      await this.repository.getLastRolloverMonthKey();
+    if (
+      lastRolloverMonthKey !== null &&
+      lastRolloverMonthKey >= previousMonthKey
+    ) {
+      return;
+    }
+    await this.processDueRollovers();
+  }
+
+  private async createRolloverSweeps(
+    context: OperationContext,
+    closedMonthKey: string,
+    effectiveDate: string,
+    revision: number,
+  ): Promise<string[]> {
+    const month = getCalendarMonth(closedMonthKey);
+    const containers = await this.repository.listContainers(false, true);
+    const candidates = containers.filter(
+      (container) =>
+        container.systemKey === null && container.kind === 'budget',
+    );
+    const destinationLabel = await this.requireContainerLabel(
+      UNALLOCATED_CONTAINER_ID,
+      closedMonthKey,
+    );
+    const transactionIds: string[] = [];
+
+    for (const source of candidates) {
+      const amountMinor = await this.repository.getContainerBalance(
+        source.id,
+        month.endDateKey,
+      );
+      if (amountMinor <= 0) continue;
+
+      const sourceLabel = await this.requireContainerLabel(
+        source.id,
+        closedMonthKey,
+      );
+      const transactionId = this.idFactory('txn');
+      const row = makeTransactionRow(
+        {
+          id: transactionId,
+          idempotencyKey: `${ROLLOVER_IDEMPOTENCY_PREFIX}${closedMonthKey}:${source.id}:r${revision}`,
+          requestFingerprint: fingerprintOf({
+            operation: 'month_rollover',
+            closedMonthKey,
+            sourceContainerId: source.id,
+            amountMinor,
+            effectiveDate,
+            revision,
+          }),
+          amountMinor,
+          effectiveDate,
+          effectiveMonthKey: monthKeyForDateKey(effectiveDate),
+          recordedAt: context.recordedAt,
+          recordedTimeZone: context.recordedTimeZone,
+          recordedOffsetMinutes: context.recordedOffsetMinutes,
+          status: 'posted',
+          reversalOfId: null,
+          correctionOfId: null,
+          createdAt: context.recordedAt,
+        },
+        {
+          kind: 'container_transfer',
+          title: `Rollover: ${sourceLabel.name}`,
+          category: 'Monthly rollover',
+          direction: 'neutral',
+          sourceWalletId: null,
+          destinationWalletId: null,
+          sourceContainerId: source.id,
+          destinationContainerId: UNALLOCATED_CONTAINER_ID,
+          sourceWalletName: null,
+          destinationWalletName: null,
+          sourceContainerName: sourceLabel.name,
+          destinationContainerName: destinationLabel.name,
+          icon: TRANSFER_ICON,
+          tone: 'violet',
+        },
+      );
+
+      await this.insertPreparedTransaction({
+        row,
+        postings: [
+          {
+            accountType: 'container',
+            accountId: source.id,
+            amountMinor: -amountMinor,
+          },
+          {
+            accountType: 'container',
+            accountId: UNALLOCATED_CONTAINER_ID,
+            amountMinor,
+          },
+        ],
+      });
+      transactionIds.push(transactionId);
+    }
+
+    return transactionIds;
+  }
+
+  private async reconcileClosedMonthTransactions(
+    context: OperationContext,
+    transactionIds: readonly string[],
+  ): Promise<void> {
+    const entries: ClosedMonthActivity[] = [];
+    for (const transactionId of transactionIds) {
+      const transaction = await this.repository.getTransaction(transactionId);
+      if (!transaction) {
+        throw new FinanceError(
+          'INVALID_STATE',
+          'A posted transaction could not be read back for rollover reconciliation.',
+        );
+      }
+      const postings = await this.repository.getPostingsForTransaction(
+        transactionId,
+      );
+      entries.push({
+        effectiveMonthKey: transaction.effectiveMonthKey,
+        postings: postings.map((posting) => ({
+          accountType: posting.accountType,
+          accountId: posting.accountId,
+          amountMinor: posting.amountMinor,
+        })),
+      });
+    }
+    await this.reconcileClosedMonthActivity(context, entries);
+  }
+
+  private async reconcileClosedMonthActivity(
+    context: OperationContext,
+    entries: readonly ClosedMonthActivity[],
+  ): Promise<void> {
+    const previousMonthKey = shiftMonthKey(context.todayMonthKey, -1);
+    const lastRolloverMonthKey =
+      await this.repository.getLastRolloverMonthKey();
+    if (lastRolloverMonthKey === null) return;
+
+    let earliestAffectedMonth: string | null = null;
+    for (const entry of entries) {
+      if (
+        entry.effectiveMonthKey > previousMonthKey ||
+        entry.effectiveMonthKey > lastRolloverMonthKey
+      ) {
+        continue;
+      }
+      for (const posting of entry.postings) {
+        if (posting.accountType !== 'container') continue;
+        const container = await this.repository.getContainer(
+          posting.accountId,
+          true,
+        );
+        if (
+          container &&
+          container.systemKey === null &&
+          container.kind === 'budget'
+        ) {
+          if (
+            earliestAffectedMonth === null ||
+            entry.effectiveMonthKey < earliestAffectedMonth
+          ) {
+            earliestAffectedMonth = entry.effectiveMonthKey;
+          }
+          break;
+        }
+      }
+    }
+
+    if (earliestAffectedMonth !== null) {
+      await this.replayRolloversFrom(context, earliestAffectedMonth);
+    }
+  }
+
+  private async replayRolloversFrom(
+    context: OperationContext,
+    fromMonthKey: string,
+  ): Promise<void> {
+    const runs = await this.repository.listRolloverRunsFrom(fromMonthKey);
+    if (runs.length === 0) return;
+
+    for (const run of runs) {
+      for (const sweepTransactionId of run.sweepTransactionIds) {
+        const sweep = await this.repository.getTransaction(sweepTransactionId);
+        if (!sweep) {
+          throw new FinanceError(
+            'INVALID_STATE',
+            'A monthly rollover transfer is missing.',
+          );
+        }
+        if (sweep.status === 'reversed') continue;
+        await this.reverseTransactionInternal(
+          context,
+          sweepTransactionId,
+          fingerprintOf({
+            operation: 'replay_month_rollover',
+            monthKey: run.monthKey,
+            sweepTransactionId,
+          }),
+          true,
+        );
+      }
+    }
+
+    for (const run of runs) {
+      const revision = run.revision + 1;
+      const nextMonthKey = shiftMonthKey(run.monthKey, 1);
+      const sweepTransactionIds = await this.createRolloverSweeps(
+        context,
+        run.monthKey,
+        getCalendarMonth(nextMonthKey).startDateKey,
+        revision,
+      );
+      await this.repository.upsertRolloverRun({
+        monthKey: run.monthKey,
+        processedAt: context.recordedAt,
+        sweepTransactionIds,
+        revision,
+      });
+    }
+
+    const checkDates = new Set<string>([
+      ...(await this.repository.listPostingDateKeys(
+        getCalendarMonth(fromMonthKey).startDateKey,
+        context.todayDateKey,
+      )),
+      context.todayDateKey,
+    ]);
+    await this.assertNoNegativeBalances([...checkDates]);
   }
 
   private async buildForwardTransaction(
@@ -984,7 +1460,7 @@ export class FinanceEngine {
       if (input.kind === 'expense' && container.systemKey) {
         throw new FinanceError(
           'SYSTEM_CONTAINER',
-          'Unallocated funds are not a spending container. Allocate money to a budget container before recording an expense.',
+          `${container.systemKey === 'savings' ? 'Savings' : 'Unallocated'} funds cannot be spent directly. Move money to an active budget container before recording an expense.`,
         );
       }
       const label = await this.requireContainerLabel(
@@ -1113,13 +1589,13 @@ export class FinanceEngine {
     ) {
       throw new FinanceError(
         'SYSTEM_CONTAINER',
-        'Use the allocation operations to move money between Unallocated and a container.',
+        'Use the Unallocated or Savings operations to move money with a system account.',
       );
     }
     if (meta.requireBudgetDestination && destination.kind !== 'budget') {
       throw new FinanceError(
         'VALIDATION',
-        'Allocate Unallocated funds to a budget container. Use a separate transfer for savings.',
+        'Allocate Unallocated funds to a budget container. Use a Savings operation for savings.',
       );
     }
     const destinationLabel = await this.requireContainerLabel(
@@ -1127,7 +1603,9 @@ export class FinanceEngine {
       effectiveMonthKey,
     );
     const kind: TransactionKind =
-      destination.kind === 'savings' ? 'savings' : 'container_transfer';
+      source.kind === 'savings' || destination.kind === 'savings'
+        ? 'savings'
+        : 'container_transfer';
     if (input.kind === 'savings' && kind !== 'savings') {
       throw new FinanceError(
         'VALIDATION',
@@ -1203,10 +1681,20 @@ export class FinanceEngine {
     context: OperationContext,
     transactionId: string,
     requestFingerprint: string,
+    allowRolloverReversal = false,
   ): Promise<string> {
     const original = await this.repository.getTransaction(transactionId);
     if (!original) {
       throw new FinanceError('NOT_FOUND', 'That transaction no longer exists.');
+    }
+    if (
+      original.idempotencyKey.startsWith(ROLLOVER_IDEMPOTENCY_PREFIX) &&
+      !allowRolloverReversal
+    ) {
+      throw new FinanceError(
+        'INVALID_STATE',
+        'Monthly rollover transfers are managed automatically and cannot be reversed or corrected directly.',
+      );
     }
     if (original.reversalOfId) {
       throw new FinanceError(
@@ -1300,6 +1788,40 @@ export class FinanceEngine {
     }
   }
 
+  private async assertNoNegativeBalances(
+    asOfDateKeys: readonly string[],
+  ): Promise<void> {
+    const containers = await this.repository.listContainers(true, true);
+    const wallets = await this.repository.listWallets();
+    for (const asOfDateKey of asOfDateKeys) {
+      for (const container of containers) {
+        const balance = await this.repository.getContainerBalance(
+          container.id,
+          asOfDateKey,
+        );
+        if (balance < 0) {
+          throw new FinanceError(
+            'INSUFFICIENT_FUNDS',
+            'This change would make a container balance negative because rolled-over funds have already been used. Restore those funds before correcting the closed month.',
+          );
+        }
+      }
+
+      for (const wallet of wallets) {
+        const balance = await this.repository.getWalletBalance(
+          wallet.id,
+          asOfDateKey,
+        );
+        if (balance < 0) {
+          throw new FinanceError(
+            'INSUFFICIENT_FUNDS',
+            'This change would make a wallet balance negative.',
+          );
+        }
+      }
+    }
+  }
+
   private async requireWallet(walletId: string | undefined): Promise<WalletRow> {
     if (!walletId) {
       throw new FinanceError('VALIDATION', 'Choose a wallet.');
@@ -1361,9 +1883,10 @@ export class FinanceEngine {
 
   private requireUserContainer(container: ContainerRow): void {
     if (container.systemKey) {
+      const name = container.systemKey === 'savings' ? 'Savings' : 'Unallocated';
       throw new FinanceError(
         'SYSTEM_CONTAINER',
-        'The Unallocated account is managed by the app and cannot be renamed, archived, limited, or deleted.',
+        `The system ${name} account is managed by the app and cannot be renamed, archived, limited, or deleted.`,
       );
     }
   }
@@ -1465,6 +1988,7 @@ export class FinanceEngine {
     work: () => Promise<T>,
   ): Promise<T> {
     try {
+      await this.ensureRolloverCurrent();
       return await this.database.withTransactionAsync(async () => {
         const existing = await this.repository.getReceipt(idempotencyKey);
         if (existing) {
