@@ -1,19 +1,27 @@
 import assert from 'node:assert/strict';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import test from 'node:test';
 
 import { FinanceError } from '../src/db/errors';
 import { FinanceEngine } from '../src/db/financeEngine';
+import { migrateDatabase } from '../src/db/migrations';
 import {
   SAVINGS_CONTAINER_ID,
   UNALLOCATED_CONTAINER_ID,
 } from '../src/db/systemContainers';
+import { recordedDateKey } from '../src/lib/date';
 import {
   createHarness,
+  createTestIdFactory,
   recordIncome,
   seedStandardAccounts,
+  TestClock,
   type AccountIds,
   type TestHarness,
 } from './helpers/financeTestHarness';
+import { NodeSqlDatabase } from './helpers/nodeSqlDatabase';
 
 async function setup(
   date = new Date(2026, 9, 20, 12),
@@ -373,6 +381,69 @@ test('missed rollovers are processed once in order and survive an engine restart
   }
 });
 
+test('rollover survives closing and reopening a file-backed database without duplicate sweeps', async () => {
+  const directory = mkdtempSync(join(tmpdir(), 'pocketa-rollover-'));
+  const databasePath = join(directory, 'pocketa.db');
+  const clock = new TestClock(2026, 9, 20, 12);
+
+  try {
+    const firstDatabase = new NodeSqlDatabase(databasePath);
+    const accounts = await (async () => {
+      try {
+        await migrateDatabase(firstDatabase);
+        const firstEngine = new FinanceEngine(firstDatabase, {
+          now: clock.now,
+          idFactory: createTestIdFactory(),
+        });
+        const seeded = await seedStandardAccounts(firstEngine);
+        await recordIncome(firstEngine, seeded, 100_000);
+        clock.set(2026, 10, 2, 8);
+        const rollover = await firstEngine.processDueRollovers();
+        assert.deepEqual(rollover.processedMonths, ['2026-10']);
+
+        const balances = await firstEngine.getContainerBalances('2026-11-02');
+        assert.equal(money(balances, seeded.foodContainerId), 0);
+        assert.equal(money(balances, UNALLOCATED_CONTAINER_ID), 100_000);
+        assert.equal(money(balances, SAVINGS_CONTAINER_ID), 0);
+        return seeded;
+      } finally {
+        firstDatabase.close();
+      }
+    })();
+
+    const secondDatabase = new NodeSqlDatabase(databasePath);
+    try {
+      await migrateDatabase(secondDatabase);
+      const secondEngine = new FinanceEngine(secondDatabase, {
+        now: clock.now,
+        idFactory: createTestIdFactory(),
+      });
+      const repeated = await secondEngine.processDueRollovers();
+      assert.deepEqual(repeated.processedMonths, []);
+      assert.deepEqual(repeated.transactionIds, []);
+
+      const balances = await secondEngine.getContainerBalances('2026-11-02');
+      assert.equal(money(balances, accounts.foodContainerId), 0);
+      assert.equal(money(balances, UNALLOCATED_CONTAINER_ID), 100_000);
+      assert.equal(money(balances, SAVINGS_CONTAINER_ID), 0);
+
+      const rollovers = await secondDatabase.getFirstAsync<{ count: number }>(
+        `SELECT COUNT(*) AS count FROM transactions
+         WHERE category = 'Monthly rollover'`,
+      );
+      assert.equal(rollovers?.count, 1);
+
+      const run = await secondEngine.repository.getRolloverRun('2026-10');
+      assert.ok(run);
+      assert.equal(run.revision, 1);
+    } finally {
+      secondDatabase.close();
+    }
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 test('rollover uses the first local day after leap-month and year boundaries', async () => {
   const leapHarness = await createHarness(new Date(2028, 1, 1, 12));
   try {
@@ -417,6 +488,57 @@ test('rollover uses the first local day after leap-month and year boundaries', a
     assert.equal(money(balances, UNALLOCATED_CONTAINER_ID), 25_000);
   } finally {
     yearHarness.database.close();
+  }
+});
+
+test('rollover waits for local midnight and records the new local period', async () => {
+  const { harness, accounts } = await setup();
+  try {
+    await recordIncome(harness.engine, accounts, 100_000);
+    harness.clock.set(2026, 9, 31, 23, 59);
+
+    await harness.engine.getMonthSummary('2026-10', '2026-10');
+    const beforeMidnight = await harness.engine.getContainerBalances('2026-10-31');
+    assert.equal(money(beforeMidnight, accounts.foodContainerId), 100_000);
+    assert.equal(money(beforeMidnight, UNALLOCATED_CONTAINER_ID), 0);
+    assert.equal(
+      (
+        await harness.engine.getTransactionsForMonth('2026-11')
+      ).filter((transaction) => transaction.category === 'Monthly rollover')
+        .length,
+      0,
+    );
+
+    harness.clock.set(2026, 10, 1, 0, 0);
+    await harness.engine.processDueRollovers();
+
+    const afterMidnight = await harness.engine.getContainerBalances('2026-11-01');
+    assert.equal(money(afterMidnight, accounts.foodContainerId), 0);
+    assert.equal(money(afterMidnight, UNALLOCATED_CONTAINER_ID), 100_000);
+    const wallets = await harness.engine.getWalletBalances('2026-11-01');
+    assert.equal(money(wallets, accounts.cashWalletId), 100_000);
+
+    const rollover = (
+      await harness.engine.getTransactionsForMonth('2026-11')
+    ).find((transaction) => transaction.category === 'Monthly rollover');
+    assert.ok(rollover);
+    assert.equal(rollover.effectiveDate, '2026-11-01');
+    assert.equal(
+      recordedDateKey(rollover.recordedAt, rollover.recordedOffsetMinutes),
+      '2026-11-01',
+    );
+    assert.equal(
+      rollover.recordedTimeZone,
+      Intl.DateTimeFormat().resolvedOptions().timeZone || 'Local time',
+    );
+    assert.ok(Number.isInteger(rollover.recordedOffsetMinutes));
+
+    const october = await harness.engine.getMonthSummary('2026-10', '2026-11');
+    assert.equal(october.incomeMinor, 100_000);
+    assert.equal(october.expenseMinor, 0);
+    assert.equal(october.netSavingsMinor, 100_000);
+  } finally {
+    harness.database.close();
   }
 });
 

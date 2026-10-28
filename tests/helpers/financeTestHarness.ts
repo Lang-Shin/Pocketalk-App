@@ -18,8 +18,14 @@ export class TestClock {
 
   readonly now = (): Date => new Date(this.current);
 
-  set(year: number, monthIndex: number, day: number, hour = 12): void {
-    this.current = new Date(year, monthIndex, day, hour, 0, 0);
+  set(
+    year: number,
+    monthIndex: number,
+    day: number,
+    hour = 12,
+    minute = 0,
+  ): void {
+    this.current = new Date(year, monthIndex, day, hour, minute, 0);
   }
 }
 

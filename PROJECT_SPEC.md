@@ -7,7 +7,7 @@
 - **Requirements revision:** This revision adds monthly calendar budget cycles with permanent savings history, and fully customizable budget-container lifecycle requirements.
 - **Repository name:** `Pocketalk-App`.
 - **Product name:** **Pocketa** is used in this document. The repository and README still use “Pocketalk-App”; the naming conflict is unresolved.
-- **Implementation status:** Phase 1 was research and planning only. Phase 2 (UI foundation) exists as an uncommitted exploratory Expo scaffold but is not approved as Phase 2 completion. Phase 3 (SQLite data layer and financial engine) is implemented and awaiting final review: migrations v1–v4, a deterministic `FinanceEngine`, the system Unallocated and Savings containers, automatic monthly rollover, savings transfers, idempotency, reversals, corrections, effective-dated container metadata, container lifecycle, and 65 passing SQLite-backed tests. Phase 4 (UI integration) and Phase 5+ (AI, hardening) have not been started.
+- **Implementation status:** Phase 1 was research and planning only. Phase 2 (UI foundation) exists as an uncommitted exploratory Expo scaffold but is not approved as Phase 2 completion. Phase 3 (SQLite data layer and financial engine) is implemented and awaiting final review: migrations v1–v4, a deterministic `FinanceEngine`, the system Unallocated and Savings containers, automatic monthly rollover, savings transfers, idempotency, reversals, corrections, effective-dated container metadata, container lifecycle, and 71 passing SQLite-backed tests. Phase 4 (UI integration) and Phase 5+ (AI, hardening) have not been started.
 - **Authority:** Until the original master specification is supplied, this document is the working source of truth for requirements and scope. Requirements that were not established are marked `ASSUMPTION`, `PROPOSED`, or `UNRESOLVED`.
 
 Status labels used in this document:
@@ -631,7 +631,7 @@ These thresholds require user approval and a physical-device benchmark.
 
 ## 11. Testing and Verification Strategy
 
-The following testing strategy is established. Phase 3 tests are implemented and passing (65 tests as of the final Phase 3 update). Phases 4-7 tests are required but not yet implemented.
+The following testing strategy is established. Phase 3 tests are implemented and passing (71 tests as of the final Phase 3 update). Phases 4-7 tests are required but not yet implemented.
 
 ### 11.1 Unit tests
 
