@@ -766,9 +766,11 @@ The sequence is a planning proposal. Each phase requires user approval before th
 ### Phase 4 — UI integration
 
 - Move the approved screens from mock data to SQLite-backed repositories and use cases.
-- Wire active-month display, historical month selection, container management, Savings transfers, and reporting to the deterministic engine.
+- Wire active-month display, historical month selection, monthly savings history, container management, Savings transfers, and reporting to the deterministic engine.
+- Present monthly net savings separately from Savings contributions, withdrawals, and ending balance, and present Unallocated carryover as carried money rather than income.
 - Add UI, accessibility, and end-to-end tests for the integrated flows.
-- Do not add AI, cloud sync, GCash integration, or automatic allowance deposits.
+- Do not add AI, cloud sync, GCash integration, automatic allowance deposits, or separate long-term savings goals/targets.
+- Status: not started.
 
 ### Phase 5 — On-device AI feasibility spike
 

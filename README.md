@@ -23,6 +23,8 @@ An exploratory Phase 2 UI scaffold is built with Expo, React Native, Expo Router
 - The **Unallocated** account cannot be renamed, archived, limited, deleted, or used for direct expenses. It remains part of the invariant and reports but is hidden from ordinary container lists by default.
 - The **Savings** container accumulates across months and is never swept by monthly rollover. Users transfer money between Savings and any active budget container (including Unallocated) through `contributeToSavings` and `withdrawFromSavings`. These are `savings`-kind transfers, not income or expenses, and do not affect net savings. Savings cannot be renamed, archived, limited, deleted, or spent from directly. There are no separate long-term savings goals or targets.
 - **Automatic monthly rollover**: at initialization and before relevant queries, the engine detects past calendar months that have not been processed and sweeps positive balances from ordinary budget containers into Unallocated for each such month. Savings and Unallocated are excluded. The sweep is a `container_transfer`, not income or expense. Rollover is idempotent: a completed sweep is recorded in `month_rollover_runs` and is never replayed. If a late entry or correction changes a closed month's balances, the engine reverses and replays the affected rollover sweep.
+- **Unallocated carryover**: swept balances remain available as carried actual money. Carryover is not new income and does not change wallet totals; monthly budget limits are planning values and never carry as funds.
+- **Reporting distinction**: monthly net savings is external income minus external expenses for the selected period. It is a flow, not a balance. The Savings ending balance is a cumulative stock, and Savings contributions/withdrawals are transfers that must not be added to net savings.
 - Money is stored as signed integer PHP centavos. Postings are the source of truth for balances, and wallet totals must equal container totals, including Unallocated, Savings, and archived balances.
 - Database tests use a real `node:sqlite` adapter and enable WAL for file-backed test databases. Android/iOS SQLite and WAL behavior still require device or emulator verification.
 
@@ -58,6 +60,7 @@ The current suite contains 71 tests covering migrations, persistence, foreign ke
 
 ## Current boundaries
 
+- Phase 3 is limited to the SQLite ledger and deterministic engine. Phase 4 is the UI-integration phase and has not started; it will connect screens, month/history selection, Savings transfers, and reporting to the engine.
 - Phase 2 screens still read and mutate the in-memory mock store in `src/data/financeStore.tsx`; SQLite persistence is implemented but not yet connected to those screens.
 - Reloading the app, or using **Reset mock session** in Profile, restores the sample data. Database-backed screen persistence is deferred.
 - Native Expo SQLite startup, restart, migration, and WAL behavior is unverified until tested on Android. WAL is enabled only for non-web native initialization; in-memory test databases do not use WAL.
