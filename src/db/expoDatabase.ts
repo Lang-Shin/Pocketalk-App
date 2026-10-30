@@ -5,7 +5,6 @@ import {
 } from 'expo-sqlite';
 import { Platform } from 'react-native';
 
-import { FinanceEngine } from './financeEngine';
 import { migrateDatabase } from './migrations';
 import type { SqlDatabase, SqlValue } from './sqlDatabase';
 
@@ -71,7 +70,5 @@ async function initializeDatabase(): Promise<SqlDatabase> {
   `);
   const adapter = createExpoSqlDatabase(database);
   await migrateDatabase(adapter);
-  const engine = new FinanceEngine(adapter);
-  await engine.initialize();
   return adapter;
 }

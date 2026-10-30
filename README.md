@@ -18,7 +18,7 @@ The Phase 2 UI foundation remains an unapproved exploratory Expo scaffold. Phase
 
 - `src/db/migrations.ts` owns the versioned schema (v1–v4) and applies pending migrations transactionally.
 - `src/db/financeRepository.ts` contains parameterized reads and writes; `src/db/financeEngine.ts` enforces accounting, lifecycle, idempotency, rollover, and reversal/correction rules.
-- `src/db/expoDatabase.ts` exposes `openPocketaDatabase()` to open and migrate the on-device database, enable WAL on native platforms, and ensure system containers exist. `FinanceProvider` opens it at startup and gates the app on a loading or error state.
+- `src/db/expoDatabase.ts` exposes `openPocketaDatabase()` to open and migrate the on-device database once per session and enable WAL on native platforms. `FinanceProvider` calls it at startup, initializes system containers and default wallets through the engine/service, and gates the app on a loading or error state.
 - `metro.config.js` adds the WebAssembly asset and cross-origin isolation headers required by `expo-sqlite` on web. The web export bundles, but browser worker/runtime behavior remains unverified.
 - `src/data/financeService.ts` wraps engine reads and actions for the screens and routes container transfers to allocation, return, Savings contribution, or Savings withdrawal operations. `src/db/defaultWallets.ts` idempotently creates the manually maintained Cash on hand and Virtual GCash wallets.
 - `src/db/systemContainers.ts` owns the stable Unallocated and Savings identities and their idempotent bootstrap. Income without a user container is posted to Unallocated; `allocateToContainer`, `returnToUnallocated`, and `transferBetweenContainers` create container-only transfers.

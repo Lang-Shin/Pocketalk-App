@@ -58,8 +58,12 @@ export function FinanceProvider({ children }: PropsWithChildren) {
   const [today, setToday] = useState(() => new Date());
   const [revision, setRevision] = useState(0);
   const serviceRef = useRef<FinanceService | null>(null);
+  const startupRef = useRef(false);
 
   const start = useCallback(async () => {
+    if (startupRef.current) return;
+    startupRef.current = true;
+
     try {
       const database = await openPocketaDatabase();
       const nextService = new FinanceService(new FinanceEngine(database));
@@ -70,6 +74,7 @@ export function FinanceProvider({ children }: PropsWithChildren) {
       setError(null);
       setStatus('ready');
     } catch (startupError) {
+      startupRef.current = false;
       setError(toMessage(startupError));
       setStatus('error');
     }
