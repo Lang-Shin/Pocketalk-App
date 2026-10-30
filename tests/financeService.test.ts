@@ -249,6 +249,88 @@ test('a repeated request with the same idempotency key is not posted twice', asy
   }
 });
 
+test('system containers remain unique and protected from user edits', async () => {
+  const { harness, service } = await setup();
+  try {
+    const month = await service.getMonthView('2026-10');
+    const systemContainers = month.containers.filter(
+      (container) => container.systemKey != null,
+    );
+
+    assert.deepEqual(
+      systemContainers
+        .map((container) => `${container.id}:${container.systemKey}`)
+        .sort(),
+      [
+        `${SAVINGS_CONTAINER_ID}:savings`,
+        `${UNALLOCATED_CONTAINER_ID}:unallocated`,
+      ],
+    );
+
+    await assert.rejects(
+      service.updateContainer({
+        id: SAVINGS_CONTAINER_ID,
+        name: 'Renamed savings',
+        description: '',
+        icon: 'wallet-outline',
+        tone: 'emerald',
+        limitMinor: 10_000,
+        monthKey: '2026-10',
+      }),
+      (error: unknown) =>
+        error instanceof FinanceError && error.code === 'SYSTEM_CONTAINER',
+    );
+    await assert.rejects(
+      service.archiveContainer(UNALLOCATED_CONTAINER_ID),
+      (error: unknown) =>
+        error instanceof FinanceError && error.code === 'SYSTEM_CONTAINER',
+    );
+    await assert.rejects(
+      service.deleteContainer(SAVINGS_CONTAINER_ID),
+      (error: unknown) =>
+        error instanceof FinanceError && error.code === 'SYSTEM_CONTAINER',
+    );
+  } finally {
+    harness.database.close();
+  }
+});
+
+test('empty archived containers stay visible for reactivation without changing identity', async () => {
+  const { harness, service } = await setup();
+  try {
+    const created = await service.createContainer({
+      name: 'Temporary',
+      description: '',
+      icon: 'flag-outline',
+      tone: 'violet',
+      limitMinor: 0,
+      monthKey: '2026-10',
+    });
+
+    await service.archiveContainer(created.containerId);
+
+    const archivedMonth = await service.getMonthView('2026-10');
+    const archived = archivedMonth.containers.find(
+      (container) => container.id === created.containerId,
+    );
+    assert.equal(archived?.status, 'archived');
+    assert.equal(archived?.balanceMinor, 0);
+    assert.equal(archived?.limitMinor, 0);
+
+    await service.reactivateContainer(created.containerId);
+
+    const reactivatedMonth = await service.getMonthView('2026-10');
+    const reactivated = reactivatedMonth.containers.find(
+      (container) => container.id === created.containerId,
+    );
+    assert.equal(reactivated?.id, created.containerId);
+    assert.equal(reactivated?.status, 'active');
+    assert.equal(reactivated?.createdMonthKey, '2026-10');
+  } finally {
+    harness.database.close();
+  }
+});
+
 test('container settings update metadata and the current monthly limit', async () => {
   const { harness, service } = await setup();
   try {

@@ -1073,10 +1073,16 @@ export class FinanceEngine {
     return this.repository.getWalletSnapshots(asOfDateKey);
   }
 
-  async getContainerSnapshots(monthKey: string): Promise<ContainerSnapshot[]> {
+  async getContainerSnapshots(
+    monthKey: string,
+    includeEmptyArchived = false,
+  ): Promise<ContainerSnapshot[]> {
     requireMonthKey(monthKey);
     await this.ensureRolloverCurrent();
-    return this.repository.getContainerSnapshots(monthKey);
+    return this.repository.getContainerSnapshots(
+      monthKey,
+      includeEmptyArchived,
+    );
   }
 
   async getUnallocatedSnapshot(

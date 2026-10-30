@@ -628,7 +628,10 @@ export class FinanceRepository {
     }));
   }
 
-  async getContainerSnapshots(monthKey: string): Promise<ContainerSnapshot[]> {
+  async getContainerSnapshots(
+    monthKey: string,
+    includeEmptyArchived = false,
+  ): Promise<ContainerSnapshot[]> {
     const month = getCalendarMonth(monthKey);
     const rows = await this.database.getAllAsync<ContainerSnapshotRowResult>(
       `SELECT c.id, c.kind, c.status, c.sort_order, c.created_month_key,
@@ -675,6 +678,7 @@ export class FinanceRepository {
       .filter(
         (row) =>
           row.status === 'active' ||
+          (includeEmptyArchived && row.status === 'archived') ||
           row.limit_minor > 0 ||
           row.spent_minor > 0 ||
           row.balance_minor !== 0 ||

@@ -131,7 +131,10 @@ export class FinanceService {
       monthKey,
       this.activeMonthKey,
     );
-    const containers = await this.engine.getContainerSnapshots(monthKey);
+    const containers = await this.engine.getContainerSnapshots(
+      monthKey,
+      monthKey === this.activeMonthKey,
+    );
     const results = await this.engine.getContainerMonthResults(monthKey);
     const transactions = await this.engine.getTransactionsForMonth(monthKey);
 
