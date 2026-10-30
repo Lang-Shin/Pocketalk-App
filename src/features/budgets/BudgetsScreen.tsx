@@ -5,29 +5,28 @@ import { StyleSheet, useWindowDimensions, View } from 'react-native';
 import { AppText } from '@/components/AppText';
 import { BudgetCard } from '@/components/finance/BudgetCard';
 import { ContainerEditorModal } from '@/components/finance/ContainerEditorModal';
+import { MoneyEntryModal } from '@/components/finance/MoneyEntryModal';
 import { AppButton } from '@/components/ui/AppButton';
 import { Card } from '@/components/ui/Card';
 import { Chip } from '@/components/ui/Chip';
 import { EmptyState } from '@/components/ui/EmptyState';
+import { IconBadge } from '@/components/ui/IconBadge';
 import { IconButton } from '@/components/ui/IconButton';
 import { MonthNavigator } from '@/components/ui/MonthNavigator';
 import { NoticeBanner } from '@/components/ui/NoticeBanner';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { ProgressBar } from '@/components/ui/ProgressBar';
+import { ErrorState, LoadingState } from '@/components/ui/QueryStates';
 import { Screen } from '@/components/ui/Screen';
 import { SectionHeader } from '@/components/ui/SectionHeader';
-import {
-  selectContainerSnapshots,
-  selectMonthSummary,
-} from '@/data/financeSelectors';
-import { useMockFinance } from '@/data/financeStore';
-import type { BudgetContainer, ContainerSnapshot } from '@/data/models';
+import { useFinance, useFinanceMonth, type EntryMode } from '@/data/financeStore';
+import type { ContainerSnapshot } from '@/data/models';
 import { formatMonthKey, isPastMonth } from '@/lib/period';
 import { formatPeso } from '@/lib/money';
 import { getContentWidth, useAppTheme, spacing } from '@/theme';
 
 type StatusFilter = 'all' | 'on-track' | 'attention';
-type EditorState = BudgetContainer | 'new' | null;
+type EditorState = ContainerSnapshot | 'new' | null;
 
 function needsAttention(container: ContainerSnapshot): boolean {
   if (container.limitMinor <= 0) return true;
@@ -38,22 +37,64 @@ export function BudgetsScreen() {
   const { theme } = useAppTheme();
   const { width } = useWindowDimensions();
   const router = useRouter();
-  const { state, activeMonthKey } = useMockFinance();
-  const [selectedMonthKey, setSelectedMonthKey] = useState(activeMonthKey);
+  const { activeMonthKey } = useFinance();
+  const [selectedMonthKey, setSelectedMonthKey] = useState<string | null>(null);
   const [filter, setFilter] = useState<StatusFilter>('all');
   const [editor, setEditor] = useState<EditorState>(null);
+  const [entryMode, setEntryMode] = useState<EntryMode | null>(null);
 
   const monthKey =
-    selectedMonthKey > activeMonthKey ? activeMonthKey : selectedMonthKey;
+    selectedMonthKey && selectedMonthKey < activeMonthKey
+      ? selectedMonthKey
+      : activeMonthKey;
   const isHistorical = isPastMonth(monthKey, activeMonthKey);
-  const snapshots = selectContainerSnapshots(state, monthKey);
+  const monthQuery = useFinanceMonth(monthKey);
+
+  if (monthQuery.status === 'loading') {
+    return (
+      <Screen wide>
+        <PageHeader
+          title="Budget containers"
+          subtitle="Give every peso a purpose without confusing plans with balances."
+          preview={false}
+        />
+        <LoadingState label="Opening containers for this month…" />
+      </Screen>
+    );
+  }
+
+  if (monthQuery.status === 'error' || !monthQuery.data) {
+    return (
+      <Screen wide>
+        <PageHeader
+          title="Budget containers"
+          subtitle="Give every peso a purpose without confusing plans with balances."
+          preview={false}
+        />
+        <ErrorState
+          message={monthQuery.error?.message ?? 'Please try again.'}
+          onRetry={monthQuery.retry}
+        />
+      </Screen>
+    );
+  }
+
+  const snapshots = monthQuery.data.containers;
   const activeContainers = snapshots.filter(
-    (container) => container.status === 'active',
+    (container) =>
+      container.status === 'active' && container.systemKey == null,
   );
   const archivedContainers = snapshots.filter(
-    (container) => container.status === 'archived',
+    (container) =>
+      container.status === 'archived' && container.systemKey == null,
   );
-  const summary = selectMonthSummary(state, monthKey, activeMonthKey);
+  const unallocated = snapshots.find(
+    (container) => container.systemKey === 'unallocated',
+  );
+  const savings = snapshots.find(
+    (container) => container.systemKey === 'savings',
+  );
+  const summary = monthQuery.data.summary;
   const filtered = activeContainers.filter((container) => {
     if (filter === 'all') return true;
     if (filter === 'attention') return needsAttention(container);
@@ -74,6 +115,7 @@ export function BudgetsScreen() {
       <PageHeader
         title="Budget containers"
         subtitle="Give every peso a purpose without confusing plans with balances."
+        preview={false}
         right={
           <IconButton
             icon="add"
@@ -90,14 +132,16 @@ export function BudgetsScreen() {
         activeMonthKey={activeMonthKey}
         onChange={(nextMonthKey) => {
           setEditor(null);
-          setSelectedMonthKey(nextMonthKey);
+          setSelectedMonthKey(
+            nextMonthKey === activeMonthKey ? null : nextMonthKey,
+          );
         }}
       />
 
       {isHistorical ? (
         <NoticeBanner
           title={`Viewing ${formatMonthKey(monthKey)}`}
-          message="Historical limits and spending are read-only in this preview. Switch to the current month to edit or add containers."
+          message="Historical limits and spending are read-only. Switch to the current month to edit or add containers."
           icon="time-outline"
         />
       ) : null}
@@ -146,6 +190,41 @@ export function BudgetsScreen() {
             highlight
           />
         </View>
+      </Card>
+
+      <Card style={styles.placementCard}>
+        <View style={styles.placementHeader}>
+          <IconBadge icon="layers-outline" tone="blue" size={40} />
+          <View style={styles.placementCopy}>
+            <AppText variant="h3">Money placement</AppText>
+            <AppText variant="caption" color={theme.colors.textSecondary}>
+              Unallocated is recorded money waiting for a purpose. Savings stays
+              permanent and outside monthly spending.
+            </AppText>
+          </View>
+        </View>
+        <View style={styles.summaryStats}>
+          <SummaryStat
+            label="Unallocated"
+            value={formatPeso(unallocated?.balanceMinor ?? 0)}
+          />
+          <View
+            style={[styles.summaryRule, { backgroundColor: theme.colors.border }]}
+          />
+          <SummaryStat
+            label="Savings"
+            value={formatPeso(savings?.balanceMinor ?? 0)}
+            highlight
+          />
+        </View>
+        <AppButton
+          label={isHistorical ? 'Past months are read-only' : 'Move or allocate money'}
+          icon="swap-horizontal"
+          variant="secondary"
+          onPress={() => setEntryMode('container_transfer')}
+          disabled={isHistorical}
+          fullWidth
+        />
       </Card>
 
       <View style={styles.notice}>
@@ -273,6 +352,14 @@ export function BudgetsScreen() {
           onClose={() => setEditor(null)}
         />
       ) : null}
+
+      {entryMode ? (
+        <MoneyEntryModal
+          visible
+          mode={entryMode}
+          onClose={() => setEntryMode(null)}
+        />
+      ) : null}
     </Screen>
   );
 }
@@ -329,6 +416,19 @@ const styles = StyleSheet.create({
     width: StyleSheet.hairlineWidth,
   },
   stat: {
+    flex: 1,
+    gap: 2,
+  },
+  placementCard: {
+    gap: spacing.md,
+    marginTop: spacing.lg,
+  },
+  placementHeader: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: spacing.md,
+  },
+  placementCopy: {
     flex: 1,
     gap: 2,
   },

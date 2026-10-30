@@ -1,5 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
-import { useState, type ReactNode } from 'react';
+import { useRef, useState, type ReactNode } from 'react';
 import {
   KeyboardAvoidingView,
   Modal,
@@ -13,9 +13,9 @@ import {
 } from 'react-native';
 
 import { ConfirmationDialog } from '@/components/feedback/ConfirmationDialog';
-import type { BudgetContainer } from '@/data/models';
-import { selectContainerBalanceById } from '@/data/financeSelectors';
-import { useMockFinance } from '@/data/financeStore';
+import type { ContainerSnapshot } from '@/data/models';
+import { useFinance } from '@/data/financeStore';
+import { createOperationKey } from '@/data/financeService';
 import type { IconName } from '@/lib/icons';
 import { formatPeso, formatPesoInput, parsePesoToMinor } from '@/lib/money';
 import { formatMonthKey } from '@/lib/period';
@@ -28,7 +28,7 @@ interface ContainerEditorModalProps {
   visible: boolean;
   monthKey: string;
   activeMonthKey: string;
-  container?: BudgetContainer;
+  container?: ContainerSnapshot;
   onClose: () => void;
 }
 
@@ -64,20 +64,16 @@ export function ContainerEditorModal({
   const { width } = useWindowDimensions();
   const stackActions = width < 400;
   const {
-    state,
-    todayDateKey,
     createContainer,
     updateContainer,
     archiveContainer,
     reactivateContainer,
     deleteContainer,
-  } = useMockFinance();
+  } = useFinance();
   const isEditing = Boolean(container);
   const isArchived = container?.status === 'archived';
   const limitEditable = monthKey === activeMonthKey && !isArchived;
-  const balanceMinor = container
-    ? selectContainerBalanceById(state, container.id, todayDateKey)
-    : 0;
+  const balanceMinor = container?.balanceMinor ?? 0;
 
   const [name, setName] = useState(container?.name ?? '');
   const [description, setDescription] = useState(container?.description ?? '');
@@ -92,8 +88,11 @@ export function ContainerEditorModal({
   );
   const [error, setError] = useState<string | null>(null);
   const [pendingAction, setPendingAction] = useState<PendingAction>(null);
+  const [pending, setPending] = useState(false);
+  const operationKey = useRef(createOperationKey('container-save'));
 
-  const handleSave = () => {
+  const handleSave = async () => {
+    if (pending || isArchived) return;
     setError(null);
     const limitMinor = limit.trim() ? parsePesoToMinor(limit) : 0;
     if (limitMinor === null) {
@@ -108,10 +107,13 @@ export function ContainerEditorModal({
       tone,
       limitMinor,
       monthKey,
+      idempotencyKey: operationKey.current,
     };
+    setPending(true);
     const result = container
-      ? updateContainer({ ...input, id: container.id })
-      : createContainer(input);
+      ? await updateContainer({ ...input, id: container.id })
+      : await createContainer(input);
+    setPending(false);
 
     if (!result.ok) {
       setError(result.message ?? 'Check the details and try again.');
@@ -121,9 +123,11 @@ export function ContainerEditorModal({
     onClose();
   };
 
-  const handleArchive = () => {
-    if (!container) return;
-    const result = archiveContainer(container.id);
+  const handleArchive = async () => {
+    if (!container || pending) return;
+    setPending(true);
+    const result = await archiveContainer(container.id);
+    setPending(false);
     setPendingAction(null);
     if (!result.ok) {
       setError(result.message ?? 'The container could not be archived.');
@@ -132,9 +136,11 @@ export function ContainerEditorModal({
     onClose();
   };
 
-  const handleDelete = () => {
-    if (!container) return;
-    const result = deleteContainer(container.id);
+  const handleDelete = async () => {
+    if (!container || pending) return;
+    setPending(true);
+    const result = await deleteContainer(container.id);
+    setPending(false);
     setPendingAction(null);
     if (!result.ok) {
       setError(result.message ?? 'The container could not be deleted.');
@@ -143,9 +149,11 @@ export function ContainerEditorModal({
     onClose();
   };
 
-  const handleReactivate = () => {
-    if (!container) return;
-    const result = reactivateContainer(container.id);
+  const handleReactivate = async () => {
+    if (!container || pending) return;
+    setPending(true);
+    const result = await reactivateContainer(container.id);
+    setPending(false);
     if (!result.ok) {
       setError(result.message ?? 'The container could not be reactivated.');
       return;
@@ -334,8 +342,7 @@ export function ContainerEditorModal({
                 ) : (
                   <AppText variant="bodySmall" color={theme.colors.textSecondary}>
                     {formatPeso(container?.limitsByMonth[monthKey] ?? 0)} for{' '}
-                    {formatMonthKey(monthKey)}. Changing history is not allowed
-                    in this preview.
+                    {formatMonthKey(monthKey)}. Past months remain read-only.
                   </AppText>
                 )}
               </Field>
@@ -456,10 +463,11 @@ export function ContainerEditorModal({
                   </AppText>
                   {isArchived ? (
                     <AppButton
-                      label="Reactivate container"
+                      label={pending ? 'Working…' : 'Reactivate container'}
                       icon="refresh-outline"
                       variant="secondary"
                       onPress={handleReactivate}
+                      disabled={pending}
                       fullWidth
                     />
                   ) : (
@@ -468,6 +476,7 @@ export function ContainerEditorModal({
                       icon="archive-outline"
                       variant="outline"
                       onPress={() => setPendingAction('archive')}
+                      disabled={pending}
                       fullWidth
                     />
                   )}
@@ -480,6 +489,7 @@ export function ContainerEditorModal({
                     icon="trash-outline"
                     variant="danger"
                     onPress={() => setPendingAction('delete')}
+                    disabled={pending}
                     fullWidth
                   />
                   <AppText variant="caption" color={theme.colors.textSecondary}>
@@ -503,9 +513,16 @@ export function ContainerEditorModal({
                 ]}
               />
               <AppButton
-                label={isEditing ? 'Save changes' : 'Create container'}
+                label={
+                  pending
+                    ? 'Saving…'
+                    : isEditing
+                      ? 'Save changes'
+                      : 'Create container'
+                }
                 icon="checkmark"
                 onPress={handleSave}
+                disabled={pending || isArchived}
                 style={[
                   styles.action,
                   stackActions ? styles.actionStacked : null,
@@ -525,7 +542,7 @@ export function ContainerEditorModal({
         }
         description={
           pendingAction === 'delete'
-            ? 'Containers with a balance, monthly limits, or transaction history cannot be deleted. This demo will explain the safe path instead.'
+            ? 'Containers with a balance, monthly limits, or transaction history cannot be deleted. Move remaining funds and archive it instead.'
             : balanceMinor !== 0
               ? `Its ${formatPeso(
                   balanceMinor,

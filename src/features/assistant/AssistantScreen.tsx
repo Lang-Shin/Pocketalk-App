@@ -19,7 +19,7 @@ import { NoticeBanner } from '@/components/ui/NoticeBanner';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { ErrorState, LoadingState } from '@/components/ui/QueryStates';
 import { Screen } from '@/components/ui/Screen';
-import { useMockFinance } from '@/data/financeStore';
+import { useFinance } from '@/data/financeStore';
 import { useAssistantThread } from '@/data/hooks';
 import type {
   ChatMessage,
@@ -40,7 +40,7 @@ const SUGGESTIONS = [
 export function AssistantScreen() {
   const { status, data, error, retry } = useAssistantThread();
   const { theme } = useAppTheme();
-  const { activeMonthKey } = useMockFinance();
+  const { activeMonthKey } = useFinance();
   const periodLabel = formatMonthKey(activeMonthKey);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');

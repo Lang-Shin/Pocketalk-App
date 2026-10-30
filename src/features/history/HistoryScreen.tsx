@@ -12,9 +12,9 @@ import { IconButton } from '@/components/ui/IconButton';
 import { MonthNavigator } from '@/components/ui/MonthNavigator';
 import { NoticeBanner } from '@/components/ui/NoticeBanner';
 import { PageHeader } from '@/components/ui/PageHeader';
+import { ErrorState, LoadingState } from '@/components/ui/QueryStates';
 import { Screen } from '@/components/ui/Screen';
-import { selectTransactionsForMonth } from '@/data/financeSelectors';
-import { useMockFinance } from '@/data/financeStore';
+import { useFinance, useFinanceMonth } from '@/data/financeStore';
 import type { Transaction } from '@/data/models';
 import { formatDateKey, formatMonthKey } from '@/lib/period';
 import { useAppTheme, spacing } from '@/theme';
@@ -31,12 +31,45 @@ const FILTERS: { value: HistoryFilter; label: string }[] = [
 export function HistoryScreen() {
   const { theme } = useAppTheme();
   const router = useRouter();
-  const { state, activeMonthKey } = useMockFinance();
-  const [selectedMonthKey, setSelectedMonthKey] = useState(activeMonthKey);
+  const { activeMonthKey } = useFinance();
+  const [selectedMonthKey, setSelectedMonthKey] = useState<string | null>(null);
   const [filter, setFilter] = useState<HistoryFilter>('all');
   const monthKey =
-    selectedMonthKey > activeMonthKey ? activeMonthKey : selectedMonthKey;
-  const data = selectTransactionsForMonth(state, monthKey);
+    selectedMonthKey && selectedMonthKey < activeMonthKey
+      ? selectedMonthKey
+      : activeMonthKey;
+  const monthQuery = useFinanceMonth(monthKey);
+
+  if (monthQuery.status === 'loading') {
+    return (
+      <Screen>
+        <PageHeader
+          title="Transaction history"
+          subtitle="Activity is grouped by the date it actually happened."
+          preview={false}
+        />
+        <LoadingState label="Opening saved transactions…" />
+      </Screen>
+    );
+  }
+
+  if (monthQuery.status === 'error' || !monthQuery.data) {
+    return (
+      <Screen>
+        <PageHeader
+          title="Transaction history"
+          subtitle="Activity is grouped by the date it actually happened."
+          preview={false}
+        />
+        <ErrorState
+          message={monthQuery.error?.message ?? 'Please try again.'}
+          onRetry={monthQuery.retry}
+        />
+      </Screen>
+    );
+  }
+
+  const data = monthQuery.data.transactions;
 
   const filtered = data.filter((transaction) => {
     if (filter === 'all') return true;
@@ -68,6 +101,7 @@ export function HistoryScreen() {
       <PageHeader
         title="Transaction history"
         subtitle="Activity is grouped by the date it actually happened."
+        preview={false}
         right={
           <IconButton
             icon="calendar-outline"
@@ -81,7 +115,11 @@ export function HistoryScreen() {
       <MonthNavigator
         monthKey={monthKey}
         activeMonthKey={activeMonthKey}
-        onChange={setSelectedMonthKey}
+        onChange={(nextMonthKey) =>
+          setSelectedMonthKey(
+            nextMonthKey === activeMonthKey ? null : nextMonthKey,
+          )
+        }
       />
 
       <View style={styles.summaryRow}>
@@ -138,7 +176,7 @@ export function HistoryScreen() {
             description={
               data.length === 0
                 ? 'Try an earlier month. Empty months are valid and remain available in monthly history.'
-                : 'Try another filter. Matching sample activity will appear here.'
+                : 'Try another filter. Matching activity will appear here.'
             }
             actionLabel={filter === 'all' ? undefined : 'Show all'}
             onAction={filter === 'all' ? undefined : () => setFilter('all')}

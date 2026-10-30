@@ -1,10 +1,8 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { useState } from 'react';
 import { Alert, StyleSheet, View } from 'react-native';
 
 import { AppText } from '@/components/AppText';
-import { ConfirmationDialog } from '@/components/feedback/ConfirmationDialog';
 import { Card } from '@/components/ui/Card';
 import { Divider } from '@/components/ui/Divider';
 import { NoticeBanner } from '@/components/ui/NoticeBanner';
@@ -13,7 +11,6 @@ import { ErrorState, LoadingState } from '@/components/ui/QueryStates';
 import { Screen } from '@/components/ui/Screen';
 import { SegmentedControl } from '@/components/ui/SegmentedControl';
 import { SettingRow } from '@/components/ui/SettingRow';
-import { useMockFinance } from '@/data/financeStore';
 import { useProfileData } from '@/data/hooks';
 import { useAppTheme, radii, spacing, type ThemePreference } from '@/theme';
 
@@ -30,10 +27,7 @@ const THEME_OPTIONS: {
 export function ProfileScreen() {
   const { status, data, error, retry } = useProfileData();
   const { theme, preference, setPreference } = useAppTheme();
-  const { resetFinance } = useMockFinance();
   const router = useRouter();
-  const [clearDialogVisible, setClearDialogVisible] = useState(false);
-  const [demoCleared, setDemoCleared] = useState(false);
 
   if (status === 'loading') {
     return (
@@ -139,8 +133,8 @@ export function ProfileScreen() {
             accessibilityLabel="Appearance theme"
           />
           <AppText variant="caption" color={theme.colors.textSecondary}>
-            System follows your Android theme. The choice is remembered only
-            for this preview session.
+            System follows your Android theme. The choice is remembered for
+            this app session.
           </AppText>
         </Card>
       </View>
@@ -166,8 +160,8 @@ export function ProfileScreen() {
             value="English"
             onPress={() =>
               Alert.alert(
-                'Preview only',
-                'Language selection will be added after the core data layer.',
+                'Not available yet',
+                'Language selection is not enabled in this version.',
               )
             }
           />
@@ -223,19 +217,12 @@ export function ProfileScreen() {
         <AppText variant="micro" color={theme.colors.textTertiary}>
           DATA & PRIVACY
         </AppText>
-        {demoCleared ? (
-          <NoticeBanner
-            title="Mock session reset"
-            message="The sample wallets, containers, and transactions were restored. No database or device files were touched."
-            tone="success"
-          />
-        ) : null}
         <Card>
           <SettingRow
             icon="download-outline"
             tone="blue"
             label="Export data"
-            description="Backups are not available in this preview"
+            description="Backups are not available in this version"
             onPress={() =>
               Alert.alert(
                 'Not available yet',
@@ -253,14 +240,18 @@ export function ProfileScreen() {
           />
           <Divider />
           <SettingRow
-            icon="refresh-outline"
-            tone="coral"
-            label="Reset mock session"
-            description="Restore the sample ledger for this session"
-            destructive
-            onPress={() => setClearDialogVisible(true)}
+            icon="save-outline"
+            tone="emerald"
+            label="Budget ledger"
+            description="Wallets, containers, and history persist locally"
+            value="SQLite"
           />
         </Card>
+        <NoticeBanner
+          title="Your ledger is saved"
+          message="Budget changes are written to SQLite on this device. Profile and assistant content still use sample data."
+          icon="shield-checkmark-outline"
+        />
       </View>
 
       <View style={styles.section}>
@@ -280,8 +271,8 @@ export function ProfileScreen() {
             icon="flask-outline"
             tone="amber"
             label="Build stage"
-            description="Navigation, theme, components, and sample screens"
-            value="Phase 2"
+            description="Local ledger, rollover, and budgeting workflows"
+            value="Phase 4"
           />
         </Card>
       </View>
@@ -304,25 +295,10 @@ export function ProfileScreen() {
           color={theme.colors.textTertiary}
           align="center"
         >
-          Pocketa is a session-only UI preview. The sample ledger, AI, and
-          GCash connection are not connected to real accounts or a database.
+          Budget data is stored locally on this device. Profile and assistant
+          content are still samples, and no bank or GCash account is connected.
         </AppText>
       </View>
-
-      <ConfirmationDialog
-        visible={clearDialogVisible}
-        title="Reset this mock session?"
-        description="This restores the sample wallets, containers, and transactions. It does not delete a database because Phase 2 does not persist financial data."
-        confirmLabel="Reset sample data"
-        cancelLabel="Keep session"
-        tone="danger"
-        onCancel={() => setClearDialogVisible(false)}
-        onConfirm={() => {
-          resetFinance();
-          setClearDialogVisible(false);
-          setDemoCleared(true);
-        }}
-      />
     </Screen>
   );
 }

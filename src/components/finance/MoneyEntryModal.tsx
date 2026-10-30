@@ -1,5 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
-import { useState, type ReactNode } from 'react';
+import { useRef, useState, type ReactNode } from 'react';
 import {
   KeyboardAvoidingView,
   Modal,
@@ -13,10 +13,13 @@ import {
 } from 'react-native';
 
 import {
-  selectContainerSnapshots,
-  selectWalletSnapshots,
-} from '@/data/financeSelectors';
-import { useMockFinance, type EntryMode } from '@/data/financeStore';
+  useFinance,
+  useFinanceMonth,
+  useFinanceWallets,
+  type EntryMode,
+} from '@/data/financeStore';
+import { createOperationKey } from '@/data/financeService';
+import type { ContainerSnapshot } from '@/data/models';
 import type { IconName } from '@/lib/icons';
 import { formatPeso, parsePesoToMinor } from '@/lib/money';
 import { formatMonthKey, isValidMonthKey } from '@/lib/period';
@@ -82,38 +85,108 @@ export function MoneyEntryModal({
   const { theme } = useAppTheme();
   const { width } = useWindowDimensions();
   const stackActions = width < 480;
-  const { state, activeMonthKey, todayDateKey, recordMoneyEntry } =
-    useMockFinance();
-  const wallets = selectWalletSnapshots(state, todayDateKey);
-  const containers = selectContainerSnapshots(state, activeMonthKey).filter(
+  const { activeMonthKey, todayDateKey, recordMoneyEntry } = useFinance();
+  const walletQuery = useFinanceWallets();
+  const monthQuery = useFinanceMonth(activeMonthKey);
+  const copy = MODE_COPY[mode];
+  const wallets = walletQuery.data?.wallets ?? [];
+  const activeContainers = (monthQuery.data?.containers ?? []).filter(
     (container) => container.status === 'active',
   );
-  const copy = MODE_COPY[mode];
+  const containerOptions: ContainerSnapshot[] =
+    mode === 'expense'
+      ? activeContainers.filter((container) => container.systemKey == null)
+      : mode === 'income'
+        ? activeContainers.filter(
+            (container) => container.systemKey !== 'savings',
+          )
+        : mode === 'container_transfer'
+          ? activeContainers
+          : [];
+  const accountsLoading =
+    walletQuery.status === 'loading' ||
+    (mode !== 'wallet_transfer' && monthQuery.status === 'loading');
+  const accountsError =
+    walletQuery.error?.message ?? monthQuery.error?.message ?? null;
 
   const preferredWallet =
     wallets.find((wallet) => wallet.kind === 'virtual_gcash') ?? wallets[0];
-  const firstContainer = containers[0];
+  const defaultContainer =
+    mode === 'income' || mode === 'container_transfer'
+      ? (containerOptions.find(
+          (container) => container.systemKey === 'unallocated',
+        ) ?? containerOptions[0])
+      : containerOptions[0];
 
   const [amount, setAmount] = useState('');
   const [title, setTitle] = useState('');
   const [effectiveDate, setEffectiveDate] = useState(todayDateKey);
-  const [walletId, setWalletId] = useState(preferredWallet?.id ?? '');
-  const [containerId, setContainerId] = useState(firstContainer?.id ?? '');
-  const [destinationWalletId, setDestinationWalletId] = useState(
-    wallets.find((wallet) => wallet.id !== preferredWallet?.id)?.id ?? '',
-  );
-  const [destinationContainerId, setDestinationContainerId] = useState(
-    containers.find((container) => container.id !== firstContainer?.id)?.id ??
-      '',
-  );
+  const [walletId, setWalletId] = useState('');
+  const [containerId, setContainerId] = useState('');
+  const [destinationWalletId, setDestinationWalletId] = useState('');
+  const [destinationContainerId, setDestinationContainerId] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [pending, setPending] = useState(false);
+  const operationKey = useRef(createOperationKey(`entry-${mode}`));
 
-  const selectedWallet = wallets.find((wallet) => wallet.id === walletId);
-  const selectedContainer = containers.find(
-    (container) => container.id === containerId,
+  const selectedWalletId = walletId || preferredWallet?.id || '';
+  const selectedContainerId = containerId || defaultContainer?.id || '';
+  const selectedDestinationWalletId =
+    destinationWalletId ||
+    wallets.find((wallet) => wallet.id !== selectedWalletId)?.id ||
+    '';
+  const selectedDestinationContainerId =
+    destinationContainerId ||
+    activeContainers.find(
+      (container) => container.id !== selectedContainerId,
+    )?.id ||
+    '';
+
+  const selectedWallet = wallets.find(
+    (wallet) => wallet.id === selectedWalletId,
   );
+  const selectedContainer = activeContainers.find(
+    (container) => container.id === selectedContainerId,
+  );
+  const sourceContainer = activeContainers.find(
+    (container) => container.id === selectedContainerId,
+  );
+  const destinationContainer = activeContainers.find(
+    (container) => container.id === selectedDestinationContainerId,
+  );
+  const transferNote =
+    mode === 'container_transfer'
+      ? destinationContainer?.systemKey === 'savings'
+        ? 'This records a Savings contribution. It is a transfer, not an expense.'
+        : sourceContainer?.systemKey === 'savings'
+          ? 'This withdraws from Savings into the chosen container.'
+          : sourceContainer?.systemKey === 'unallocated'
+            ? 'This allocates carried money to a purpose without creating income.'
+            : destinationContainer?.systemKey === 'unallocated'
+              ? 'This returns money to Unallocated. It does not create income.'
+              : 'This changes where money is assigned without changing net savings.'
+      : null;
 
-  const handleSubmit = () => {
+  const canSubmit =
+    !pending &&
+    !accountsLoading &&
+    !accountsError &&
+    (mode === 'wallet_transfer'
+      ? Boolean(
+          selectedWalletId &&
+            selectedDestinationWalletId &&
+            selectedWalletId !== selectedDestinationWalletId,
+        )
+      : mode === 'container_transfer'
+        ? Boolean(
+            selectedContainerId &&
+              selectedDestinationContainerId &&
+              selectedContainerId !== selectedDestinationContainerId,
+          )
+        : Boolean(selectedWalletId && selectedContainerId));
+
+  const handleSubmit = async () => {
+    if (pending) return;
     setError(null);
     const amountMinor = parsePesoToMinor(amount);
     if (amountMinor === null) {
@@ -121,16 +194,19 @@ export function MoneyEntryModal({
       return;
     }
 
-    const result = recordMoneyEntry({
+    setPending(true);
+    const result = await recordMoneyEntry({
       mode,
       amountMinor,
       title,
       effectiveDate,
-      walletId,
-      containerId,
-      destinationWalletId,
-      destinationContainerId,
+      walletId: selectedWalletId,
+      containerId: selectedContainerId,
+      destinationWalletId: selectedDestinationWalletId,
+      destinationContainerId: selectedDestinationContainerId,
+      idempotencyKey: operationKey.current,
     });
+    setPending(false);
 
     if (!result.ok) {
       setError(result.message ?? 'Check the details and try again.');
@@ -187,7 +263,7 @@ export function MoneyEntryModal({
             </View>
             <View style={styles.headerCopy}>
               <AppText variant="micro" color={theme.colors.textTertiary}>
-                {copy.eyebrow} · SESSION ONLY
+                {copy.eyebrow} · SAVED LOCALLY
               </AppText>
               <AppText variant="h2">{copy.title}</AppText>
             </View>
@@ -213,6 +289,34 @@ export function MoneyEntryModal({
             >
               {copy.description}
             </AppText>
+
+            {accountsLoading ? (
+              <AppText variant="caption" color={theme.colors.textTertiary}>
+                Opening your saved wallets and containers…
+              </AppText>
+            ) : null}
+
+            {accountsError ? (
+              <View
+                style={[
+                  styles.error,
+                  { backgroundColor: theme.colors.dangerSoft },
+                ]}
+              >
+                <Ionicons
+                  name="alert-circle-outline"
+                  size={17}
+                  color={theme.colors.danger}
+                />
+                <AppText
+                  variant="caption"
+                  color={theme.colors.danger}
+                  style={styles.flex}
+                >
+                  {accountsError}
+                </AppText>
+              </View>
+            ) : null}
 
             <Field label="Amount" hint="Philippine pesos">
               <View
@@ -280,17 +384,21 @@ export function MoneyEntryModal({
               </AppText>
             </Field>
 
-            {mode === 'expense' || mode === 'income' ? (
+            {!accountsLoading &&
+            !accountsError &&
+            (mode === 'expense' || mode === 'income') ? (
               <>
                 <OptionField
-                  label={mode === 'expense' ? 'Pay from wallet' : 'Deposit to wallet'}
+                  label={
+                    mode === 'expense' ? 'Pay from wallet' : 'Deposit to wallet'
+                  }
                   options={wallets.map((wallet) => ({
                     id: wallet.id,
                     label: wallet.name,
                     caption: formatPeso(wallet.balanceMinor),
                     icon: wallet.icon,
                   }))}
-                  selectedId={walletId}
+                  selectedId={selectedWalletId}
                   onSelect={setWalletId}
                 />
                 <OptionField
@@ -299,19 +407,19 @@ export function MoneyEntryModal({
                       ? 'Spend from container'
                       : 'Add to container'
                   }
-                  options={containers.map((container) => ({
+                  options={containerOptions.map((container) => ({
                     id: container.id,
                     label: container.name,
                     caption: `${formatPeso(container.balanceMinor)} actual`,
                     icon: container.icon,
                   }))}
-                  selectedId={containerId}
+                  selectedId={selectedContainerId}
                   onSelect={setContainerId}
                 />
               </>
             ) : null}
 
-            {mode === 'wallet_transfer' ? (
+            {!accountsLoading && !accountsError && mode === 'wallet_transfer' ? (
               <>
                 <OptionField
                   label="From wallet"
@@ -321,8 +429,13 @@ export function MoneyEntryModal({
                     caption: formatPeso(wallet.balanceMinor),
                     icon: wallet.icon,
                   }))}
-                  selectedId={walletId}
-                  onSelect={setWalletId}
+                  selectedId={selectedWalletId}
+                  onSelect={(id) => {
+                    setWalletId(id);
+                    if (id === selectedDestinationWalletId) {
+                      setDestinationWalletId('');
+                    }
+                  }}
                 />
                 <OptionField
                   label="To wallet"
@@ -330,47 +443,69 @@ export function MoneyEntryModal({
                     id: wallet.id,
                     label: wallet.name,
                     caption:
-                      wallet.id === walletId
+                      wallet.id === selectedWalletId
                         ? 'Choose another wallet'
                         : formatPeso(wallet.balanceMinor),
                     icon: wallet.icon,
                   }))}
-                  selectedId={destinationWalletId}
+                  selectedId={selectedDestinationWalletId}
                   onSelect={setDestinationWalletId}
                 />
               </>
             ) : null}
 
-            {mode === 'container_transfer' ? (
+            {!accountsLoading &&
+            !accountsError &&
+            mode === 'container_transfer' ? (
               <>
                 <OptionField
                   label="From container"
-                  options={containers.map((container) => ({
+                  options={containerOptions.map((container) => ({
                     id: container.id,
-                    label: container.name,
+                    label:
+                      container.systemKey === 'unallocated'
+                        ? `${container.name} (carried funds)`
+                        : container.systemKey === 'savings'
+                          ? `${container.name} (permanent)`
+                          : container.name,
                     caption: `${formatPeso(container.balanceMinor)} actual`,
                     icon: container.icon,
                   }))}
-                  selectedId={containerId}
-                  onSelect={setContainerId}
+                  selectedId={selectedContainerId}
+                  onSelect={(id) => {
+                    setContainerId(id);
+                    if (id === selectedDestinationContainerId) {
+                      setDestinationContainerId('');
+                    }
+                  }}
                 />
                 <OptionField
                   label="To container"
-                  options={containers.map((container) => ({
+                  options={containerOptions.map((container) => ({
                     id: container.id,
                     label:
-                      container.kind === 'savings'
-                        ? `${container.name} (savings)`
-                        : container.name,
+                      container.systemKey === 'unallocated'
+                        ? `${container.name} (carried funds)`
+                        : container.systemKey === 'savings'
+                          ? `${container.name} (permanent)`
+                          : container.name,
                     caption:
-                      container.id === containerId
+                      container.id === selectedContainerId
                         ? 'Choose another container'
                         : `${formatPeso(container.balanceMinor)} actual`,
                     icon: container.icon,
                   }))}
-                  selectedId={destinationContainerId}
+                  selectedId={selectedDestinationContainerId}
                   onSelect={setDestinationContainerId}
                 />
+                {transferNote ? (
+                  <AppText
+                    variant="caption"
+                    color={theme.colors.textSecondary}
+                  >
+                    {transferNote}
+                  </AppText>
+                ) : null}
               </>
             ) : null}
 
@@ -439,9 +574,10 @@ export function MoneyEntryModal({
               ]}
             />
             <AppButton
-              label={copy.saveLabel}
+              label={pending ? 'Saving…' : copy.saveLabel}
               icon="checkmark"
               onPress={handleSubmit}
+              disabled={!canSubmit}
               style={[
                 styles.action,
                 stackActions ? styles.actionStacked : null,

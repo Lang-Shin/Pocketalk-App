@@ -3,7 +3,7 @@ import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
-import { MockFinanceProvider } from '@/data/financeStore';
+import { FinanceProvider } from '@/data/financeStore';
 import { PocketaThemeProvider, useAppTheme } from '@/theme';
 
 function RootNavigator() {
@@ -42,9 +42,9 @@ export default function RootLayout() {
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
         <PocketaThemeProvider>
-          <MockFinanceProvider>
+          <FinanceProvider>
             <RootNavigator />
-          </MockFinanceProvider>
+          </FinanceProvider>
         </PocketaThemeProvider>
       </SafeAreaProvider>
     </GestureHandlerRootView>

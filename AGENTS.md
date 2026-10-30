@@ -29,8 +29,8 @@ Current status when these instructions were updated:
 - Phase 1 was research and planning only.
 - Phase 2 (UI foundation) has **not** been approved or completed.
 - An uncommitted, exploratory Expo UI scaffold exists in the working tree from earlier work. It is not accepted as Phase 2 and must not be treated as feature-complete or as approval to continue.
-- Phase 3 (SQLite data layer and deterministic financial engine) is implemented and awaiting final review: migrations v1-v4, the finance engine, system Unallocated and Savings containers, automatic monthly rollover, reversals/corrections, and 71 passing SQLite-backed tests. The screens remain mock-backed.
-- Phase 4 (UI integration) has not been started. Its approved scope is wiring the existing screens, active/historical month selection, container management, Savings transfers, carryover, and reporting to the Phase 3 engine. Phase 4 must not add separate long-term savings goals/targets, AI, cloud sync, or GCash integration.
+- Phase 3 (SQLite data layer and deterministic financial engine) is implemented: migrations v1-v4, the finance engine, system Unallocated and Savings containers, automatic monthly rollover, reversals/corrections, and SQLite-backed tests.
+- Phase 4 (UI integration) is implemented and awaiting review: budget screens use a SQLite-backed service/provider, active/historical month selection, container management, Unallocated allocation, Savings transfers, carryover, and reporting. Profile and assistant content remain sample-backed. Service-level integration tests pass (77 total); React Native UI/accessibility and device end-to-end tests are not yet implemented. Phase 4 must not add separate long-term savings goals/targets, AI, cloud sync, or GCash integration.
 
 ## 3. Preserve Existing Work
 

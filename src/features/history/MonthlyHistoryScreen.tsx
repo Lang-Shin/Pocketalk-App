@@ -17,61 +17,68 @@ import { IconBadge } from '@/components/ui/IconBadge';
 import { MonthNavigator } from '@/components/ui/MonthNavigator';
 import { NoticeBanner } from '@/components/ui/NoticeBanner';
 import { PageHeader } from '@/components/ui/PageHeader';
+import { ErrorState, LoadingState } from '@/components/ui/QueryStates';
 import { Screen } from '@/components/ui/Screen';
-import {
-  selectContainerMonthResults,
-  selectContainerSnapshots,
-  selectMonthSummary,
-} from '@/data/financeSelectors';
-import { useMockFinance } from '@/data/financeStore';
+import { useFinance, useFinanceHistory } from '@/data/financeStore';
 import type { ContainerMonthResult } from '@/data/models';
 import { formatPeso } from '@/lib/money';
-import {
-  formatMonthKey,
-  formatMonthKeyShort,
-  getMonthKeysBack,
-  shiftMonthKey,
-} from '@/lib/period';
+import { formatMonthKey, formatMonthKeyShort } from '@/lib/period';
 import { useAppTheme, layout, radii, spacing } from '@/theme';
 
 export function MonthlyHistoryScreen() {
   const { theme } = useAppTheme();
   const router = useRouter();
   const { width } = useWindowDimensions();
-  const { state, activeMonthKey } = useMockFinance();
-  const [selectedMonthKey, setSelectedMonthKey] = useState(activeMonthKey);
+  const { activeMonthKey } = useFinance();
+  const [selectedMonthKey, setSelectedMonthKey] = useState<string | null>(null);
   const monthKey =
-    selectedMonthKey > activeMonthKey ? activeMonthKey : selectedMonthKey;
-  const previousMonthKey = shiftMonthKey(monthKey, -1);
-  const summary = selectMonthSummary(state, monthKey, activeMonthKey);
-  const previous = selectMonthSummary(
-    state,
-    previousMonthKey,
-    activeMonthKey,
-  );
-  const results = selectContainerMonthResults(state, monthKey);
+    selectedMonthKey && selectedMonthKey < activeMonthKey
+      ? selectedMonthKey
+      : activeMonthKey;
+  const historyQuery = useFinanceHistory(monthKey);
+
+  if (historyQuery.status === 'loading') {
+    return (
+      <Screen edges={['top', 'bottom']}>
+        <PageHeader
+          title="Monthly history"
+          subtitle="Past months stay inspectable and comparable offline."
+          onBack={() => router.back()}
+          preview={false}
+        />
+        <LoadingState label="Opening saved monthly history…" />
+      </Screen>
+    );
+  }
+
+  if (historyQuery.status === 'error' || !historyQuery.data) {
+    return (
+      <Screen edges={['top', 'bottom']}>
+        <PageHeader
+          title="Monthly history"
+          subtitle="Past months stay inspectable and comparable offline."
+          onBack={() => router.back()}
+          preview={false}
+        />
+        <ErrorState
+          message={historyQuery.error?.message ?? 'Please try again.'}
+          onRetry={historyQuery.retry}
+        />
+      </Screen>
+    );
+  }
+
+  const { summary, previous, results, availableMonths } = historyQuery.data;
   const resultsWithActivity = results.filter(
     (result) =>
       result.hasActivity ||
       result.endingBalanceMinor !== 0 ||
       result.status === 'archived',
   );
-  const availableMonths = getMonthKeysBack(6, activeMonthKey)
-    .filter((candidate) => {
-      const candidateSummary = selectMonthSummary(
-        state,
-        candidate,
-        activeMonthKey,
-      );
-      return (
-        candidateSummary.hasActivity ||
-        candidateSummary.savingsEndingBalanceMinor !== 0 ||
-        selectContainerSnapshots(state, candidate).length > 0
-      );
-    })
-    .reverse();
   const hasReportContent =
-    summary.hasActivity || resultsWithActivity.length > 0;
+    summary.hasActivity ||
+    summary.savingsEndingBalanceMinor !== 0 ||
+    resultsWithActivity.length > 0;
 
   return (
     <Screen edges={['top', 'bottom']}>
@@ -79,12 +86,17 @@ export function MonthlyHistoryScreen() {
         title="Monthly history"
         subtitle="Past months stay inspectable and comparable offline."
         onBack={() => router.back()}
+        preview={false}
       />
 
       <MonthNavigator
         monthKey={monthKey}
         activeMonthKey={activeMonthKey}
-        onChange={setSelectedMonthKey}
+        onChange={(nextMonthKey) =>
+          setSelectedMonthKey(
+            nextMonthKey === activeMonthKey ? null : nextMonthKey,
+          )
+        }
         label="History month"
       />
 
@@ -106,7 +118,11 @@ export function MonthlyHistoryScreen() {
                   accessibilityRole="button"
                   accessibilityLabel={`View ${formatMonthKey(candidate)}`}
                   accessibilityState={{ selected }}
-                  onPress={() => setSelectedMonthKey(candidate)}
+                  onPress={() =>
+                    setSelectedMonthKey(
+                      candidate === activeMonthKey ? null : candidate,
+                    )
+                  }
                   style={({ pressed }) => [
                     styles.monthChip,
                     {
@@ -205,11 +221,37 @@ export function MonthlyHistoryScreen() {
                     variant="caption"
                     color={theme.colors.textSecondary}
                   >
-                    Transfers into savings containers
+                    Transfers into the permanent Savings container
                   </AppText>
                 </View>
                 <AppText variant="h3" color={theme.colors.success}>
                   {formatPeso(summary.savingsContributionsMinor)}
+                </AppText>
+              </View>
+              <View
+                style={[styles.rule, { backgroundColor: theme.colors.border }]}
+              />
+              <View style={styles.savingsRow}>
+                <View style={styles.savingsIcon}>
+                  <Ionicons
+                    name="arrow-up-circle-outline"
+                    size={19}
+                    color={theme.colors.textSecondary}
+                  />
+                </View>
+                <View style={styles.savingsCopy}>
+                  <AppText variant="label" weight="semibold">
+                    Savings withdrawals
+                  </AppText>
+                  <AppText
+                    variant="caption"
+                    color={theme.colors.textSecondary}
+                  >
+                    Transfers out of the permanent Savings container
+                  </AppText>
+                </View>
+                <AppText variant="h3">
+                  {formatPeso(summary.savingsWithdrawalsMinor)}
                 </AppText>
               </View>
               <View
@@ -250,9 +292,9 @@ export function MonthlyHistoryScreen() {
 
       <View style={styles.section}>
         <NoticeBanner
-          title="Mock-backed history"
-          message="These months are sample records for the Phase 2 interface. Changes are kept only for this app session and are not saved to a database."
-          icon="flask-outline"
+          title="Saved on this device"
+          message="These months come from your local SQLite ledger. Prior results, historical labels, and effective dates stay available offline."
+          icon="phone-portrait-outline"
         />
       </View>
     </Screen>

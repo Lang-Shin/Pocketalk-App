@@ -18,15 +18,15 @@ import { Card } from '@/components/ui/Card';
 import { Divider } from '@/components/ui/Divider';
 import { IconBadge } from '@/components/ui/IconBadge';
 import { PageHeader } from '@/components/ui/PageHeader';
+import { ErrorState, LoadingState } from '@/components/ui/QueryStates';
 import { Screen } from '@/components/ui/Screen';
 import { SectionHeader } from '@/components/ui/SectionHeader';
 import {
-  selectContainerSnapshots,
-  selectMonthSummary,
-  selectRecentTransactions,
-  selectWalletSnapshots,
-} from '@/data/financeSelectors';
-import { useMockFinance, type EntryMode } from '@/data/financeStore';
+  useFinance,
+  useFinanceMonth,
+  useFinanceWallets,
+  type EntryMode,
+} from '@/data/financeStore';
 import type { ContainerSnapshot } from '@/data/models';
 import { formatLongDate } from '@/lib/date';
 import type { IconName } from '@/lib/icons';
@@ -38,25 +38,82 @@ export function HomeScreen() {
   const { theme } = useAppTheme();
   const router = useRouter();
   const { width } = useWindowDimensions();
-  const { state, activeMonthKey, todayDateKey } = useMockFinance();
+  const { activeMonthKey } = useFinance();
+  const monthQuery = useFinanceMonth(activeMonthKey);
+  const walletQuery = useFinanceWallets();
   const [entryMode, setEntryMode] = useState<EntryMode | null>(null);
 
-  const wallets = selectWalletSnapshots(state, todayDateKey);
-  const containers = selectContainerSnapshots(state, activeMonthKey);
+  if (monthQuery.status === 'loading' || walletQuery.status === 'loading') {
+    return (
+      <Screen wide>
+        <PageHeader
+          eyebrow={formatLongDate()}
+          title="Welcome back, Alex"
+          subtitle="Opening this month from your saved ledger."
+          preview={false}
+        />
+        <LoadingState label="Opening this month…" />
+      </Screen>
+    );
+  }
+
+  if (monthQuery.status === 'error' || walletQuery.status === 'error') {
+    return (
+      <Screen wide>
+        <PageHeader
+          eyebrow={formatLongDate()}
+          title="Welcome back, Alex"
+          subtitle="Your saved ledger could not be opened."
+          preview={false}
+        />
+        <ErrorState
+          message={
+            monthQuery.error?.message ??
+            walletQuery.error?.message ??
+            'Please try again.'
+          }
+          onRetry={() => {
+            monthQuery.retry();
+            walletQuery.retry();
+          }}
+        />
+      </Screen>
+    );
+  }
+
+  if (!monthQuery.data || !walletQuery.data) {
+    return (
+      <Screen wide>
+        <PageHeader
+          eyebrow={formatLongDate()}
+          title="Welcome back, Alex"
+          preview={false}
+        />
+        <ErrorState
+          message="This month could not be loaded."
+          onRetry={() => {
+            monthQuery.retry();
+            walletQuery.retry();
+          }}
+        />
+      </Screen>
+    );
+  }
+
+  const wallets = walletQuery.data.wallets;
+  const containers = monthQuery.data.containers;
   const activeContainers = containers.filter(
-    (container) => container.status === 'active',
+    (container) =>
+      container.status === 'active' && container.systemKey == null,
   );
   const budgetContainers = activeContainers
     .filter((container) => container.kind === 'budget')
     .slice(0, 4);
-  const summary = selectMonthSummary(state, activeMonthKey, activeMonthKey);
-  const recentTransactions = selectRecentTransactions(state, 4);
-  const totalBalanceMinor = wallets.reduce(
-    (total, wallet) => total + wallet.balanceMinor,
-    0,
-  );
-  const savingsContainer = activeContainers.find(
-    (container) => container.kind === 'savings',
+  const summary = monthQuery.data.summary;
+  const recentTransactions = walletQuery.data.recentTransactions.slice(0, 4);
+  const totalBalanceMinor = walletQuery.data.totalBalanceMinor;
+  const savingsContainer = containers.find(
+    (container) => container.systemKey === 'savings',
   );
   const contentWidth = getContentWidth(width, true);
   const useTwoColumns = contentWidth >= 680;
@@ -72,6 +129,7 @@ export function HomeScreen() {
         subtitle={`${formatMonthKey(
           activeMonthKey,
         )} \u00B7 ${formatMonthPeriod(activeMonthKey)} is the active calendar month.`}
+        preview={false}
         right={
           <Pressable
             accessibilityRole="button"

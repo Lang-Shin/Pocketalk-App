@@ -13,27 +13,53 @@ import { Card } from '@/components/ui/Card';
 import { Divider } from '@/components/ui/Divider';
 import { NoticeBanner } from '@/components/ui/NoticeBanner';
 import { PageHeader } from '@/components/ui/PageHeader';
+import { ErrorState, LoadingState } from '@/components/ui/QueryStates';
 import { Screen } from '@/components/ui/Screen';
 import { SectionHeader } from '@/components/ui/SectionHeader';
 import {
-  selectRecentTransactions,
-  selectWalletSnapshots,
-} from '@/data/financeSelectors';
-import { useMockFinance, type EntryMode } from '@/data/financeStore';
+  useFinanceWallets,
+  type EntryMode,
+} from '@/data/financeStore';
 import { useAppTheme, radii, spacing } from '@/theme';
 
 export function WalletScreen() {
   const { theme } = useAppTheme();
   const router = useRouter();
-  const { state, todayDateKey } = useMockFinance();
+  const walletQuery = useFinanceWallets();
   const [entryMode, setEntryMode] = useState<EntryMode | null>(null);
-  const wallets = selectWalletSnapshots(state, todayDateKey);
-  const totalBalanceMinor = wallets.reduce(
-    (total, wallet) => total + wallet.balanceMinor,
-    0,
-  );
+
+  if (walletQuery.status === 'loading') {
+    return (
+      <Screen>
+        <PageHeader
+          title="Virtual wallet"
+          subtitle="Cash and a GCash balance you track yourself."
+          preview={false}
+        />
+        <LoadingState label="Opening your saved wallet…" />
+      </Screen>
+    );
+  }
+
+  if (walletQuery.status === 'error' || !walletQuery.data) {
+    return (
+      <Screen>
+        <PageHeader
+          title="Virtual wallet"
+          subtitle="Cash and a GCash balance you track yourself."
+          preview={false}
+        />
+        <ErrorState
+          message={walletQuery.error?.message ?? 'Please try again.'}
+          onRetry={walletQuery.retry}
+        />
+      </Screen>
+    );
+  }
+
+  const { wallets, totalBalanceMinor } = walletQuery.data;
   const walletIds = new Set(wallets.map((wallet) => wallet.id));
-  const recentTransactions = selectRecentTransactions(state, 20)
+  const recentTransactions = walletQuery.data.recentTransactions
     .filter(
       (transaction) =>
         (transaction.sourceWalletId &&
@@ -48,6 +74,7 @@ export function WalletScreen() {
       <PageHeader
         title="Virtual wallet"
         subtitle="Cash and a GCash balance you track yourself."
+        preview={false}
       />
 
       <BalanceCard

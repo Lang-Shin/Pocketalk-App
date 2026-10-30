@@ -7,7 +7,7 @@
 - **Requirements revision:** This revision adds monthly calendar budget cycles with permanent savings history, and fully customizable budget-container lifecycle requirements.
 - **Repository name:** `Pocketalk-App`.
 - **Product name:** **Pocketa** is used in this document. The repository and README still use “Pocketalk-App”; the naming conflict is unresolved.
-- **Implementation status:** Phase 1 was research and planning only. Phase 2 (UI foundation) exists as an uncommitted exploratory Expo scaffold but is not approved as Phase 2 completion. Phase 3 (SQLite data layer and financial engine) is implemented and awaiting final review: migrations v1–v4, a deterministic `FinanceEngine`, the system Unallocated and Savings containers, automatic monthly rollover, savings transfers, idempotency, reversals, corrections, effective-dated container metadata, container lifecycle, and 71 passing SQLite-backed tests. Phase 4 (UI integration) and Phase 5+ (AI, hardening) have not been started.
+- **Implementation status:** Phase 1 was research and planning only. Phase 2 (UI foundation) exists as an uncommitted exploratory Expo scaffold but is not approved as Phase 2 completion. Phase 3 (SQLite data layer and financial engine) is implemented: migrations v1–v4, a deterministic `FinanceEngine`, the system Unallocated and Savings containers, automatic monthly rollover, savings transfers, idempotency, reversals, corrections, effective-dated container metadata, container lifecycle, and SQLite-backed tests. Phase 4 (UI integration) is implemented and awaiting review: budget screens use a SQLite-backed service/provider, active and historical months, container lifecycle, Unallocated allocation, Savings transfers, and reporting are connected, and 77 tests pass. Profile and assistant content remain sample-backed. Phase 5+ (AI, hardening) has not been started.
 - **Authority:** Until the original master specification is supplied, this document is the working source of truth for requirements and scope. Requirements that were not established are marked `ASSUMPTION`, `PROPOSED`, or `UNRESOLVED`.
 
 Status labels used in this document:
@@ -631,7 +631,7 @@ These thresholds require user approval and a physical-device benchmark.
 
 ## 11. Testing and Verification Strategy
 
-The following testing strategy is established. Phase 3 tests are implemented and passing (71 tests as of the final Phase 3 update). Phases 4-7 tests are required but not yet implemented.
+The following testing strategy is established. Phase 3 tests are implemented and passing, and Phase 4 adds service-level integration tests (77 tests as of the Phase 4 update). React Native UI/accessibility and device end-to-end tests are still required but not implemented; no UI test framework is installed.
 
 ### 11.1 Unit tests
 
@@ -770,7 +770,7 @@ The sequence is a planning proposal. Each phase requires user approval before th
 - Present monthly net savings separately from Savings contributions, withdrawals, and ending balance, and present Unallocated carryover as carried money rather than income.
 - Add UI, accessibility, and end-to-end tests for the integrated flows.
 - Do not add AI, cloud sync, GCash integration, automatic allowance deposits, or separate long-term savings goals/targets.
-- Status: not started.
+- Status: implemented and awaiting review. Budget screens are SQLite-backed; Profile and assistant remain sample-backed. Service-level tests pass, but UI/accessibility and device end-to-end tests are not yet implemented.
 
 ### Phase 5 — On-device AI feasibility spike
 

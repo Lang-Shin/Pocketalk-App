@@ -14,6 +14,7 @@ export interface QueryResult<T> {
 
 export function useRepositoryQuery<T>(
   load: () => Promise<T>,
+  refreshToken = 0,
 ): QueryResult<T> {
   const [attempt, setAttempt] = useState(0);
   const [state, setState] = useState<Omit<QueryResult<T>, 'retry'>>({
@@ -48,7 +49,7 @@ export function useRepositoryQuery<T>(
     return () => {
       active = false;
     };
-  }, [attempt, load]);
+  }, [attempt, load, refreshToken]);
 
   const retry = useCallback(() => {
     setState({ status: 'loading', data: null, error: null });

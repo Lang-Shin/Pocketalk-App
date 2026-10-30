@@ -168,6 +168,22 @@ export function MonthSummaryCard({
         </View>
       ) : null}
 
+      <View style={styles.placementBlock}>
+        <PlacementRow
+          icon="layers-outline"
+          label="Unallocated carry-in"
+          caption="Carried from closed months, not new income"
+          value={formatPeso(summary.unallocatedCarryoverMinor)}
+        />
+        <View style={[styles.placementRule, { backgroundColor: theme.colors.border }]} />
+        <PlacementRow
+          icon="wallet-outline"
+          label="Available budget"
+          caption="Active budget balances plus Unallocated; Savings stays separate"
+          value={formatPeso(summary.availableBudgetMinor)}
+        />
+      </View>
+
       {previous ? (
         <Comparison current={summary} previous={previous} />
       ) : null}
@@ -192,6 +208,44 @@ function Metric({
         <Ionicons name={icon} size={14} color={tone} />
         <AppText variant="micro" color={tone}>
           {label.toUpperCase()}
+        </AppText>
+      </View>
+      <AppText variant="bodySmall" weight="bold" numberOfLines={1}>
+        {value}
+      </AppText>
+    </View>
+  );
+}
+
+function PlacementRow({
+  icon,
+  label,
+  caption,
+  value,
+}: {
+  icon: 'layers-outline' | 'wallet-outline';
+  label: string;
+  caption: string;
+  value: string;
+}) {
+  const { theme } = useAppTheme();
+
+  return (
+    <View style={styles.placementRow}>
+      <View
+        style={[
+          styles.placementIcon,
+          { backgroundColor: theme.colors.surfaceMuted },
+        ]}
+      >
+        <Ionicons name={icon} size={16} color={theme.colors.primary} />
+      </View>
+      <View style={styles.placementCopy}>
+        <AppText variant="caption" weight="semibold">
+          {label}
+        </AppText>
+        <AppText variant="micro" color={theme.colors.textSecondary}>
+          {caption}
         </AppText>
       </View>
       <AppText variant="bodySmall" weight="bold" numberOfLines={1}>
@@ -340,6 +394,29 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 5,
+  },
+  placementBlock: {
+    gap: spacing.sm,
+  },
+  placementRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  placementIcon: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  placementCopy: {
+    flex: 1,
+    gap: 1,
+  },
+  placementRule: {
+    height: StyleSheet.hairlineWidth,
+    marginLeft: 42,
   },
   comparison: {
     borderRadius: radii.md,

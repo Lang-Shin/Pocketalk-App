@@ -4,7 +4,7 @@ AI-powered mobile app for natural language allowance and container-based budget 
 
 ## Status
 
-An exploratory Phase 2 UI scaffold is built with Expo, React Native, Expo Router, and TypeScript but is not approved as Phase 2 completion. Phase 3 adds a local SQLite ledger (migrations v1–v4), repositories, a deterministic finance engine, the system Unallocated account, the permanent system Savings container, and automatic monthly rollover. Wallets, containers, limits, and transactions shown in the UI are still seeded mock data; screens are not yet wired to SQLite. There is no GCash integration or AI model connection.
+The Phase 2 UI foundation remains an unapproved exploratory Expo scaffold. Phase 3 added a local SQLite ledger (migrations v1–v4), repositories, a deterministic finance engine, the system Unallocated account, the permanent system Savings container, and automatic monthly rollover. Phase 4 now connects the budgeting screens to that ledger through a SQLite-backed finance service and provider, including active and historical months, container lifecycle, Unallocated allocation, Savings transfers, and reporting. Phase 4 is awaiting review. Profile and assistant content still use sample data, and there is no GCash integration or AI model connection.
 
 ## Stack
 
@@ -18,7 +18,9 @@ An exploratory Phase 2 UI scaffold is built with Expo, React Native, Expo Router
 
 - `src/db/migrations.ts` owns the versioned schema (v1–v4) and applies pending migrations transactionally.
 - `src/db/financeRepository.ts` contains parameterized reads and writes; `src/db/financeEngine.ts` enforces accounting, lifecycle, idempotency, rollover, and reversal/correction rules.
-- `src/db/expoDatabase.ts` exposes `openPocketaDatabase()` to open and migrate the on-device database, enable WAL on native platforms, and ensure system containers exist. Startup wiring is not connected to the current screens.
+- `src/db/expoDatabase.ts` exposes `openPocketaDatabase()` to open and migrate the on-device database, enable WAL on native platforms, and ensure system containers exist. `FinanceProvider` opens it at startup and gates the app on a loading or error state.
+- `metro.config.js` adds the WebAssembly asset and cross-origin isolation headers required by `expo-sqlite` on web. The web export bundles, but browser worker/runtime behavior remains unverified.
+- `src/data/financeService.ts` wraps engine reads and actions for the screens and routes container transfers to allocation, return, Savings contribution, or Savings withdrawal operations. `src/db/defaultWallets.ts` idempotently creates the manually maintained Cash on hand and Virtual GCash wallets.
 - `src/db/systemContainers.ts` owns the stable Unallocated and Savings identities and their idempotent bootstrap. Income without a user container is posted to Unallocated; `allocateToContainer`, `returnToUnallocated`, and `transferBetweenContainers` create container-only transfers.
 - The **Unallocated** account cannot be renamed, archived, limited, deleted, or used for direct expenses. It remains part of the invariant and reports but is hidden from ordinary container lists by default.
 - The **Savings** container accumulates across months and is never swept by monthly rollover. Users transfer money between Savings and any active budget container (including Unallocated) through `contributeToSavings` and `withdrawFromSavings`. These are `savings`-kind transfers, not income or expenses, and do not affect net savings. Savings cannot be renamed, archived, limited, deleted, or spent from directly. There are no separate long-term savings goals or targets.
@@ -56,15 +58,16 @@ npx expo export --platform android
 npx expo export --platform web
 ```
 
-The current suite contains 71 tests covering migrations, persistence, foreign keys, rollback, WAL, idempotency, calendar boundaries, peso parsing, balance invariants, transfers, reversals/corrections, container lifecycle, historical labels, recorded-date metadata, net savings, late entries, Unallocated bootstrapping, allocation/return flows, system-container protections, allocation idempotency, Savings container protection and accumulation, Savings transfers (contribute, withdraw, Savings→ordinary), monthly rollover sweeps (ordinary and archived containers, excluding Savings and Unallocated), multiple missed months, leap-year and year-boundary rollover, local-midnight cutoff and timezone metadata, late entry and correction replay, clock-backward stability, rollover atomicity and idempotency, file-backed close/reopen persistence without duplicate sweeps, new allowance after rollover, and full carryover/net-savings/Savings-balance reporting. The database tests run against real SQLite via `node:sqlite`; they do not verify native Expo SQLite behavior.
+The current suite contains 77 tests covering migrations, persistence, foreign keys, rollback, WAL, idempotency, calendar boundaries, peso parsing, balance invariants, transfers, reversals/corrections, container lifecycle, historical labels, recorded-date metadata, net savings, late entries, Unallocated bootstrapping, allocation/return flows, system-container protections, allocation idempotency, Savings container protection and accumulation, Savings transfers (contribute, withdraw, Savings→ordinary), monthly rollover sweeps (ordinary and archived containers, excluding Savings and Unallocated), multiple missed months, leap-year and year-boundary rollover, local-midnight cutoff and timezone metadata, late entry and correction replay, clock-backward stability, rollover atomicity and idempotency, file-backed close/reopen persistence without duplicate sweeps, new allowance after rollover, full carryover/net-savings/Savings-balance reporting, and service-level default-wallet, transfer-routing, idempotency, metadata, read-only history, and monthly-history flows. The database and service tests run against real SQLite via `node:sqlite`; they do not verify native Expo SQLite behavior. No React Native UI test framework is installed, so screen behavior and accessibility remain manually unverified.
 
 ## Current boundaries
 
-- Phase 3 is limited to the SQLite ledger and deterministic engine. Phase 4 is the UI-integration phase and has not started; it will connect screens, month/history selection, Savings transfers, and reporting to the engine.
-- Phase 2 screens still read and mutate the in-memory mock store in `src/data/financeStore.tsx`; SQLite persistence is implemented but not yet connected to those screens.
-- Reloading the app, or using **Reset mock session** in Profile, restores the sample data. Database-backed screen persistence is deferred.
+- Phase 4 is implemented and awaiting review. Budget screens read and write the local SQLite ledger; Profile and assistant content still use the sample repository. There are no separate long-term savings goals or targets.
+- The active month follows the device's local date. Provider refreshes on foreground/resume and while the app remains open, but native device timezone-change and overnight rollover behavior is still unverified.
 - Native Expo SQLite startup, restart, migration, and WAL behavior is unverified until tested on Android. WAL is enabled only for non-web native initialization; in-memory test databases do not use WAL.
-- The system Unallocated and Savings containers are fully implemented in the engine. Neither system balance is wired into the current mock-backed screens. There are no separate long-term savings goals or targets.
+- Web SQLite bundling is configured through `metro.config.js`, but browser worker/WASM runtime behavior has not been verified; Android/iOS are the primary targets.
+- Budget-limit behavior across rollover remains `UNRESOLVED` in the specification. Materialized versus derived monthly summaries and the late-correction overdraw recovery UX are also unresolved.
+- There is no React Native UI test framework or end-to-end device test yet. Screen persistence, accessibility, safe-area, keyboard, and touch flows require manual verification.
 - The assistant is a UI preview; it does not call an AI model and cannot save transactions.
 - The virtual GCash wallet is manually maintained and is not connected to GCash.
 - No cloud sync, authentication, or encryption is implemented.
