@@ -90,6 +90,11 @@ export interface FinanceServiceOptions {
   now?: () => Date;
 }
 
+const DEFAULT_TITLES: Partial<Record<EntryMode, string>> = {
+  income: 'Income',
+  expense: 'Expense',
+};
+
 let operationSequence = 0;
 
 export function createOperationKey(prefix: string): string {
@@ -204,8 +209,7 @@ export class FinanceService {
   ): Promise<TransactionMutationResult> {
     const amountMinor = requirePositiveAmount(input.amountMinor);
     const trimmedTitle = input.title.trim();
-    const title =
-      trimmedTitle || (input.mode === 'income' ? 'Income' : trimmedTitle);
+    const title = trimmedTitle || DEFAULT_TITLES[input.mode] || trimmedTitle;
     const effectiveDate = input.effectiveDate;
     if (!isValidDateKey(effectiveDate)) {
       throw new FinanceError(

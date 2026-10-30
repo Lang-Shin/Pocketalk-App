@@ -47,7 +47,7 @@ const MODE_COPY: Record<
     eyebrow: 'NEW EXPENSE',
     title: 'Record spending',
     description:
-      'This lowers the wallet and the chosen container. A budget limit is not changed.',
+      'This lowers the wallet and the chosen container. It cannot exceed their available balances, and a budget limit is not changed.',
     saveLabel: 'Save expense',
     icon: 'arrow-up-circle-outline',
   },
@@ -340,10 +340,14 @@ export function MoneyEntryModal({
             </Field>
 
             <Field
-              label={mode === 'income' ? 'Note' : 'Description'}
+              label={
+                mode === 'expense' || mode === 'income'
+                  ? 'Note'
+                  : 'Description'
+              }
               hint={
                 mode === 'expense'
-                  ? 'What did you spend on?'
+                  ? 'Optional. What did you spend on?'
                   : mode === 'income'
                     ? 'Optional. Where did it come from?'
                     : 'What is this transfer for?'
@@ -361,7 +365,11 @@ export function MoneyEntryModal({
                 }
                 maxLength={80}
                 accessibilityLabel={
-                  mode === 'income' ? 'Optional income note' : 'Description'
+                  mode === 'expense'
+                    ? 'Optional expense note'
+                    : mode === 'income'
+                      ? 'Optional income note'
+                      : 'Description'
                 }
               />
             </Field>

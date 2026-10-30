@@ -81,6 +81,85 @@ test('income notes are optional and default to Unallocated', async () => {
   }
 });
 
+test('expense notes are optional and overdrafts are rejected atomically', async () => {
+  const { harness, service } = await setup();
+  try {
+    const container = await service.createContainer({
+      name: 'Food & drinks',
+      description: 'Meals and snacks',
+      icon: 'restaurant-outline',
+      tone: 'coral',
+      limitMinor: 100_000,
+      monthKey: '2026-10',
+    });
+
+    await service.recordMoneyEntry({
+      mode: 'income',
+      amountMinor: 10_000,
+      title: 'Allowance',
+      effectiveDate: '2026-10-20',
+      walletId: 'wallet-cash',
+      containerId: UNALLOCATED_CONTAINER_ID,
+    });
+    await service.recordMoneyEntry({
+      mode: 'container_transfer',
+      amountMinor: 10_000,
+      title: 'Allocate to food',
+      effectiveDate: '2026-10-20',
+      containerId: UNALLOCATED_CONTAINER_ID,
+      destinationContainerId: container.containerId,
+    });
+
+    const expense = await service.recordMoneyEntry({
+      mode: 'expense',
+      amountMinor: 6_000,
+      title: '   ',
+      effectiveDate: '2026-10-20',
+      walletId: 'wallet-cash',
+      containerId: container.containerId,
+    });
+
+    const month = await service.getMonthView('2026-10');
+    const walletView = await service.getWalletView();
+    const wallet = walletView.wallets.find(
+      (candidate) => candidate.id === 'wallet-cash',
+    );
+    const transaction = month.transactions.find(
+      (candidate) => candidate.id === expense.transactionId,
+    );
+
+    assert.equal(wallet?.balanceMinor, 4_000);
+    assert.equal(balanceOf(month.containers, container.containerId), 4_000);
+    assert.equal(month.summary.expenseMinor, 6_000);
+    assert.equal(month.summary.netSavingsMinor, 4_000);
+    assert.equal(transaction?.title, 'Expense');
+    assert.equal(transaction?.sourceContainerId, container.containerId);
+
+    await assert.rejects(
+      service.recordMoneyEntry({
+        mode: 'expense',
+        amountMinor: 4_001,
+        title: 'Overdraft',
+        effectiveDate: '2026-10-20',
+        walletId: 'wallet-cash',
+        containerId: container.containerId,
+      }),
+      (error: unknown) =>
+        error instanceof FinanceError && error.code === 'INSUFFICIENT_FUNDS',
+    );
+
+    const after = await service.getMonthView('2026-10');
+    assert.equal(after.summary.expenseMinor, 6_000);
+    assert.equal(
+      balanceOf(after.containers, container.containerId),
+      4_000,
+    );
+    assert.equal(after.transactions.length, month.transactions.length);
+  } finally {
+    harness.database.close();
+  }
+});
+
 test('allocation and Savings transfers do not change net savings', async () => {
   const { harness, service } = await setup();
   try {
