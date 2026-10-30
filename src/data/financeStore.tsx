@@ -44,9 +44,18 @@ interface FinanceStoreValue {
   recordMoneyEntry: (input: MoneyEntryInput) => Promise<ActionResult>;
   createContainer: (input: ContainerInput) => Promise<ActionResult>;
   updateContainer: (input: UpdateContainerInput) => Promise<ActionResult>;
-  archiveContainer: (containerId: string) => Promise<ActionResult>;
-  reactivateContainer: (containerId: string) => Promise<ActionResult>;
-  deleteContainer: (containerId: string) => Promise<ActionResult>;
+  archiveContainer: (
+    containerId: string,
+    idempotencyKey?: string,
+  ) => Promise<ActionResult>;
+  reactivateContainer: (
+    containerId: string,
+    idempotencyKey?: string,
+  ) => Promise<ActionResult>;
+  deleteContainer: (
+    containerId: string,
+    idempotencyKey?: string,
+  ) => Promise<ActionResult>;
 }
 
 const FinanceStoreContext = createContext<FinanceStoreValue | null>(null);
@@ -163,18 +172,24 @@ export function FinanceProvider({ children }: PropsWithChildren) {
     [perform],
   );
   const archiveContainer = useCallback(
-    (containerId: string) =>
-      perform((current) => current.archiveContainer(containerId)),
+    (containerId: string, idempotencyKey?: string) =>
+      perform((current) =>
+        current.archiveContainer(containerId, idempotencyKey),
+      ),
     [perform],
   );
   const reactivateContainer = useCallback(
-    (containerId: string) =>
-      perform((current) => current.reactivateContainer(containerId)),
+    (containerId: string, idempotencyKey?: string) =>
+      perform((current) =>
+        current.reactivateContainer(containerId, idempotencyKey),
+      ),
     [perform],
   );
   const deleteContainer = useCallback(
-    (containerId: string) =>
-      perform((current) => current.deleteContainer(containerId)),
+    (containerId: string, idempotencyKey?: string) =>
+      perform((current) =>
+        current.deleteContainer(containerId, idempotencyKey),
+      ),
     [perform],
   );
 

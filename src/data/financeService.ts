@@ -297,27 +297,25 @@ export class FinanceService {
     return { containerId: input.id };
   }
 
-  async archiveContainer(containerId: string): Promise<ContainerMutationResult> {
-    return this.engine.archiveContainer({
-      containerId,
-      idempotencyKey: createOperationKey('container-archive'),
-    });
+  async archiveContainer(
+    containerId: string,
+    idempotencyKey = createOperationKey('container-archive'),
+  ): Promise<ContainerMutationResult> {
+    return this.engine.archiveContainer({ containerId, idempotencyKey });
   }
 
   async reactivateContainer(
     containerId: string,
+    idempotencyKey = createOperationKey('container-reactivate'),
   ): Promise<ContainerMutationResult> {
-    return this.engine.reactivateContainer({
-      containerId,
-      idempotencyKey: createOperationKey('container-reactivate'),
-    });
+    return this.engine.reactivateContainer({ containerId, idempotencyKey });
   }
 
-  async deleteContainer(containerId: string): Promise<ContainerMutationResult> {
-    return this.engine.deleteContainer({
-      containerId,
-      idempotencyKey: createOperationKey('container-delete'),
-    });
+  async deleteContainer(
+    containerId: string,
+    idempotencyKey = createOperationKey('container-delete'),
+  ): Promise<ContainerMutationResult> {
+    return this.engine.deleteContainer({ containerId, idempotencyKey });
   }
 
   async reverseTransaction(

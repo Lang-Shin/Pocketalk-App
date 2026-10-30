@@ -90,6 +90,9 @@ export function ContainerEditorModal({
   const [pendingAction, setPendingAction] = useState<PendingAction>(null);
   const [pending, setPending] = useState(false);
   const operationKey = useRef(createOperationKey('container-save'));
+  const archiveKey = useRef(createOperationKey('container-archive'));
+  const deleteKey = useRef(createOperationKey('container-delete'));
+  const reactivateKey = useRef(createOperationKey('container-reactivate'));
 
   const handleSave = async () => {
     if (pending || isArchived) return;
@@ -126,7 +129,7 @@ export function ContainerEditorModal({
   const handleArchive = async () => {
     if (!container || pending) return;
     setPending(true);
-    const result = await archiveContainer(container.id);
+    const result = await archiveContainer(container.id, archiveKey.current);
     setPending(false);
     setPendingAction(null);
     if (!result.ok) {
@@ -139,7 +142,7 @@ export function ContainerEditorModal({
   const handleDelete = async () => {
     if (!container || pending) return;
     setPending(true);
-    const result = await deleteContainer(container.id);
+    const result = await deleteContainer(container.id, deleteKey.current);
     setPending(false);
     setPendingAction(null);
     if (!result.ok) {
@@ -152,7 +155,7 @@ export function ContainerEditorModal({
   const handleReactivate = async () => {
     if (!container || pending) return;
     setPending(true);
-    const result = await reactivateContainer(container.id);
+    const result = await reactivateContainer(container.id, reactivateKey.current);
     setPending(false);
     if (!result.ok) {
       setError(result.message ?? 'The container could not be reactivated.');
