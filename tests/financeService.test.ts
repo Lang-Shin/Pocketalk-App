@@ -587,3 +587,150 @@ test('monthly history keeps open and pre-baseline months explicit', async () => 
     harness.database.close();
   }
 });
+
+test('wallet support preserves existing records, displays correct balances, and maintains global containers without wallet ownership', async () => {
+  const { harness, service } = await setup();
+  try {
+    const initialWallets = await harness.engine.listWallets();
+    assert.deepEqual(
+      initialWallets.map((w) => ({ id: w.id, name: w.name, kind: w.kind })),
+      [
+        { id: 'wallet-cash', name: 'Cash on hand', kind: 'cash' },
+        { id: 'wallet-gcash', name: 'Virtual GCash', kind: 'virtual_gcash' },
+      ],
+    );
+
+    const allowanceContainer = await service.createContainer({
+      name: 'Allowance',
+      description: 'Daily allowance',
+      icon: 'fast-food-outline',
+      tone: 'amber',
+      limitMinor: 50_000,
+      monthKey: '2026-10',
+    });
+
+    await service.recordMoneyEntry({
+      mode: 'income',
+      amountMinor: 30_000,
+      title: 'Cash Allowance',
+      effectiveDate: '2026-10-20',
+      walletId: 'wallet-cash',
+      containerId: allowanceContainer.containerId,
+    });
+
+    await service.recordMoneyEntry({
+      mode: 'income',
+      amountMinor: 20_000,
+      title: 'GCash Allowance',
+      effectiveDate: '2026-10-20',
+      walletId: 'wallet-gcash',
+      containerId: allowanceContainer.containerId,
+    });
+
+    let walletView = await service.getWalletView();
+    const cashWallet = walletView.wallets.find((w) => w.id === 'wallet-cash');
+    const gcashWallet = walletView.wallets.find((w) => w.id === 'wallet-gcash');
+
+    assert.equal(cashWallet?.balanceMinor, 30_000);
+    assert.equal(gcashWallet?.balanceMinor, 20_000);
+    assert.equal(walletView.totalBalanceMinor, 50_000);
+
+    let monthView = await service.getMonthView('2026-10');
+    assert.equal(
+      balanceOf(monthView.containers, allowanceContainer.containerId),
+      50_000,
+    );
+    assert.equal(monthView.summary.availableBudgetMinor, 50_000);
+    assert.equal(monthView.summary.netSavingsMinor, 50_000);
+
+    await service.recordMoneyEntry({
+      mode: 'expense',
+      amountMinor: 15_000,
+      title: 'Online snack',
+      effectiveDate: '2026-10-20',
+      walletId: 'wallet-gcash',
+      containerId: allowanceContainer.containerId,
+    });
+
+    walletView = await service.getWalletView();
+    assert.equal(
+      walletView.wallets.find((w) => w.id === 'wallet-cash')?.balanceMinor,
+      30_000,
+    );
+    assert.equal(
+      walletView.wallets.find((w) => w.id === 'wallet-gcash')?.balanceMinor,
+      5_000,
+    );
+    assert.equal(walletView.totalBalanceMinor, 35_000);
+
+    monthView = await service.getMonthView('2026-10');
+    assert.equal(
+      balanceOf(monthView.containers, allowanceContainer.containerId),
+      35_000,
+    );
+    assert.equal(monthView.summary.availableBudgetMinor, 35_000);
+    assert.equal(monthView.summary.netSavingsMinor, 35_000);
+
+    await assert.rejects(
+      service.recordMoneyEntry({
+        mode: 'expense',
+        amountMinor: 10_000,
+        title: 'Too much from GCash',
+        effectiveDate: '2026-10-20',
+        walletId: 'wallet-gcash',
+        containerId: allowanceContainer.containerId,
+      }),
+      (error: unknown) =>
+        error instanceof FinanceError &&
+        error.code === 'INSUFFICIENT_FUNDS' &&
+        error.message.includes('That wallet does not have enough money'),
+    );
+
+    await service.recordMoneyEntry({
+      mode: 'wallet_transfer',
+      amountMinor: 10_000,
+      title: 'Transfer to GCash',
+      effectiveDate: '2026-10-20',
+      walletId: 'wallet-cash',
+      destinationWalletId: 'wallet-gcash',
+    });
+
+    walletView = await service.getWalletView();
+    assert.equal(
+      walletView.wallets.find((w) => w.id === 'wallet-cash')?.balanceMinor,
+      20_000,
+    );
+    assert.equal(
+      walletView.wallets.find((w) => w.id === 'wallet-gcash')?.balanceMinor,
+      15_000,
+    );
+    assert.equal(walletView.totalBalanceMinor, 35_000);
+
+    monthView = await service.getMonthView('2026-10');
+    assert.equal(
+      balanceOf(monthView.containers, allowanceContainer.containerId),
+      35_000,
+    );
+    assert.equal(monthView.summary.availableBudgetMinor, 35_000);
+    assert.equal(monthView.summary.netSavingsMinor, 35_000);
+
+    const walletSnapshots =
+      await harness.engine.getWalletSnapshots('2026-10-20');
+    const containerSnapshots = await harness.engine.getContainerSnapshots(
+      '2026-10',
+      true,
+    );
+    const sumWallets = walletSnapshots.reduce(
+      (acc, w) => acc + w.balanceMinor,
+      0,
+    );
+    const sumContainers = containerSnapshots.reduce(
+      (acc, c) => acc + c.balanceMinor,
+      0,
+    );
+    assert.equal(sumWallets, 35_000);
+    assert.equal(sumContainers, 35_000);
+  } finally {
+    harness.database.close();
+  }
+});
