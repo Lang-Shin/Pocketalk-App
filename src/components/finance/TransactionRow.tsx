@@ -98,6 +98,17 @@ export function TransactionRow({
               {isReversed ? 'REVERSED' : 'PENDING'}
             </AppText>
           </View>
+        ) : transaction.direction === 'neutral' ? (
+          <View
+            style={[
+              styles.status,
+              { backgroundColor: theme.colors.primarySoft },
+            ]}
+          >
+            <AppText variant="micro" color={theme.colors.primarySoftText}>
+              TRANSFER
+            </AppText>
+          </View>
         ) : null}
       </View>
     </>

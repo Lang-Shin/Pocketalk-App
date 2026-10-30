@@ -1,8 +1,9 @@
 import { useRouter } from 'expo-router';
-import { useState } from 'react';
-import { ScrollView, StyleSheet, View } from 'react-native';
+import { useState, type ReactNode } from 'react';
+import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 
 import { AppText } from '@/components/AppText';
+import { TransactionDetailModal } from '@/components/finance/TransactionDetailModal';
 import { TransactionRow } from '@/components/finance/TransactionRow';
 import { Card } from '@/components/ui/Card';
 import { Chip } from '@/components/ui/Chip';
@@ -16,12 +17,19 @@ import { ErrorState, LoadingState } from '@/components/ui/QueryStates';
 import { Screen } from '@/components/ui/Screen';
 import { useFinance, useFinanceMonth } from '@/data/financeStore';
 import type { Transaction } from '@/data/models';
+import {
+  EMPTY_TRANSACTION_FILTERS,
+  filterTransactions,
+  getContainerFilterOptions,
+  getTransactionDateOptions,
+  getWalletFilterOptions,
+  type HistoryTypeFilter,
+  type TransactionFilters,
+} from '@/features/history/transactionFilters';
 import { formatDateKey, formatMonthKey } from '@/lib/period';
 import { useAppTheme, spacing } from '@/theme';
 
-type HistoryFilter = 'all' | 'expenses' | 'income' | 'transfers';
-
-const FILTERS: { value: HistoryFilter; label: string }[] = [
+const FILTERS: { value: HistoryTypeFilter; label: string }[] = [
   { value: 'all', label: 'All' },
   { value: 'expenses', label: 'Expenses' },
   { value: 'income', label: 'Income' },
@@ -33,12 +41,32 @@ export function HistoryScreen() {
   const router = useRouter();
   const { activeMonthKey } = useFinance();
   const [selectedMonthKey, setSelectedMonthKey] = useState<string | null>(null);
-  const [filter, setFilter] = useState<HistoryFilter>('all');
+  const [filters, setFilters] = useState<TransactionFilters>({
+    ...EMPTY_TRANSACTION_FILTERS,
+  });
+  const [selectedTransaction, setSelectedTransaction] =
+    useState<Transaction | null>(null);
   const monthKey =
     selectedMonthKey && selectedMonthKey < activeMonthKey
       ? selectedMonthKey
       : activeMonthKey;
   const monthQuery = useFinanceMonth(monthKey);
+
+  const updateFilters = (patch: Partial<TransactionFilters>) => {
+    setFilters((current) => ({ ...current, ...patch }));
+  };
+
+  const clearFilters = () => {
+    setFilters({ ...EMPTY_TRANSACTION_FILTERS });
+  };
+
+  const handleMonthChange = (nextMonthKey: string) => {
+    setSelectedMonthKey(
+      nextMonthKey === activeMonthKey ? null : nextMonthKey,
+    );
+    setFilters({ ...EMPTY_TRANSACTION_FILTERS });
+    setSelectedTransaction(null);
+  };
 
   if (monthQuery.status === 'loading') {
     return (
@@ -70,17 +98,15 @@ export function HistoryScreen() {
   }
 
   const data = monthQuery.data.transactions;
-
-  const filtered = data.filter((transaction) => {
-    if (filter === 'all') return true;
-    if (filter === 'expenses') return transaction.kind === 'expense';
-    if (filter === 'income') return transaction.kind === 'income';
-    return (
-      transaction.kind === 'wallet_transfer' ||
-      transaction.kind === 'container_transfer' ||
-      transaction.kind === 'savings'
-    );
-  });
+  const dateOptions = getTransactionDateOptions(data);
+  const containerOptions = getContainerFilterOptions(data);
+  const walletOptions = getWalletFilterOptions(data);
+  const filtered = filterTransactions(data, filters);
+  const hasFilters =
+    filters.type !== 'all' ||
+    filters.effectiveDate !== null ||
+    filters.containerId !== null ||
+    filters.walletId !== null;
 
   const groups = new Map<string, Transaction[]>();
   for (const transaction of filtered) {
@@ -115,21 +141,19 @@ export function HistoryScreen() {
       <MonthNavigator
         monthKey={monthKey}
         activeMonthKey={activeMonthKey}
-        onChange={(nextMonthKey) =>
-          setSelectedMonthKey(
-            nextMonthKey === activeMonthKey ? null : nextMonthKey,
-          )
-        }
+        onChange={handleMonthChange}
       />
 
       <View style={styles.summaryRow}>
         <Card style={styles.summaryCard}>
           <AppText variant="micro" color={theme.colors.textTertiary}>
-            RECORDS
+            {hasFilters ? 'MATCHING RECORDS' : 'RECORDS'}
           </AppText>
-          <AppText variant="h2">{data.length}</AppText>
+          <AppText variant="h2">{filtered.length}</AppText>
           <AppText variant="caption" color={theme.colors.textSecondary}>
-            in {formatMonthKey(monthKey)}
+            {hasFilters
+              ? `of ${data.length} in ${formatMonthKey(monthKey)}`
+              : `in ${formatMonthKey(monthKey)}`}
           </AppText>
         </Card>
         <Card style={styles.summaryCard}>
@@ -143,25 +167,99 @@ export function HistoryScreen() {
         </Card>
       </View>
 
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={styles.filters}
-      >
-        {FILTERS.map((item) => (
-          <Chip
-            key={item.value}
-            label={item.label}
-            selected={filter === item.value}
-            onPress={() => setFilter(item.value)}
-          />
-        ))}
-      </ScrollView>
+      <View style={styles.filterBlock}>
+        <View style={styles.filterHeader}>
+          <AppText variant="micro" color={theme.colors.textTertiary}>
+            FILTERS
+          </AppText>
+          {hasFilters ? (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Clear all transaction filters"
+              onPress={clearFilters}
+              style={styles.clearFilters}
+            >
+              <AppText
+                variant="caption"
+                weight="semibold"
+                color={theme.colors.primary}
+              >
+                Clear all
+              </AppText>
+            </Pressable>
+          ) : null}
+        </View>
+
+        <FilterRow label="Type">
+          {FILTERS.map((item) => (
+            <Chip
+              key={item.value}
+              label={item.label}
+              selected={filters.type === item.value}
+              onPress={() => updateFilters({ type: item.value })}
+            />
+          ))}
+        </FilterRow>
+
+        {dateOptions.length > 0 ? (
+          <FilterRow label="Date">
+            <Chip
+              label="All dates"
+              selected={filters.effectiveDate === null}
+              onPress={() => updateFilters({ effectiveDate: null })}
+            />
+            {dateOptions.map((dateKey) => (
+              <Chip
+                key={dateKey}
+                label={formatDateKey(dateKey)}
+                selected={filters.effectiveDate === dateKey}
+                onPress={() => updateFilters({ effectiveDate: dateKey })}
+              />
+            ))}
+          </FilterRow>
+        ) : null}
+
+        {containerOptions.length > 0 ? (
+          <FilterRow label="Container">
+            <Chip
+              label="All containers"
+              selected={filters.containerId === null}
+              onPress={() => updateFilters({ containerId: null })}
+            />
+            {containerOptions.map((option) => (
+              <Chip
+                key={option.id}
+                label={option.label}
+                selected={filters.containerId === option.id}
+                onPress={() => updateFilters({ containerId: option.id })}
+              />
+            ))}
+          </FilterRow>
+        ) : null}
+
+        {walletOptions.length > 0 ? (
+          <FilterRow label="Wallet">
+            <Chip
+              label="All wallets"
+              selected={filters.walletId === null}
+              onPress={() => updateFilters({ walletId: null })}
+            />
+            {walletOptions.map((option) => (
+              <Chip
+                key={option.id}
+                label={option.label}
+                selected={filters.walletId === option.id}
+                onPress={() => updateFilters({ walletId: option.id })}
+              />
+            ))}
+          </FilterRow>
+        ) : null}
+      </View>
 
       <NoticeBanner
-        title="History is never silently deleted"
-        message="A reversed transaction stays visible with its status intact. Effective dates stay fixed when the device time zone changes."
-        icon="time-outline"
+        title="Transfers are not spending"
+        message="Internal transfers carry a TRANSFER label and never count as income, expenses, or net savings. Reversed records stay visible with their status intact."
+        icon="git-compare-outline"
       />
 
       <View style={styles.groups}>
@@ -178,8 +276,8 @@ export function HistoryScreen() {
                 ? 'Try an earlier month. Empty months are valid and remain available in monthly history.'
                 : 'Try another filter. Matching activity will appear here.'
             }
-            actionLabel={filter === 'all' ? undefined : 'Show all'}
-            onAction={filter === 'all' ? undefined : () => setFilter('all')}
+            actionLabel={hasFilters ? 'Clear filters' : undefined}
+            onAction={hasFilters ? clearFilters : undefined}
           />
         ) : (
           Array.from(groups.entries()).map(([dateKey, transactions]) => (
@@ -199,6 +297,7 @@ export function HistoryScreen() {
                     <TransactionRow
                       transaction={transaction}
                       showDate={false}
+                      onPress={() => setSelectedTransaction(transaction)}
                     />
                     {index < transactions.length - 1 ? <Divider /> : null}
                   </View>
@@ -208,7 +307,41 @@ export function HistoryScreen() {
           ))
         )}
       </View>
+
+      <TransactionDetailModal
+        transaction={selectedTransaction}
+        onClose={() => setSelectedTransaction(null)}
+      />
     </Screen>
+  );
+}
+
+function FilterRow({
+  label,
+  children,
+}: {
+  label: string;
+  children: ReactNode;
+}) {
+  const { theme } = useAppTheme();
+
+  return (
+    <View style={styles.filterRow}>
+      <AppText
+        variant="caption"
+        color={theme.colors.textSecondary}
+        style={styles.filterLabel}
+      >
+        {label}
+      </AppText>
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={styles.filterOptions}
+      >
+        {children}
+      </ScrollView>
+    </View>
   );
 }
 
@@ -222,9 +355,31 @@ const styles = StyleSheet.create({
     flex: 1,
     gap: 2,
   },
-  filters: {
+  filterBlock: {
     gap: spacing.sm,
-    paddingVertical: spacing.lg,
+    marginTop: spacing.lg,
+  },
+  filterHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: spacing.md,
+  },
+  clearFilters: {
+    minHeight: 44,
+    justifyContent: 'center',
+    paddingHorizontal: spacing.xs,
+  },
+  filterRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  filterLabel: {
+    width: 72,
+  },
+  filterOptions: {
+    gap: spacing.sm,
     paddingRight: spacing.md,
   },
   groups: {
