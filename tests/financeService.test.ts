@@ -224,6 +224,97 @@ test('allocation and Savings transfers do not change net savings', async () => {
   }
 });
 
+test('all Savings and ordinary-container transfer routes preserve the ledger', async () => {
+  const { harness, service } = await setup();
+  try {
+    const food = await service.createContainer({
+      name: 'Food & drinks',
+      description: '',
+      icon: 'restaurant-outline',
+      tone: 'coral',
+      limitMinor: 0,
+      monthKey: '2026-10',
+    });
+    const school = await service.createContainer({
+      name: 'School',
+      description: '',
+      icon: 'book-outline',
+      tone: 'blue',
+      limitMinor: 0,
+      monthKey: '2026-10',
+    });
+
+    await service.recordMoneyEntry({
+      mode: 'income',
+      amountMinor: 100_000,
+      title: 'Allowance',
+      effectiveDate: '2026-10-20',
+      walletId: 'wallet-cash',
+      containerId: UNALLOCATED_CONTAINER_ID,
+    });
+
+    const move = (
+      amountMinor: number,
+      containerId: string,
+      destinationContainerId: string,
+      idempotencyKey: string,
+    ) =>
+      service.recordMoneyEntry({
+        mode: 'container_transfer',
+        amountMinor,
+        title: 'Transfer',
+        effectiveDate: '2026-10-20',
+        containerId,
+        destinationContainerId,
+        idempotencyKey,
+      });
+
+    await move(10_000, UNALLOCATED_CONTAINER_ID, SAVINGS_CONTAINER_ID, 'u-s');
+    await move(2_000, SAVINGS_CONTAINER_ID, UNALLOCATED_CONTAINER_ID, 's-u');
+    await move(30_000, UNALLOCATED_CONTAINER_ID, food.containerId, 'u-food');
+    await move(5_000, food.containerId, school.containerId, 'food-school');
+    await move(5_000, food.containerId, SAVINGS_CONTAINER_ID, 'food-s');
+    await move(4_000, school.containerId, UNALLOCATED_CONTAINER_ID, 'school-u');
+    const first = await move(
+      3_000,
+      SAVINGS_CONTAINER_ID,
+      food.containerId,
+      's-food',
+    );
+    const repeated = await move(
+      3_000,
+      SAVINGS_CONTAINER_ID,
+      food.containerId,
+      's-food',
+    );
+
+    assert.equal(first.transactionId, repeated.transactionId);
+
+    const month = await service.getMonthView('2026-10');
+    const walletView = await service.getWalletView();
+    const containerTotal = month.containers.reduce(
+      (total, container) => total + container.balanceMinor,
+      0,
+    );
+
+    assert.equal(balanceOf(month.containers, UNALLOCATED_CONTAINER_ID), 66_000);
+    assert.equal(balanceOf(month.containers, food.containerId), 23_000);
+    assert.equal(balanceOf(month.containers, school.containerId), 1_000);
+    assert.equal(balanceOf(month.containers, SAVINGS_CONTAINER_ID), 10_000);
+    assert.equal(containerTotal, 100_000);
+    assert.equal(walletView.totalBalanceMinor, 100_000);
+    assert.equal(month.summary.incomeMinor, 100_000);
+    assert.equal(month.summary.expenseMinor, 0);
+    assert.equal(month.summary.netSavingsMinor, 100_000);
+    assert.equal(month.summary.savingsContributionsMinor, 15_000);
+    assert.equal(month.summary.savingsWithdrawalsMinor, 5_000);
+    assert.equal(month.summary.savingsEndingBalanceMinor, 10_000);
+    assert.equal(month.transactions.length, 8);
+  } finally {
+    harness.database.close();
+  }
+});
+
 test('a repeated request with the same idempotency key is not posted twice', async () => {
   const { harness, service } = await setup();
   try {

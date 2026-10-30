@@ -33,6 +33,14 @@ interface MoneyEntryModalProps {
   onClose: () => void;
 }
 
+interface TransferResult {
+  amountMinor: number;
+  sourceName: string;
+  sourceBalanceMinor: number;
+  destinationName: string;
+  destinationBalanceMinor: number;
+}
+
 const MODE_COPY: Record<
   EntryMode,
   {
@@ -85,7 +93,8 @@ export function MoneyEntryModal({
   const { theme } = useAppTheme();
   const { width } = useWindowDimensions();
   const stackActions = width < 480;
-  const { activeMonthKey, todayDateKey, recordMoneyEntry } = useFinance();
+  const { activeMonthKey, todayDateKey, recordMoneyEntry, service } =
+    useFinance();
   const walletQuery = useFinanceWallets();
   const monthQuery = useFinanceMonth(activeMonthKey);
   const copy = MODE_COPY[mode];
@@ -123,6 +132,8 @@ export function MoneyEntryModal({
   const [destinationContainerId, setDestinationContainerId] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
+  const [transferResult, setTransferResult] =
+    useState<TransferResult | null>(null);
   const operationKey = useRef(createOperationKey(`entry-${mode}`));
 
   const selectedWalletId = walletId || preferredWallet?.id || '';
@@ -202,11 +213,36 @@ export function MoneyEntryModal({
       destinationContainerId: selectedDestinationContainerId,
       idempotencyKey: operationKey.current,
     });
-    setPending(false);
 
     if (!result.ok) {
+      setPending(false);
       setError(result.message ?? 'Check the details and try again.');
       return;
+    }
+
+    if (mode === 'container_transfer' && service) {
+      try {
+        const view = await service.getMonthView(activeMonthKey);
+        const source = view.containers.find(
+          (container) => container.id === selectedContainerId,
+        );
+        const destination = view.containers.find(
+          (container) => container.id === selectedDestinationContainerId,
+        );
+        if (source && destination) {
+          setTransferResult({
+            amountMinor,
+            sourceName: source.name,
+            sourceBalanceMinor: source.balanceMinor,
+            destinationName: destination.name,
+            destinationBalanceMinor: destination.balanceMinor,
+          });
+          return;
+        }
+      } catch {
+        onClose();
+        return;
+      }
     }
 
     onClose();
@@ -274,6 +310,67 @@ export function MoneyEntryModal({
             </Pressable>
           </View>
 
+          {transferResult ? (
+            <ScrollView
+              showsVerticalScrollIndicator={false}
+              contentContainerStyle={styles.form}
+            >
+              <View
+                style={[
+                  styles.success,
+                  {
+                    backgroundColor: theme.colors.successSoft,
+                    borderColor: theme.colors.success,
+                  },
+                ]}
+              >
+                <Ionicons
+                  name="checkmark-circle"
+                  size={22}
+                  color={theme.colors.success}
+                />
+                <View style={styles.flex}>
+                  <AppText variant="h3" color={theme.colors.success}>
+                    Transfer saved
+                  </AppText>
+                  <AppText
+                    variant="caption"
+                    color={theme.colors.textSecondary}
+                  >
+                    {formatPeso(transferResult.amountMinor)} moved. It is not
+                    counted as income or an expense.
+                  </AppText>
+                </View>
+              </View>
+
+              <View
+                style={[
+                  styles.preview,
+                  {
+                    backgroundColor: theme.colors.surfaceMuted,
+                    borderColor: theme.colors.border,
+                  },
+                ]}
+              >
+                <PreviewRow
+                  label={`${transferResult.sourceName} balance`}
+                  value={formatPeso(transferResult.sourceBalanceMinor)}
+                />
+                <PreviewRow
+                  label={`${transferResult.destinationName} balance`}
+                  value={formatPeso(transferResult.destinationBalanceMinor)}
+                />
+              </View>
+
+              <AppText
+                variant="caption"
+                color={theme.colors.textSecondary}
+              >
+                These updated balances also appear in reports and transaction
+                history.
+              </AppText>
+            </ScrollView>
+          ) : (
           <ScrollView
             showsVerticalScrollIndicator={false}
             keyboardShouldPersistTaps="handled"
@@ -571,30 +668,43 @@ export function MoneyEntryModal({
               </View>
             ) : null}
           </ScrollView>
+          )}
 
-          <View
-            style={[styles.actions, stackActions ? styles.actionsStacked : null]}
-          >
+          {transferResult ? (
             <AppButton
-              label="Cancel"
-              variant="outline"
-              onPress={onClose}
-              style={[
-                styles.action,
-                stackActions ? styles.actionStacked : null,
-              ]}
-            />
-            <AppButton
-              label={pending ? 'Saving…' : copy.saveLabel}
+              label="Done"
               icon="checkmark"
-              onPress={handleSubmit}
-              disabled={!canSubmit}
-              style={[
-                styles.action,
-                stackActions ? styles.actionStacked : null,
-              ]}
+              onPress={onClose}
+              fullWidth
             />
-          </View>
+          ) : (
+            <View
+              style={[
+                styles.actions,
+                stackActions ? styles.actionsStacked : null,
+              ]}
+            >
+              <AppButton
+                label="Cancel"
+                variant="outline"
+                onPress={onClose}
+                style={[
+                  styles.action,
+                  stackActions ? styles.actionStacked : null,
+                ]}
+              />
+              <AppButton
+                label={pending ? 'Saving…' : copy.saveLabel}
+                icon="checkmark"
+                onPress={handleSubmit}
+                disabled={!canSubmit}
+                style={[
+                  styles.action,
+                  stackActions ? styles.actionStacked : null,
+                ]}
+              />
+            </View>
+          )}
         </View>
       </KeyboardAvoidingView>
     </Modal>
@@ -867,6 +977,14 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     gap: spacing.md,
+  },
+  success: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: spacing.sm,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: radii.md,
+    padding: spacing.md,
   },
   error: {
     flexDirection: 'row',
