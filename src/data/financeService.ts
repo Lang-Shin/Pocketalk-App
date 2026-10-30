@@ -203,7 +203,9 @@ export class FinanceService {
     input: MoneyEntryInput,
   ): Promise<TransactionMutationResult> {
     const amountMinor = requirePositiveAmount(input.amountMinor);
-    const title = input.title.trim();
+    const trimmedTitle = input.title.trim();
+    const title =
+      trimmedTitle || (input.mode === 'income' ? 'Income' : trimmedTitle);
     const effectiveDate = input.effectiveDate;
     if (!isValidDateKey(effectiveDate)) {
       throw new FinanceError(

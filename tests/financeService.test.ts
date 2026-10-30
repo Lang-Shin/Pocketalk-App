@@ -50,6 +50,37 @@ test('the finance service creates default wallets only once', async () => {
   }
 });
 
+test('income notes are optional and default to Unallocated', async () => {
+  const { harness, service } = await setup();
+  try {
+    const result = await service.recordMoneyEntry({
+      mode: 'income',
+      amountMinor: 5_000,
+      title: '   ',
+      effectiveDate: '2026-10-20',
+      walletId: 'wallet-cash',
+    });
+
+    const month = await service.getMonthView('2026-10');
+    const transaction = month.transactions.find(
+      (candidate) => candidate.id === result.transactionId,
+    );
+
+    assert.equal(month.summary.incomeMinor, 5_000);
+    assert.equal(
+      balanceOf(month.containers, UNALLOCATED_CONTAINER_ID),
+      5_000,
+    );
+    assert.equal(transaction?.title, 'Income');
+    assert.equal(
+      transaction?.destinationContainerId,
+      UNALLOCATED_CONTAINER_ID,
+    );
+  } finally {
+    harness.database.close();
+  }
+});
+
 test('allocation and Savings transfers do not change net savings', async () => {
   const { harness, service } = await setup();
   try {

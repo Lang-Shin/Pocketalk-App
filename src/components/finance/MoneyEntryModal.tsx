@@ -96,13 +96,9 @@ export function MoneyEntryModal({
   const containerOptions: ContainerSnapshot[] =
     mode === 'expense'
       ? activeContainers.filter((container) => container.systemKey == null)
-      : mode === 'income'
-        ? activeContainers.filter(
-            (container) => container.systemKey !== 'savings',
-          )
-        : mode === 'container_transfer'
-          ? activeContainers
-          : [];
+      : mode === 'income' || mode === 'container_transfer'
+        ? activeContainers
+        : [];
   const accountsLoading =
     walletQuery.status === 'loading' ||
     (mode !== 'wallet_transfer' && monthQuery.status === 'loading');
@@ -344,12 +340,12 @@ export function MoneyEntryModal({
             </Field>
 
             <Field
-              label="Description"
+              label={mode === 'income' ? 'Note' : 'Description'}
               hint={
                 mode === 'expense'
                   ? 'What did you spend on?'
                   : mode === 'income'
-                    ? 'Where did it come from?'
+                    ? 'Optional. Where did it come from?'
                     : 'What is this transfer for?'
               }
             >
@@ -364,7 +360,9 @@ export function MoneyEntryModal({
                       : 'Move money'
                 }
                 maxLength={80}
-                accessibilityLabel="Description"
+                accessibilityLabel={
+                  mode === 'income' ? 'Optional income note' : 'Description'
+                }
               />
             </Field>
 
@@ -405,11 +403,16 @@ export function MoneyEntryModal({
                   label={
                     mode === 'expense'
                       ? 'Spend from container'
-                      : 'Add to container'
+                      : 'Add to container (optional)'
                   }
                   options={containerOptions.map((container) => ({
                     id: container.id,
-                    label: container.name,
+                    label:
+                      container.systemKey === 'unallocated'
+                        ? `${container.name} (general)`
+                        : container.systemKey === 'savings'
+                          ? `${container.name} (permanent)`
+                          : container.name,
                     caption: `${formatPeso(container.balanceMinor)} actual`,
                     icon: container.icon,
                   }))}
