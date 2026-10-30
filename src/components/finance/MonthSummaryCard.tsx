@@ -171,11 +171,28 @@ export function MonthSummaryCard({
       <View style={styles.placementBlock}>
         <PlacementRow
           icon="layers-outline"
+          label="Unallocated balance"
+          caption="General money not yet assigned to a budget"
+          value={formatPeso(summary.unallocatedEndingBalanceMinor)}
+        />
+        <View
+          style={[
+            styles.placementRule,
+            { backgroundColor: theme.colors.border },
+          ]}
+        />
+        <PlacementRow
+          icon="archive-outline"
           label="Unallocated carry-in"
           caption="Carried from closed months, not new income"
           value={formatPeso(summary.unallocatedCarryoverMinor)}
         />
-        <View style={[styles.placementRule, { backgroundColor: theme.colors.border }]} />
+        <View
+          style={[
+            styles.placementRule,
+            { backgroundColor: theme.colors.border },
+          ]}
+        />
         <PlacementRow
           icon="wallet-outline"
           label="Available budget"
@@ -223,7 +240,7 @@ function PlacementRow({
   caption,
   value,
 }: {
-  icon: 'layers-outline' | 'wallet-outline';
+  icon: 'archive-outline' | 'layers-outline' | 'wallet-outline';
   label: string;
   caption: string;
   value: string;
