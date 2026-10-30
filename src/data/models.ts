@@ -125,6 +125,14 @@ export interface MonthSummary {
   hasActivity: boolean;
 }
 
+export interface MonthRolloverSummary {
+  monthKey: string;
+  processedAt: string;
+  revision: number;
+  sweptTransactionCount: number;
+  sweptTotalMinor: number;
+}
+
 export interface ProposedTransactionDraft {
   action: 'expense' | 'income' | 'transfer';
   title: string;

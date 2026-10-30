@@ -3,6 +3,7 @@ import type {
   ContainerLabel,
   ContainerMonthResult,
   ContainerSnapshot,
+  MonthRolloverSummary,
   MonthSummary,
   Transaction,
   TransactionDirection,
@@ -1127,6 +1128,37 @@ export class FinanceEngine {
     requireMonthKey(activeMonthKey);
     await this.ensureRolloverCurrent();
     return this.repository.getMonthSummary(monthKey, activeMonthKey);
+  }
+
+  async getMonthRollover(
+    monthKey: string,
+  ): Promise<MonthRolloverSummary | null> {
+    requireMonthKey(monthKey);
+    await this.ensureRolloverCurrent();
+    const run = await this.repository.getRolloverRun(monthKey);
+    if (!run) return null;
+
+    let sweptTotalMinor = 0;
+    for (const transactionId of run.sweepTransactionIds) {
+      const transaction = await this.repository.getTransaction(transactionId);
+      if (!transaction) {
+        throw new FinanceError(
+          'INVALID_STATE',
+          'A monthly rollover transfer is missing from the saved ledger.',
+        );
+      }
+      if (transaction.status === 'posted') {
+        sweptTotalMinor += transaction.amountMinor;
+      }
+    }
+
+    return {
+      monthKey: run.monthKey,
+      processedAt: run.processedAt,
+      revision: run.revision,
+      sweptTransactionCount: run.sweepTransactionIds.length,
+      sweptTotalMinor,
+    };
   }
 
   async getTransactionsForMonth(monthKey: string): Promise<Transaction[]> {

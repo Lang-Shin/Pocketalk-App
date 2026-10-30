@@ -1,6 +1,7 @@
 import type {
   ContainerMonthResult,
   ContainerSnapshot,
+  MonthRolloverSummary,
   MonthSummary,
   Transaction,
   WalletSnapshot,
@@ -83,6 +84,8 @@ export interface HistoryView {
   summary: MonthSummary;
   previous: MonthSummary;
   results: ContainerMonthResult[];
+  transactions: Transaction[];
+  rollover: MonthRolloverSummary | null;
   availableMonths: string[];
 }
 
@@ -171,6 +174,8 @@ export class FinanceService {
       this.activeMonthKey,
     );
     const results = await this.engine.getContainerMonthResults(monthKey);
+    const transactions = await this.engine.getTransactionsForMonth(monthKey);
+    const rollover = await this.engine.getMonthRollover(monthKey);
     const availableMonths: string[] = [];
 
     for (const candidate of getMonthKeysBack(6, this.activeMonthKey)) {
@@ -203,6 +208,8 @@ export class FinanceService {
       summary,
       previous,
       results,
+      transactions,
+      rollover,
       availableMonths: availableMonths.reverse(),
     };
   }

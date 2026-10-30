@@ -11,7 +11,9 @@ import {
 
 import { AppText } from '@/components/AppText';
 import { MonthSummaryCard } from '@/components/finance/MonthSummaryCard';
+import { TransactionRow } from '@/components/finance/TransactionRow';
 import { Card } from '@/components/ui/Card';
+import { Divider } from '@/components/ui/Divider';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { IconBadge } from '@/components/ui/IconBadge';
 import { MonthNavigator } from '@/components/ui/MonthNavigator';
@@ -20,9 +22,13 @@ import { PageHeader } from '@/components/ui/PageHeader';
 import { ErrorState, LoadingState } from '@/components/ui/QueryStates';
 import { Screen } from '@/components/ui/Screen';
 import { useFinance, useFinanceHistory } from '@/data/financeStore';
-import type { ContainerMonthResult } from '@/data/models';
+import type { ContainerMonthResult, Transaction } from '@/data/models';
 import { formatPeso } from '@/lib/money';
-import { formatMonthKey, formatMonthKeyShort } from '@/lib/period';
+import {
+  formatDateKey,
+  formatMonthKey,
+  formatMonthKeyShort,
+} from '@/lib/period';
 import { useAppTheme, layout, radii, spacing } from '@/theme';
 
 export function MonthlyHistoryScreen() {
@@ -68,13 +74,29 @@ export function MonthlyHistoryScreen() {
     );
   }
 
-  const { summary, previous, results, availableMonths } = historyQuery.data;
+  const {
+    summary,
+    previous,
+    results,
+    transactions,
+    rollover,
+    availableMonths,
+  } = historyQuery.data;
   const resultsWithActivity = results.filter(
     (result) =>
       result.hasActivity ||
       result.endingBalanceMinor !== 0 ||
       result.status === 'archived',
   );
+  const transactionGroups = new Map<string, Transaction[]>();
+  for (const transaction of transactions) {
+    const existing = transactionGroups.get(transaction.effectiveDate);
+    if (existing) {
+      existing.push(transaction);
+    } else {
+      transactionGroups.set(transaction.effectiveDate, [transaction]);
+    }
+  }
   const hasReportContent =
     summary.hasActivity ||
     summary.savingsEndingBalanceMinor !== 0 ||
@@ -156,6 +178,76 @@ export function MonthlyHistoryScreen() {
 
       <View style={styles.section}>
         <MonthSummaryCard summary={summary} previous={previous} />
+      </View>
+
+      <View style={styles.section}>
+        <View style={styles.sectionTitle}>
+          <AppText variant="h3">Month-end rollover</AppText>
+          <AppText variant="caption" color={theme.colors.textSecondary}>
+            Leftover ordinary-container balances are swept into Unallocated
+            automatically.
+          </AppText>
+        </View>
+        <Card style={styles.rolloverCard}>
+          <View style={styles.rolloverRow}>
+            <View
+              style={[
+                styles.rolloverIcon,
+                { backgroundColor: theme.colors.surfaceMuted },
+              ]}
+            >
+              <Ionicons
+                name={rollover ? 'refresh-circle-outline' : 'time-outline'}
+                size={22}
+                color={theme.colors.primary}
+              />
+            </View>
+            <View style={styles.rolloverCopy}>
+              <AppText variant="label" weight="semibold">
+                {rollover
+                  ? 'Rollover recorded'
+                  : summary.isCurrent
+                    ? 'Month still open'
+                    : 'No rollover recorded'}
+              </AppText>
+              <AppText variant="caption" color={theme.colors.textSecondary}>
+                {rollover
+                  ? `${rollover.sweptTransactionCount} ${
+                      rollover.sweptTransactionCount === 1
+                        ? 'transfer'
+                        : 'transfers'
+                    } into Unallocated \u00B7 not income or an expense`
+                  : summary.isCurrent
+                    ? 'Balances are swept after the month closes. Nothing changes during the open month.'
+                    : 'This month predates the saved rollover history, so no sweep was recorded.'}
+              </AppText>
+            </View>
+            {rollover ? (
+              <AppText variant="h3" numberOfLines={1}>
+                {formatPeso(rollover.sweptTotalMinor)}
+              </AppText>
+            ) : null}
+          </View>
+          {rollover && rollover.revision > 1 ? (
+            <View
+              style={[styles.rolloverNote, { borderColor: theme.colors.border }]}
+            >
+              <Ionicons
+                name="git-compare-outline"
+                size={15}
+                color={theme.colors.textTertiary}
+              />
+              <AppText
+                variant="micro"
+                color={theme.colors.textTertiary}
+                style={styles.flex}
+              >
+                Recalculated at revision {rollover.revision} after a late entry
+                or correction in this month.
+              </AppText>
+            </View>
+          ) : null}
+        </Card>
       </View>
 
       {!hasReportContent ? (
@@ -287,6 +379,64 @@ export function MonthlyHistoryScreen() {
               icon="information-circle-outline"
             />
           </View>
+
+          <View style={styles.section}>
+            <View style={styles.sectionTitle}>
+              <AppText variant="h3">Transactions</AppText>
+              <AppText variant="caption" color={theme.colors.textSecondary}>
+                Grouped by the effective date each transaction belongs to.
+              </AppText>
+            </View>
+            {transactionGroups.size === 0 ? (
+              <Card>
+                <AppText
+                  variant="bodySmall"
+                  color={theme.colors.textSecondary}
+                >
+                  No transactions were recorded for this month.
+                </AppText>
+              </Card>
+            ) : (
+              <View style={styles.transactionGroups}>
+                {Array.from(transactionGroups.entries()).map(
+                  ([dateKey, groupTransactions]) => (
+                    <View key={dateKey} style={styles.transactionGroup}>
+                      <View style={styles.groupHeader}>
+                        <AppText
+                          variant="label"
+                          color={theme.colors.textSecondary}
+                        >
+                          {formatDateKey(dateKey)}
+                        </AppText>
+                        <AppText
+                          variant="micro"
+                          color={theme.colors.textTertiary}
+                        >
+                          {groupTransactions.length}{' '}
+                          {groupTransactions.length === 1
+                            ? 'RECORD'
+                            : 'RECORDS'}
+                        </AppText>
+                      </View>
+                      <Card padded={false} style={styles.listCard}>
+                        {groupTransactions.map((transaction, index) => (
+                          <View key={transaction.id}>
+                            <TransactionRow
+                              transaction={transaction}
+                              showDate={false}
+                            />
+                            {index < groupTransactions.length - 1 ? (
+                              <Divider />
+                            ) : null}
+                          </View>
+                        ))}
+                      </Card>
+                    </View>
+                  ),
+                )}
+              </View>
+            )}
+          </View>
         </>
       )}
 
@@ -410,6 +560,51 @@ const styles = StyleSheet.create({
   section: {
     gap: spacing.md,
     marginTop: spacing.xxxl,
+  },
+  flex: {
+    flex: 1,
+  },
+  rolloverCard: {
+    gap: spacing.md,
+  },
+  rolloverRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+  },
+  rolloverIcon: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  rolloverCopy: {
+    flex: 1,
+    gap: 2,
+  },
+  rolloverNote: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    paddingTop: spacing.sm,
+  },
+  transactionGroups: {
+    gap: spacing.xl,
+  },
+  transactionGroup: {
+    gap: spacing.sm,
+  },
+  groupHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: spacing.sm,
+  },
+  listCard: {
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.xs,
   },
   monthStripSection: {
     gap: spacing.sm,

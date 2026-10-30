@@ -507,3 +507,83 @@ test('monthly history exposes saved results and the previous month', async () =>
     harness.database.close();
   }
 });
+
+test('monthly history reports rollover sweeps and saved transactions', async () => {
+  const { harness, service } = await setup();
+  try {
+    await service.recordMoneyEntry({
+      mode: 'income',
+      amountMinor: 100_000,
+      title: 'Allowance',
+      effectiveDate: '2026-10-20',
+      walletId: 'wallet-cash',
+      containerId: UNALLOCATED_CONTAINER_ID,
+    });
+    const container = await service.createContainer({
+      name: 'Food',
+      description: '',
+      icon: 'restaurant-outline',
+      tone: 'coral',
+      limitMinor: 60_000,
+      monthKey: '2026-10',
+    });
+    await service.recordMoneyEntry({
+      mode: 'container_transfer',
+      amountMinor: 60_000,
+      title: 'Allocate to food',
+      effectiveDate: '2026-10-20',
+      containerId: UNALLOCATED_CONTAINER_ID,
+      destinationContainerId: container.containerId,
+    });
+    await service.recordMoneyEntry({
+      mode: 'container_transfer',
+      amountMinor: 10_000,
+      title: 'Move to savings',
+      effectiveDate: '2026-10-20',
+      containerId: container.containerId,
+      destinationContainerId: SAVINGS_CONTAINER_ID,
+    });
+
+    harness.clock.set(2026, 10, 15);
+    const history = await service.getHistoryView('2026-10');
+
+    assert.ok(history.rollover);
+    assert.equal(history.rollover.monthKey, '2026-10');
+    assert.equal(history.rollover.revision, 1);
+    assert.equal(history.rollover.sweptTransactionCount, 1);
+    assert.equal(history.rollover.sweptTotalMinor, 50_000);
+    assert.equal(history.transactions.length, 3);
+    assert.ok(
+      history.transactions.some((transaction) => transaction.kind === 'income'),
+    );
+    assert.ok(
+      history.transactions.some(
+        (transaction) => transaction.kind === 'savings',
+      ),
+    );
+
+    const nextMonth = await service.getHistoryView('2026-11');
+    assert.ok(
+      nextMonth.transactions.some(
+        (transaction) => transaction.title === 'Rollover: Food',
+      ),
+    );
+  } finally {
+    harness.database.close();
+  }
+});
+
+test('monthly history keeps open and pre-baseline months explicit', async () => {
+  const { harness, service } = await setup();
+  try {
+    const openMonth = await service.getHistoryView('2026-10');
+    assert.equal(openMonth.rollover, null);
+    assert.deepEqual(openMonth.transactions, []);
+
+    const beforeBaseline = await service.getHistoryView('2026-08');
+    assert.equal(beforeBaseline.rollover, null);
+    assert.deepEqual(beforeBaseline.transactions, []);
+  } finally {
+    harness.database.close();
+  }
+});
