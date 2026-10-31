@@ -4,42 +4,36 @@ import {
   useContext,
   useEffect,
   useMemo,
-  useRef,
   useState,
+  useSyncExternalStore,
   type PropsWithChildren,
 } from 'react';
 import { AppState } from 'react-native';
 
-import { FinanceError } from '@/db/errors';
-import { FinanceEngine } from '@/db/financeEngine';
 import { openPocketaDatabase } from '@/db/expoDatabase';
 import { ErrorState, LoadingState } from '@/components/ui/QueryStates';
 import { Screen } from '@/components/ui/Screen';
-import { monthKeyForDateKey, toLocalDateKey } from '@/lib/period';
 import { useRepositoryQuery, type QueryResult } from './hooks';
 import {
-  FinanceService,
-  type ActionResult,
-  type ContainerInput,
-  type HistoryView,
-  type MoneyEntryInput,
-  type MonthView,
-  type UpdateContainerInput,
-  type WalletView,
+  FinanceSession,
+  type FinanceSessionState,
+  type FinanceStatus,
+} from './financeSession';
+import type {
+  ActionResult,
+  ContainerInput,
+  HistoryView,
+  MoneyEntryInput,
+  MonthView,
+  UpdateContainerInput,
+  WalletView,
 } from './financeService';
 
 export type { EntryMode } from './financeService';
+export type { FinanceStatus };
 
-type FinanceStatus = 'loading' | 'ready' | 'error';
-
-interface FinanceStoreValue {
-  status: FinanceStatus;
-  error: string | null;
+interface FinanceStoreValue extends FinanceSessionState {
   retry: () => void;
-  service: FinanceService | null;
-  activeMonthKey: string;
-  todayDateKey: string;
-  revision: number;
   refresh: () => void;
   recordMoneyEntry: (input: MoneyEntryInput) => Promise<ActionResult>;
   createContainer: (input: ContainerInput) => Promise<ActionResult>;
@@ -61,63 +55,29 @@ interface FinanceStoreValue {
 const FinanceStoreContext = createContext<FinanceStoreValue | null>(null);
 
 export function FinanceProvider({ children }: PropsWithChildren) {
-  const [status, setStatus] = useState<FinanceStatus>('loading');
-  const [error, setError] = useState<string | null>(null);
-  const [service, setService] = useState<FinanceService | null>(null);
-  const [today, setToday] = useState(() => new Date());
-  const [revision, setRevision] = useState(0);
-  const serviceRef = useRef<FinanceService | null>(null);
-  const startupRef = useRef(false);
-
-  const start = useCallback(async () => {
-    if (startupRef.current) return;
-    startupRef.current = true;
-
-    try {
-      const database = await openPocketaDatabase();
-      const nextService = new FinanceService(new FinanceEngine(database));
-      await nextService.initialize();
-      serviceRef.current = nextService;
-      setService(nextService);
-      setToday(new Date());
-      setError(null);
-      setStatus('ready');
-    } catch (startupError) {
-      startupRef.current = false;
-      setError(toMessage(startupError));
-      setStatus('error');
-    }
-  }, []);
-
-  const retry = useCallback(() => {
-    setStatus('loading');
-    setError(null);
-    void start();
-  }, [start]);
+  const [session] = useState(
+    () => new FinanceSession({ openDatabase: openPocketaDatabase }),
+  );
+  const state = useSyncExternalStore(
+    session.subscribe,
+    session.getState,
+    session.getState,
+  );
 
   useEffect(() => {
     const timer = setTimeout(() => {
-      void start();
+      void session.start();
     }, 0);
 
     return () => clearTimeout(timer);
-  }, [start]);
-
-  const todayDateKey = toLocalDateKey(today);
-  const activeMonthKey = monthKeyForDateKey(todayDateKey);
+  }, [session]);
 
   useEffect(() => {
-    if (status !== 'ready') return;
+    if (state.status !== 'ready') return;
 
     const refreshDate = () => {
-      const next = new Date();
-      const nextDateKey = toLocalDateKey(next);
-      if (nextDateKey !== todayDateKey) {
-        setToday(next);
-        setRevision((current) => current + 1);
-      }
+      session.refreshDate();
     };
-
     const interval = setInterval(refreshDate, 60_000);
     const subscription = AppState.addEventListener('change', (nextStatus) => {
       if (nextStatus === 'active') refreshDate();
@@ -127,115 +87,31 @@ export function FinanceProvider({ children }: PropsWithChildren) {
       clearInterval(interval);
       subscription.remove();
     };
-  }, [status, todayDateKey]);
-
-  const refresh = useCallback(() => {
-    setRevision((current) => current + 1);
-  }, []);
-
-  const perform = useCallback(
-    async (
-      operation: (current: FinanceService) => Promise<unknown>,
-    ): Promise<ActionResult> => {
-      const current = serviceRef.current;
-      if (!current) {
-        return {
-          ok: false,
-          message: 'The local ledger is still opening. Try again in a moment.',
-        };
-      }
-
-      try {
-        await operation(current);
-        setRevision((value) => value + 1);
-        return { ok: true };
-      } catch (operationError) {
-        return { ok: false, message: toMessage(operationError) };
-      }
-    },
-    [],
-  );
-
-  const recordMoneyEntry = useCallback(
-    (input: MoneyEntryInput) =>
-      perform((current) => current.recordMoneyEntry(input)),
-    [perform],
-  );
-  const createContainer = useCallback(
-    (input: ContainerInput) =>
-      perform((current) => current.createContainer(input)),
-    [perform],
-  );
-  const updateContainer = useCallback(
-    (input: UpdateContainerInput) =>
-      perform((current) => current.updateContainer(input)),
-    [perform],
-  );
-  const archiveContainer = useCallback(
-    (containerId: string, idempotencyKey?: string) =>
-      perform((current) =>
-        current.archiveContainer(containerId, idempotencyKey),
-      ),
-    [perform],
-  );
-  const reactivateContainer = useCallback(
-    (containerId: string, idempotencyKey?: string) =>
-      perform((current) =>
-        current.reactivateContainer(containerId, idempotencyKey),
-      ),
-    [perform],
-  );
-  const deleteContainer = useCallback(
-    (containerId: string, idempotencyKey?: string) =>
-      perform((current) =>
-        current.deleteContainer(containerId, idempotencyKey),
-      ),
-    [perform],
-  );
+  }, [session, state.status]);
 
   const value = useMemo<FinanceStoreValue>(
     () => ({
-      status,
-      error,
-      retry,
-      service,
-      activeMonthKey,
-      todayDateKey,
-      revision,
-      refresh,
-      recordMoneyEntry,
-      createContainer,
-      updateContainer,
-      archiveContainer,
-      reactivateContainer,
-      deleteContainer,
+      ...state,
+      retry: session.retry,
+      refresh: session.refresh,
+      recordMoneyEntry: session.recordMoneyEntry,
+      createContainer: session.createContainer,
+      updateContainer: session.updateContainer,
+      archiveContainer: session.archiveContainer,
+      reactivateContainer: session.reactivateContainer,
+      deleteContainer: session.deleteContainer,
     }),
-    [
-      status,
-      error,
-      retry,
-      service,
-      activeMonthKey,
-      todayDateKey,
-      revision,
-      refresh,
-      recordMoneyEntry,
-      createContainer,
-      updateContainer,
-      archiveContainer,
-      reactivateContainer,
-      deleteContainer,
-    ],
+    [session, state],
   );
 
-  if (status !== 'ready' || !service) {
+  if (state.status !== 'ready' || !state.service) {
     return (
       <FinanceStoreContext.Provider value={value}>
         <Screen edges={['top', 'bottom']}>
-          {status === 'error' ? (
+          {state.status === 'error' ? (
             <ErrorState
-              message={error ?? 'The local ledger could not be opened.'}
-              onRetry={retry}
+              message={state.error ?? 'The local ledger could not be opened.'}
+              onRetry={session.retry}
             />
           ) : (
             <LoadingState label="Opening your saved ledger…" />
@@ -280,6 +156,7 @@ export function useFinanceWallets(): QueryResult<WalletView> {
     }
     return service.getWalletView();
   }, [service]);
+
   return useRepositoryQuery(load, revision);
 }
 
@@ -291,11 +168,6 @@ export function useFinanceHistory(monthKey: string): QueryResult<HistoryView> {
     }
     return service.getHistoryView(monthKey);
   }, [monthKey, service]);
-  return useRepositoryQuery(load, revision);
-}
 
-function toMessage(error: unknown): string {
-  if (error instanceof FinanceError) return error.message;
-  if (error instanceof Error && error.message.trim()) return error.message;
-  return 'Something went wrong while updating the local ledger.';
+  return useRepositoryQuery(load, revision);
 }

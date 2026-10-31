@@ -5,7 +5,7 @@ import {
 } from 'expo-sqlite';
 import { Platform } from 'react-native';
 
-import { migrateDatabase } from './migrations';
+import { preparePocketaDatabase } from './databaseSetup';
 import type { SqlDatabase, SqlValue } from './sqlDatabase';
 
 export const POCKETA_DATABASE_NAME = 'pocketa.db';
@@ -63,12 +63,8 @@ export async function openPocketaDatabase(): Promise<SqlDatabase> {
 
 async function initializeDatabase(): Promise<SqlDatabase> {
   const database = await openDatabaseAsync(POCKETA_DATABASE_NAME);
-  await database.execAsync(`
-    PRAGMA foreign_keys = ON;
-    PRAGMA busy_timeout = 5000;
-    ${Platform.OS === 'web' ? '' : 'PRAGMA journal_mode = WAL;'}
-  `);
   const adapter = createExpoSqlDatabase(database);
-  await migrateDatabase(adapter);
-  return adapter;
+  return preparePocketaDatabase(adapter, {
+    enableWal: Platform.OS !== 'web',
+  });
 }
