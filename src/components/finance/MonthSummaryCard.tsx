@@ -1,5 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
-import { StyleSheet, View } from 'react-native';
+import { StyleSheet, useWindowDimensions, View } from 'react-native';
 
 import type { MonthSummary } from '@/data/models';
 import { formatPeso } from '@/lib/money';
@@ -21,6 +21,7 @@ export function MonthSummaryCard({
   showBudget = true,
 }: MonthSummaryCardProps) {
   const { theme } = useAppTheme();
+  const { width } = useWindowDimensions();
   const positive = summary.netSavingsMinor >= 0;
   const netSavingsLabel = formatPeso(summary.netSavingsMinor, {
     showSign: true,
@@ -72,6 +73,8 @@ export function MonthSummaryCard({
           variant={compactNetAmount ? 'amount' : 'amountLarge'}
           color={positive ? theme.colors.text : theme.colors.danger}
           numberOfLines={1}
+          adjustsFontSizeToFit
+          minimumFontScale={0.7}
         >
           {netSavingsLabel}
         </AppText>
@@ -81,7 +84,7 @@ export function MonthSummaryCard({
         </AppText>
       </View>
 
-      <View style={styles.metrics}>
+      <View style={[styles.metrics, width < 360 ? { gap: spacing.xs } : null]}>
         <Metric
           label="Income"
           value={formatPeso(summary.incomeMinor)}
@@ -128,6 +131,9 @@ export function MonthSummaryCard({
                     ? theme.colors.primary
                     : theme.colors.danger
                 }
+                numberOfLines={1}
+                adjustsFontSizeToFit
+                minimumFontScale={0.75}
               >
                 {summary.totalRemainingMinor >= 0
                   ? `${formatPeso(summary.totalRemainingMinor)} left`
@@ -135,7 +141,13 @@ export function MonthSummaryCard({
                       Math.abs(summary.totalRemainingMinor),
                     )} over`}
               </AppText>
-              <AppText variant="micro" color={theme.colors.textTertiary}>
+              <AppText
+                variant="micro"
+                color={theme.colors.textTertiary}
+                numberOfLines={1}
+                adjustsFontSizeToFit
+                minimumFontScale={0.75}
+              >
                 {formatPeso(summary.totalSpentMinor)} spent
               </AppText>
             </View>
@@ -227,7 +239,13 @@ function Metric({
           {label.toUpperCase()}
         </AppText>
       </View>
-      <AppText variant="bodySmall" weight="bold" numberOfLines={1}>
+      <AppText
+        variant="bodySmall"
+        weight="bold"
+        numberOfLines={1}
+        adjustsFontSizeToFit
+        minimumFontScale={0.75}
+      >
         {value}
       </AppText>
     </View>
@@ -265,7 +283,14 @@ function PlacementRow({
           {caption}
         </AppText>
       </View>
-      <AppText variant="bodySmall" weight="bold" numberOfLines={1}>
+      <AppText
+        variant="bodySmall"
+        weight="bold"
+        numberOfLines={1}
+        adjustsFontSizeToFit
+        minimumFontScale={0.75}
+        style={styles.placementValue}
+      >
         {value}
       </AppText>
     </View>
@@ -341,6 +366,10 @@ function ComparisonRow({
         variant="caption"
         weight="semibold"
         color={favorable ? theme.colors.success : theme.colors.danger}
+        numberOfLines={1}
+        adjustsFontSizeToFit
+        minimumFontScale={0.75}
+        style={styles.comparisonValue}
       >
         {value}
       </AppText>
@@ -431,6 +460,11 @@ const styles = StyleSheet.create({
     flex: 1,
     gap: 1,
   },
+  placementValue: {
+    flexShrink: 1,
+    maxWidth: '45%',
+    textAlign: 'right',
+  },
   placementRule: {
     height: StyleSheet.hairlineWidth,
     marginLeft: 42,
@@ -451,5 +485,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     gap: spacing.md,
+  },
+  comparisonValue: {
+    flexShrink: 1,
+    textAlign: 'right',
   },
 });

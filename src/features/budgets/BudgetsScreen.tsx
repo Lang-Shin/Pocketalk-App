@@ -23,7 +23,7 @@ import { useFinance, useFinanceMonth, type EntryMode } from '@/data/financeStore
 import type { ContainerSnapshot } from '@/data/models';
 import { formatMonthKey, isPastMonth } from '@/lib/period';
 import { formatPeso } from '@/lib/money';
-import { getContentWidth, useAppTheme, spacing } from '@/theme';
+import { getGridLayout, useAppTheme, spacing } from '@/theme';
 
 type StatusFilter = 'all' | 'on-track' | 'attention';
 type EditorState = ContainerSnapshot | 'new' | null;
@@ -104,7 +104,7 @@ export function BudgetsScreen() {
     summary.totalLimitMinor > 0
       ? summary.totalSpentMinor / summary.totalLimitMinor
       : 0;
-  const useTwoColumns = getContentWidth(width, true) >= 680;
+  const useTwoColumns = getGridLayout(width, true).columns === 2;
   const archivedBalance = archivedContainers.reduce(
     (total, container) => total + container.balanceMinor,
     0,
@@ -386,6 +386,7 @@ function SummaryStat({
         color={highlight ? theme.colors.primary : theme.colors.text}
         numberOfLines={1}
         adjustsFontSizeToFit
+        minimumFontScale={0.7}
       >
         {value}
       </AppText>

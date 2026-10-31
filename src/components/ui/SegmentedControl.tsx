@@ -74,6 +74,9 @@ export function SegmentedControl<T extends string>({
               color={
                 selected ? theme.colors.text : theme.colors.textSecondary
               }
+              numberOfLines={1}
+              adjustsFontSizeToFit
+              minimumFontScale={0.8}
             >
               {option.label}
             </AppText>

@@ -223,7 +223,16 @@ export function MonthlyHistoryScreen() {
               </AppText>
             </View>
             {rollover ? (
-              <AppText variant="h3" numberOfLines={1}>
+              <AppText
+                variant="h3"
+                numberOfLines={1}
+                adjustsFontSizeToFit
+                minimumFontScale={0.8}
+                style={[
+                  styles.rolloverAmount,
+                  width < 380 ? styles.rolloverAmountNarrow : null,
+                ]}
+              >
                 {formatPeso(rollover.sweptTotalMinor)}
               </AppText>
             ) : null}
@@ -316,7 +325,14 @@ export function MonthlyHistoryScreen() {
                     Transfers into the permanent Savings container
                   </AppText>
                 </View>
-                <AppText variant="h3" color={theme.colors.success}>
+                <AppText
+                  variant="h3"
+                  color={theme.colors.success}
+                  numberOfLines={1}
+                  adjustsFontSizeToFit
+                  minimumFontScale={0.75}
+                  style={styles.rowAmount}
+                >
                   {formatPeso(summary.savingsContributionsMinor)}
                 </AppText>
               </View>
@@ -342,7 +358,13 @@ export function MonthlyHistoryScreen() {
                     Transfers out of the permanent Savings container
                   </AppText>
                 </View>
-                <AppText variant="h3">
+                <AppText
+                  variant="h3"
+                  numberOfLines={1}
+                  adjustsFontSizeToFit
+                  minimumFontScale={0.75}
+                  style={styles.rowAmount}
+                >
                   {formatPeso(summary.savingsWithdrawalsMinor)}
                 </AppText>
               </View>
@@ -368,7 +390,13 @@ export function MonthlyHistoryScreen() {
                     Money held at the end of the month
                   </AppText>
                 </View>
-                <AppText variant="h3">
+                <AppText
+                  variant="h3"
+                  numberOfLines={1}
+                  adjustsFontSizeToFit
+                  minimumFontScale={0.75}
+                  style={styles.rowAmount}
+                >
                   {formatPeso(summary.savingsEndingBalanceMinor)}
                 </AppText>
               </View>
@@ -514,7 +542,13 @@ function ContainerResultRow({
             <AppText variant="micro" color={theme.colors.textTertiary}>
               ENDING BALANCE
             </AppText>
-            <AppText variant="bodySmall" weight="bold">
+            <AppText
+              variant="bodySmall"
+              weight="bold"
+              numberOfLines={1}
+              adjustsFontSizeToFit
+              minimumFontScale={0.75}
+            >
               {formatPeso(result.endingBalanceMinor)}
             </AppText>
           </View>
@@ -526,7 +560,14 @@ function ContainerResultRow({
           <AppText variant="micro" color={theme.colors.textTertiary}>
             ENDING BALANCE
           </AppText>
-          <AppText variant="bodySmall" weight="bold">
+          <AppText
+            variant="bodySmall"
+            weight="bold"
+            numberOfLines={1}
+            adjustsFontSizeToFit
+            minimumFontScale={0.75}
+            style={styles.resultAmountValue}
+          >
             {formatPeso(result.endingBalanceMinor)}
           </AppText>
         </View>
@@ -571,6 +612,17 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.md,
+    flexWrap: 'wrap',
+  },
+  rolloverAmount: {
+    flexShrink: 1,
+    maxWidth: '45%',
+    textAlign: 'right',
+  },
+  rolloverAmountNarrow: {
+    width: '100%',
+    maxWidth: '100%',
+    textAlign: 'right',
   },
   rolloverIcon: {
     width: 42,
@@ -661,6 +713,12 @@ const styles = StyleSheet.create({
   resultAmount: {
     alignItems: 'flex-end',
     gap: 1,
+    flexShrink: 1,
+    maxWidth: '50%',
+  },
+  resultAmountValue: {
+    maxWidth: '55%',
+    textAlign: 'right',
   },
   resultAmountRow: {
     flexDirection: 'row',
@@ -695,6 +753,11 @@ const styles = StyleSheet.create({
   savingsCopy: {
     flex: 1,
     gap: 1,
+  },
+  rowAmount: {
+    flexShrink: 1,
+    maxWidth: '45%',
+    textAlign: 'right',
   },
   rule: {
     height: StyleSheet.hairlineWidth,

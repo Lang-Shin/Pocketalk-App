@@ -118,6 +118,7 @@ export function TransactionDetailModal({
           </View>
 
           <ScrollView
+            style={styles.contentScroll}
             showsVerticalScrollIndicator={false}
             contentContainerStyle={styles.content}
           >
@@ -127,6 +128,8 @@ export function TransactionDetailModal({
                 color={amountColor}
                 style={isReversed ? styles.struck : undefined}
                 numberOfLines={1}
+                adjustsFontSizeToFit
+                minimumFontScale={0.55}
               >
                 {amountPrefix}
                 {formatPeso(transaction.amountMinor)}
@@ -380,6 +383,9 @@ const styles = StyleSheet.create({
     height: 44,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  contentScroll: {
+    flexShrink: 1,
   },
   content: {
     gap: spacing.lg,

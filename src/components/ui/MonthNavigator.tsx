@@ -64,7 +64,9 @@ export function MonthNavigator({
             size={15}
             color={theme.colors.primary}
           />
-          <AppText variant="h3">{formatMonthKey(monthKey)}</AppText>
+          <AppText variant="h3" style={styles.monthText}>
+            {formatMonthKey(monthKey)}
+          </AppText>
           {isCurrent ? (
             <View
               style={[
@@ -118,7 +120,13 @@ const styles = StyleSheet.create({
   labelRow: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
+    flexWrap: 'wrap',
     gap: 6,
+  },
+  monthText: {
+    flexShrink: 1,
+    textAlign: 'center',
   },
   currentPill: {
     borderRadius: radii.pill,

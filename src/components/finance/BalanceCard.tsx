@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import type { ReactNode } from 'react';
-import { StyleSheet, View } from 'react-native';
+import { StyleSheet, useWindowDimensions, View } from 'react-native';
 
 import type { WalletSnapshot } from '@/data/models';
 import { formatPeso } from '@/lib/money';
@@ -24,6 +24,7 @@ export function BalanceCard({
   footer,
 }: BalanceCardProps) {
   const { theme } = useAppTheme();
+  const { width } = useWindowDimensions();
   const balanceLabel = formatPeso(amountMinor);
   const compactAmount = balanceLabel.length > 12;
   const walletSummary = wallets
@@ -67,6 +68,8 @@ export function BalanceCard({
         variant={compactAmount ? 'amount' : 'amountLarge'}
         color={theme.colors.heroText}
         numberOfLines={1}
+        adjustsFontSizeToFit
+        minimumFontScale={0.7}
       >
         {balanceLabel}
       </AppText>
@@ -78,7 +81,12 @@ export function BalanceCard({
       ) : null}
 
       {wallets && wallets.length > 0 ? (
-        <View style={styles.wallets}>
+        <View
+          style={[
+            styles.wallets,
+            width < 360 ? { flexDirection: 'column' } : null,
+          ]}
+        >
           {wallets.map((wallet) => (
             <View key={wallet.id} style={styles.walletItem}>
               <View style={styles.walletIcon}>
@@ -100,6 +108,8 @@ export function BalanceCard({
                   variant="label"
                   color={theme.colors.heroText}
                   numberOfLines={1}
+                  adjustsFontSizeToFit
+                  minimumFontScale={0.75}
                 >
                   {formatPeso(wallet.balanceMinor)}
                 </AppText>

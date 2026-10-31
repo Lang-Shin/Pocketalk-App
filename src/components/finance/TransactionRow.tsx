@@ -75,6 +75,9 @@ export function TransactionRow({
           variant="bodySmall"
           weight="bold"
           color={amountColor}
+          numberOfLines={1}
+          adjustsFontSizeToFit
+          minimumFontScale={0.75}
           style={isReversed ? styles.struck : undefined}
         >
           {amountPrefix}
@@ -167,6 +170,8 @@ const styles = StyleSheet.create({
   amountCopy: {
     alignItems: 'flex-end',
     gap: 3,
+    flexShrink: 1,
+    maxWidth: '60%',
   },
   struck: {
     textDecorationLine: 'line-through',

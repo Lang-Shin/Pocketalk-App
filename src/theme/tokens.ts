@@ -58,9 +58,16 @@ export const layout = {
   maxContentWidth: 760,
   maxWideContentWidth: 1040,
   wideBreakpoint: 1024,
+  twoColumnMinWidth: 680,
   touchTarget: 48,
   tabBarMinHeight: 58,
 } as const;
+
+export interface GridLayout {
+  contentWidth: number;
+  columns: 1 | 2;
+  cardWidth: number;
+}
 
 export function getContentMaxWidth(
   windowWidth: number,
@@ -77,6 +84,22 @@ export function getContentWidth(windowWidth: number, wide = false): number {
     Math.min(windowWidth, getContentMaxWidth(windowWidth, wide)) -
       layout.screenPadding * 2,
   );
+}
+
+export function getGridLayout(
+  windowWidth: number,
+  wide = false,
+): GridLayout {
+  const contentWidth = getContentWidth(windowWidth, wide);
+  const columns: 1 | 2 =
+    contentWidth >= layout.twoColumnMinWidth ? 2 : 1;
+
+  return {
+    contentWidth,
+    columns,
+    cardWidth:
+      columns === 2 ? (contentWidth - spacing.md) / 2 : contentWidth,
+  };
 }
 
 export type Tone = 'emerald' | 'amber' | 'coral' | 'blue' | 'violet';

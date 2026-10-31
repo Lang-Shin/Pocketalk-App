@@ -7,7 +7,7 @@
 - **Requirements revision:** This revision adds monthly calendar budget cycles with permanent savings history, and fully customizable budget-container lifecycle requirements.
 - **Repository name:** `Pocketalk-App`.
 - **Product name:** **Pocketa** is used in this document. The repository and README still use “Pocketalk-App”; the naming conflict is unresolved.
-- **Implementation status:** Phase 1 was research and planning only. Phase 2 (UI foundation) exists as an uncommitted exploratory Expo scaffold but is not approved as Phase 2 completion. Phase 3 (SQLite data layer and financial engine) is implemented: migrations v1–v4, a deterministic `FinanceEngine`, the system Unallocated and Savings containers, automatic monthly rollover, savings transfers, idempotency, reversals, corrections, effective-dated container metadata, container lifecycle, and SQLite-backed tests. Phase 4 (UI integration) is implemented and awaiting review: budget screens use a SQLite-backed service/provider, active and historical months, container lifecycle, Unallocated allocation, Savings transfers, reporting, and filtered transaction history with detail views are connected, and 87 tests pass. Profile and assistant content remain sample-backed. Phase 5+ (AI, hardening) has not been started.
+- **Implementation status:** Phase 1 was research and planning only. Phase 2 (UI foundation) exists as an uncommitted exploratory Expo scaffold but is not approved as Phase 2 completion. Phase 3 (SQLite data layer and financial engine) is implemented: migrations v1–v4, a deterministic `FinanceEngine`, the system Unallocated and Savings containers, automatic monthly rollover, savings transfers, idempotency, reversals, corrections, effective-dated container metadata, container lifecycle, and SQLite-backed tests. Phase 4 (UI integration) is implemented and awaiting review: budget screens use a SQLite-backed service/provider, active and historical months, container lifecycle, Unallocated allocation, Savings transfers, reporting, and filtered transaction history with detail views are connected, and 90 tests pass. Profile and assistant content remain sample-backed. Phase 5+ (AI, hardening) has not been started.
 - **Authority:** Until the original master specification is supplied, this document is the working source of truth for requirements and scope. Requirements that were not established are marked `ASSUMPTION`, `PROPOSED`, or `UNRESOLVED`.
 
 Status labels used in this document:
@@ -631,7 +631,7 @@ These thresholds require user approval and a physical-device benchmark.
 
 ## 11. Testing and Verification Strategy
 
-The following testing strategy is established. Phase 3 tests are implemented and passing, and Phase 4 adds service-level integration and history-filter tests (87 tests as of the Phase 4 update). React Native UI/accessibility and device end-to-end tests are still required but not implemented; no UI test framework is installed.
+The following testing strategy is established. Phase 3 tests are implemented and passing, and Phase 4 adds service-level integration, history-filter, wallet-support, and responsive layout/grid tests (90 tests as of the Phase 4 update). React Native UI/accessibility and device end-to-end tests are still required but not implemented; no UI test framework is installed.
 
 ### 11.1 Unit tests
 

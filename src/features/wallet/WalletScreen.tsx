@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
-import { StyleSheet, View } from 'react-native';
+import { StyleSheet, useWindowDimensions, View } from 'react-native';
 
 import { AppText } from '@/components/AppText';
 import { BalanceCard } from '@/components/finance/BalanceCard';
@@ -24,9 +24,11 @@ import { useAppTheme, radii, spacing } from '@/theme';
 
 export function WalletScreen() {
   const { theme } = useAppTheme();
+  const { width } = useWindowDimensions();
   const router = useRouter();
   const walletQuery = useFinanceWallets();
   const [entryMode, setEntryMode] = useState<EntryMode | null>(null);
+  const stackActions = width < 400;
 
   if (walletQuery.status === 'loading') {
     return (
@@ -92,7 +94,7 @@ export function WalletScreen() {
         />
       </View>
 
-      <View style={styles.actions}>
+      <View style={[styles.actions, stackActions ? styles.actionsStacked : null]}>
         <AppButton
           label="Move money"
           icon="swap-horizontal"
@@ -108,7 +110,7 @@ export function WalletScreen() {
         />
       </View>
 
-      <View style={styles.actions}>
+      <View style={[styles.actions, stackActions ? styles.actionsStacked : null]}>
         <AppButton
           label="Record spending"
           variant="outline"
@@ -203,8 +205,12 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
     marginTop: spacing.sm,
   },
+  actionsStacked: {
+    flexDirection: 'column',
+  },
   actionButton: {
     flex: 1,
+    width: '100%',
   },
   notice: {
     marginTop: spacing.lg,

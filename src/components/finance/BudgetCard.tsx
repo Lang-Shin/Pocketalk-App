@@ -43,7 +43,7 @@ export function BudgetCard({
 }: BudgetCardProps) {
   const { theme } = useAppTheme();
   const { width } = useWindowDimensions();
-  const narrow = width < 420;
+  const narrow = width < 480 || compact;
   const ratio =
     container.limitMinor > 0
       ? container.spentMinor / container.limitMinor
@@ -145,7 +145,7 @@ export function BudgetCard({
           >
             {container.name}
           </AppText>
-          {!compact ? (
+          {!compact && container.description ? (
             <AppText
               variant="caption"
               color={theme.colors.textSecondary}
@@ -176,6 +176,8 @@ export function BudgetCard({
             variant={compact ? 'bodySmall' : 'h2'}
             weight="bold"
             numberOfLines={1}
+            adjustsFontSizeToFit
+            minimumFontScale={0.75}
           >
             {formatPeso(container.balanceMinor)}
           </AppText>
@@ -266,10 +268,12 @@ export function BudgetCard({
 const styles = StyleSheet.create({
   card: {
     gap: spacing.md,
+    minHeight: 140,
   },
   compactCard: {
     padding: spacing.md,
     gap: spacing.sm,
+    minHeight: 110,
   },
   header: {
     flexDirection: 'row',

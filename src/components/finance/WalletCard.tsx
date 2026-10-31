@@ -58,7 +58,14 @@ export function WalletCard({ wallet }: WalletCardProps) {
         </View>
       </View>
 
-      <AppText variant="amount">{formatPeso(wallet.balanceMinor)}</AppText>
+      <AppText
+        variant="amount"
+        numberOfLines={1}
+        adjustsFontSizeToFit
+        minimumFontScale={0.7}
+      >
+        {formatPeso(wallet.balanceMinor)}
+      </AppText>
       <View
         style={[styles.rule, { backgroundColor: theme.colors.border }]}
       />

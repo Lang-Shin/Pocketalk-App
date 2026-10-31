@@ -315,7 +315,14 @@ function DraftCard({
       </View>
 
       <View style={styles.draftAmountRow}>
-        <AppText variant="amount">{formatPeso(draft.amountMinor)}</AppText>
+        <AppText
+          variant="amount"
+          numberOfLines={1}
+          adjustsFontSizeToFit
+          minimumFontScale={0.7}
+        >
+          {formatPeso(draft.amountMinor)}
+        </AppText>
       </View>
 
       <DraftLine

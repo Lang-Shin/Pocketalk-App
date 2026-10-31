@@ -5,9 +5,16 @@ export {
   fontWeights,
   getContentMaxWidth,
   getContentWidth,
+  getGridLayout,
   layout,
   lineHeights,
   radii,
   spacing,
 } from './tokens';
-export type { AppColors, AppTheme, Tone, ToneColors } from './tokens';
+export type {
+  AppColors,
+  AppTheme,
+  GridLayout,
+  Tone,
+  ToneColors,
+} from './tokens';

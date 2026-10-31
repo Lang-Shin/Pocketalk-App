@@ -32,7 +32,7 @@ import { formatLongDate } from '@/lib/date';
 import type { IconName } from '@/lib/icons';
 import { formatPeso } from '@/lib/money';
 import { formatMonthKey, formatMonthPeriod } from '@/lib/period';
-import { getContentWidth, useAppTheme, radii, spacing } from '@/theme';
+import { getGridLayout, useAppTheme, radii, spacing } from '@/theme';
 
 export function HomeScreen() {
   const { theme } = useAppTheme();
@@ -115,11 +115,8 @@ export function HomeScreen() {
   const savingsContainer = containers.find(
     (container) => container.systemKey === 'savings',
   );
-  const contentWidth = getContentWidth(width, true);
-  const useTwoColumns = contentWidth >= 680;
-  const cardWidth = useTwoColumns
-    ? (contentWidth - spacing.md) / 2
-    : contentWidth;
+  const grid = getGridLayout(width, true);
+  const cardWidth = grid.cardWidth;
 
   return (
     <Screen wide>
@@ -321,7 +318,14 @@ function SavingsCard({
             Permanent savings balance
           </AppText>
         </View>
-        <AppText variant="h3" color={theme.colors.success}>
+        <AppText
+          variant="h3"
+          color={theme.colors.success}
+          numberOfLines={1}
+          adjustsFontSizeToFit
+          minimumFontScale={0.75}
+          style={styles.goalAmount}
+        >
           {formatPeso(savedMinor)}
         </AppText>
       </View>
@@ -418,6 +422,11 @@ const styles = StyleSheet.create({
   goalCopy: {
     flex: 1,
     gap: 2,
+  },
+  goalAmount: {
+    flexShrink: 1,
+    maxWidth: '45%',
+    textAlign: 'right',
   },
   assistantCard: {
     gap: spacing.lg,

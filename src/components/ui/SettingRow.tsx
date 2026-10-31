@@ -1,6 +1,11 @@
 import { Ionicons } from '@expo/vector-icons';
 import type { ReactNode } from 'react';
-import { Pressable, StyleSheet, View } from 'react-native';
+import {
+  Pressable,
+  StyleSheet,
+  useWindowDimensions,
+  View,
+} from 'react-native';
 
 import type { IconName } from '@/lib/icons';
 import { useAppTheme, radii, spacing, type Tone } from '@/theme';
@@ -31,7 +36,9 @@ export function SettingRow({
   destructive = false,
 }: SettingRowProps) {
   const { theme } = useAppTheme();
+  const { width } = useWindowDimensions();
   const showChevron = Boolean(onPress) && !rightElement;
+  const stackValue = width < 400;
 
   const content = (
     <>
@@ -49,9 +56,23 @@ export function SettingRow({
             {description}
           </AppText>
         ) : null}
+        {value && stackValue ? (
+          <AppText
+            variant="caption"
+            weight="semibold"
+            color={theme.colors.textSecondary}
+          >
+            {value}
+          </AppText>
+        ) : null}
       </View>
-      {value ? (
-        <AppText variant="caption" color={theme.colors.textSecondary}>
+      {value && !stackValue ? (
+        <AppText
+          variant="caption"
+          color={theme.colors.textSecondary}
+          numberOfLines={2}
+          style={styles.value}
+        >
           {value}
         </AppText>
       ) : null}
@@ -110,5 +131,10 @@ const styles = StyleSheet.create({
   copy: {
     flex: 1,
     gap: 1,
+  },
+  value: {
+    flexShrink: 1,
+    maxWidth: '45%',
+    textAlign: 'right',
   },
 });

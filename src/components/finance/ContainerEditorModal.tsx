@@ -175,7 +175,7 @@ export function ContainerEditorModal({
       >
         <KeyboardAvoidingView
           style={[styles.overlay, { backgroundColor: theme.colors.overlay }]}
-          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         >
           <Pressable
             accessibilityRole="button"
@@ -230,6 +230,7 @@ export function ContainerEditorModal({
             </View>
 
             <ScrollView
+              style={styles.formScroll}
               showsVerticalScrollIndicator={false}
               keyboardShouldPersistTaps="handled"
               contentContainerStyle={styles.form}
@@ -250,19 +251,32 @@ export function ContainerEditorModal({
                       backgroundColor: theme.colors.surfaceMuted,
                       borderColor: theme.colors.border,
                     },
+                    width < 380 ? styles.balanceBoxNarrow : null,
                   ]}
                 >
                   <View>
                     <AppText variant="micro" color={theme.colors.textTertiary}>
                       ACTUAL BALANCE
                     </AppText>
-                    <AppText variant="h2">{formatPeso(balanceMinor)}</AppText>
+                    <AppText
+                      variant="h2"
+                      adjustsFontSizeToFit
+                      minimumFontScale={0.75}
+                      numberOfLines={1}
+                    >
+                      {formatPeso(balanceMinor)}
+                    </AppText>
                   </View>
-                  <View style={styles.balanceCopy}>
+                  <View
+                    style={[
+                      styles.balanceCopy,
+                      width < 380 ? styles.balanceCopyNarrow : null,
+                    ]}
+                  >
                     <AppText
                       variant="caption"
                       color={theme.colors.textSecondary}
-                      align="right"
+                      align={width < 380 ? 'left' : 'right'}
                     >
                       Separate from the monthly limit
                     </AppText>
@@ -631,6 +645,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  formScroll: {
+    flexShrink: 1,
+  },
   form: {
     gap: spacing.lg,
     paddingBottom: spacing.sm,
@@ -675,8 +692,18 @@ const styles = StyleSheet.create({
     borderRadius: radii.md,
     padding: spacing.md,
   },
+  balanceBoxNarrow: {
+    flexDirection: 'column',
+    alignItems: 'flex-start',
+    gap: spacing.xs,
+  },
   balanceCopy: {
     flex: 1,
+  },
+  balanceCopyNarrow: {
+    flexGrow: 0,
+    flexShrink: 0,
+    flexBasis: 'auto',
   },
   optionWrap: {
     flexDirection: 'row',

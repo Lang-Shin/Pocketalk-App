@@ -261,7 +261,7 @@ export function MoneyEntryModal({
           styles.overlay,
           { backgroundColor: theme.colors.overlay },
         ]}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       >
         <Pressable
           accessibilityRole="button"
@@ -311,7 +311,7 @@ export function MoneyEntryModal({
           </View>
 
           {transferResult ? (
-            <ScrollView
+            <ScrollView style={styles.formScroll}
               showsVerticalScrollIndicator={false}
               contentContainerStyle={styles.form}
             >
@@ -371,7 +371,7 @@ export function MoneyEntryModal({
               </AppText>
             </ScrollView>
           ) : (
-          <ScrollView
+          <ScrollView style={styles.formScroll}
             showsVerticalScrollIndicator={false}
             keyboardShouldPersistTaps="handled"
             contentContainerStyle={styles.form}
@@ -868,7 +868,13 @@ function PreviewRow({ label, value }: { label: string; value: string }) {
       <AppText variant="caption" color={theme.colors.textSecondary}>
         {label}
       </AppText>
-      <AppText variant="caption" weight="semibold">
+      <AppText
+        variant="caption"
+        weight="semibold"
+        numberOfLines={1}
+        adjustsFontSizeToFit
+        minimumFontScale={0.75}
+      >
         {value}
       </AppText>
     </View>
@@ -912,6 +918,9 @@ const styles = StyleSheet.create({
     height: 44,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  formScroll: {
+    flexShrink: 1,
   },
   form: {
     gap: spacing.lg,
