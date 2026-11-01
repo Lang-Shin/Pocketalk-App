@@ -5,18 +5,20 @@
   "main": "expo-router/entry",
   "scripts": {
     "start": "expo start",
-    "android": "expo start --android",
-    "ios": "expo start --ios",
+    "android": "expo run:android",
+    "ios": "expo run:ios",
     "web": "expo start --web",
     "typecheck": "tsc --noEmit",
     "lint": "expo lint",
-    "test": "tsx --test tests/finance.test.ts tests/layout.test.ts tests/database.test.ts tests/financeEngine.test.ts tests/reporting.test.ts tests/unallocated.test.ts tests/savingsRollover.test.ts tests/financeService.test.ts tests/historyFilters.test.ts tests/financeIntegration.test.ts tests/assistant.test.ts tests/assistantProvider.test.ts tests/assistantValidation.test.ts tests/deviceCapability.test.ts tests/modelManifest.test.ts tests/localLlmProvider.test.ts"
+    "test": "tsx --test tests/finance.test.ts tests/layout.test.ts tests/database.test.ts tests/financeEngine.test.ts tests/reporting.test.ts tests/unallocated.test.ts tests/savingsRollover.test.ts tests/financeService.test.ts tests/historyFilters.test.ts tests/financeIntegration.test.ts tests/assistant.test.ts tests/assistantProvider.test.ts tests/assistantValidation.test.ts tests/deviceCapability.test.ts tests/modelManifest.test.ts tests/localLlmProvider.test.ts tests/executorchRuntimeConfig.test.ts tests/executorchLifecycle.test.ts"
   },
   "dependencies": {
     "@expo/metro-runtime": "~57.0.17",
     "@expo/vector-icons": "^15.0.2",
     "expo": "~57.0.31",
+    "expo-build-properties": "~57.0.22",
     "expo-constants": "~57.0.22",
+    "expo-dev-client": "~57.0.20",
     "expo-font": "~57.0.4",
     "expo-linear-gradient": "~57.0.2",
     "expo-linking": "~57.0.13",
@@ -26,6 +28,8 @@
     "react": "19.2.3",
     "react-dom": "19.2.3",
     "react-native": "0.86.3",
+    "react-native-blob-util": "0.25.1",
+    "react-native-executorch": "0.10.7",
     "react-native-gesture-handler": "~2.32.0",
     "react-native-reanimated": "4.5.1",
     "react-native-safe-area-context": "~5.7.0",
@@ -36,6 +40,7 @@
   "devDependencies": {
     "@types/node": "^26.6.5",
     "@types/react": "~19.2.2",
+    "babel-preset-expo": "~57.0.0",
     "eslint": "^9.39.5",
     "eslint-config-expo": "~57.0.2",
     "tsx": "^4.23.15",

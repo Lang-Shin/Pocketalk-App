@@ -81,12 +81,13 @@ export class LocalLlmProvider implements AssistantProvider {
   }
 
   private async ensureReady(): Promise<void> {
-    if (this.runtime.status() === 'unloaded') {
+    const status = this.runtime.status();
+    if (status === 'unloaded' || status === 'error') {
       await this.runtime.load();
     }
-    const status = this.runtime.status();
-    if (status !== 'ready') {
-      throw new Error(`Local model runtime is ${status}.`);
+    const nextStatus = this.runtime.status();
+    if (nextStatus !== 'ready') {
+      throw new Error(`Local model runtime is ${nextStatus}.`);
     }
   }
 }

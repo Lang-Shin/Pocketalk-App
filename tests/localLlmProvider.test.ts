@@ -1,6 +1,5 @@
 import assert from 'node:assert/strict';
-import { readFileSync, readdirSync } from 'node:fs';
-import { join } from 'node:path';
+import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 
@@ -217,25 +216,22 @@ test('local provider output still passes through deterministic validation', asyn
   );
 });
 
-test('local runtime and provider have no native or finance imports', () => {
-  const runtimeDirectory = fileURLToPath(
-    new URL('../src/ai/runtime', import.meta.url),
-  );
+test('provider and native-free runtime files have no native or finance imports', () => {
   const sources = [
-    readFileSync(
-      fileURLToPath(
-        new URL(
-          '../src/ai/providers/localLlmProvider.ts',
-          import.meta.url,
-        ),
-      ),
-      'utf8',
-    ),
-    ...readSourceFiles(runtimeDirectory),
-  ].join('\n');
+    '../src/ai/providers/localLlmProvider.ts',
+    '../src/ai/runtime/types.ts',
+    '../src/ai/runtime/fakeLocalModelRuntime.ts',
+    '../src/ai/runtime/index.ts',
+    '../src/ai/runtime/executorch/config.ts',
+  ]
+    .map((path) =>
+      readFileSync(fileURLToPath(new URL(path, import.meta.url)), 'utf8'),
+    )
+    .join('\n');
 
   for (const forbidden of [
     /from ['"]react-native['"]/,
+    /from ['"]react-native-executorch['"]/,
     /from ['"]expo-/,
     /\bFinanceService\b/,
     /\bFinanceEngine\b/,
@@ -248,12 +244,26 @@ test('local runtime and provider have no native or finance imports', () => {
   }
 });
 
-function readSourceFiles(directory: string): string[] {
-  return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
-    const path = join(directory, entry.name);
-    if (entry.isDirectory()) return readSourceFiles(path);
-    return entry.isFile() && path.endsWith('.ts')
-      ? [readFileSync(path, 'utf8')]
-      : [];
-  });
-}
+test('native runtime import is isolated to the ExecuTorch adapter', () => {
+  const adapter = readFileSync(
+    fileURLToPath(
+      new URL(
+        '../src/ai/runtime/executorch/executorchLocalModelRuntime.ts',
+        import.meta.url,
+      ),
+    ),
+    'utf8',
+  );
+
+  assert.match(adapter, /import\('react-native-executorch'\)/);
+  for (const forbidden of [
+    /\bFinanceService\b/,
+    /\bFinanceEngine\b/,
+    /\bFinanceRepository\b/,
+    /recordMoneyEntry/,
+    /expo-sqlite/,
+    /sqlite/i,
+  ]) {
+    assert.doesNotMatch(adapter, forbidden);
+  }
+});

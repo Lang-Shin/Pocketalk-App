@@ -234,6 +234,82 @@ Cancellation is currently exposed at the runtime boundary. The assistant provide
 
 Verification after Section E: 168/168 tests passed, lint passed, typecheck passed, and the AI source audit found no native or finance imports. No model was loaded or run.
 
+## Phase 5.5 Section F — Native runtime integration
+
+Status: **partially integrated, blocked before native build verification**.
+
+Exact runtime packages installed:
+
+- `react-native-executorch@0.10.7`
+- `react-native-blob-util@0.25.1`
+- `expo-dev-client@57.0.20`
+- `expo-build-properties@57.0.22`
+- `babel-preset-expo@57.0.16`
+- Existing `react-native-worklets@0.10.1` satisfies ExecuTorch’s peer range.
+
+Native/build configuration added:
+
+- `babel.config.js` with `babel-preset-expo` and `react-native-worklets/plugin`
+- `expo-build-properties` with Android `minSdkVersion: 26`
+- Expo development client dependency
+- Android prebuild project generated in `android/`
+- Android script changed by prebuild to `expo run:android`
+- ExecuTorch native libraries prepared under `node_modules/react-native-executorch`; no model artifact was downloaded or bundled
+
+Concrete adapter:
+
+- `ExecuTorchLocalModelRuntime` implements `LocalModelRuntime` using `createLLMChatSession`.
+- Native imports are isolated to `src/ai/runtime/executorch/executorchLocalModelRuntime.ts`.
+- Local file paths only; remote model URLs are rejected.
+- No model is loaded, no inference is run, and the adapter is not wired to the default provider or UI.
+- `MockAssistantProvider` remains the default; `ValidatedAssistantProvider` remains the outer wrapper.
+
+Verification:
+
+- `npm test`: 172/172 passed
+- `npm run lint`: passed
+- `npm run typecheck`: passed
+- `npx expo-doctor`: 21/21 passed
+- Android JavaScript export: passed
+- Web export: passed
+- Android Gradle `assembleDebug`: **failed before compilation** with `SDK location not found`; this environment has no Android SDK/`ANDROID_HOME`.
+- No physical-device build, model load, offline inference, structured-output, memory, latency, thermal, or unload test was performed.
+
+Known limitations and blockers:
+
+- Native development build is unverified.
+- No Android SDK is available in this environment.
+- No model artifact is present.
+- The concrete adapter has only config-level tests; its native session behavior is untested.
+- `expo-build-properties` changed Android minSdk to 26; the product’s minimum supported Android version remains unresolved.
+- Expo Go cannot load the native ExecuTorch runtime.
+- No inference compatibility is claimed from package installation or JS export.
+
+Section F cannot be accepted as complete until a development build succeeds on an Android toolchain/device and the runtime lifecycle is verified. Section G must not begin until that blocker is resolved and reviewed.
+
+## Phase 5.5 Section F.1 — Runtime lifecycle hardening
+
+Implemented in the concrete ExecuTorch adapter:
+
+- **Single-turn history policy:** each interpretation creates a fresh `LLMChatSession` and disposes it after success, cancellation, or failure. Prior user requests and assistant responses are never carried into the next interpretation.
+- **Explicit cancellation:** `cancel()` sets a cancellation flag and calls the native session `stop()`. Even if native generation resolves with partial text, the adapter rejects with `LocalModelCancelledError` instead of returning a successful interpretation.
+- **Active-generation unload:** `unload()` calls `stop()`, waits for the active generation to settle, and only then disposes the session. It does not dispose native resources while generation is still running.
+- **Recovery:** generation failure disposes the session, records `error`, and a later `load()` creates a fresh session. `LocalLlmProvider` now reloads from `unloaded` or `error`.
+- **Generation options:** only explicitly defined `maxNewTokens` and `temperature` values are passed; undefined values no longer override native defaults.
+- **Worklet runtime:** the installed `createLLMChatSession` API makes the Worklet runtime optional. The adapter does not pass one speculatively.
+
+Performance tradeoff: creating a session per interpretation may reload model/tokenizer resources and is likely slower than a persistent chat session. This is intentional until a history-reset API or a safe session policy is verified. It must be measured in the later device/performance section.
+
+Verification after Section F.1: 177/177 tests passed, lint passed, and typecheck passed. The new lifecycle tests use an injected fake session factory; they do not verify native ExecuTorch behavior.
+
+Remaining native-only uncertainties:
+
+- Whether native `stop()` reliably settles `sendMessage` for all generation phases.
+- Whether disposal immediately after settlement fully releases native resources.
+- Actual cost and memory behavior of per-interpretation session reloads.
+- Whether an explicit Worklet runtime is needed for desired background execution.
+- Whether the native session can be safely reused with a supported history-reset strategy in a later optimization.
+
 ## Required provider boundary
 
 `src/ai/providers/assistantProvider.ts` defines the provider interface, including `load()`, `unload()`, and interpretation methods. `src/ai/providers/mockAssistantProvider.ts` is the only implementation. A future local provider must keep model lifecycle, prompt construction, inference, cancellation, and unload behavior behind this boundary; screens must not call runtime APIs directly.
