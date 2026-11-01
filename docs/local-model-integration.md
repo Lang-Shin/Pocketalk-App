@@ -4,6 +4,10 @@
 
 Not integrated. The assistant currently runs through `MockAssistantProvider`, which uses the existing deterministic rules engine. No local LLM runtime, model file, native module, or cloud fallback is installed. The mock is not a language model and must not be presented as one.
 
+Run the Phase 5 prototype with `npm install` and `npm start`, then open the Assistant tab. Run the tests with `npm test`. Mock mode requires no model download, native build, or internet access.
+
+Phase 6 owns confirmation, transaction execution, ledger writes, and AI-draft audit persistence. Phase 5 only interprets and displays validated drafts/answers.
+
 ## Target device and model
 
 - Device: OPPO Reno8 5G (CPH2359)

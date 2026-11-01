@@ -4,7 +4,9 @@ AI-powered mobile app for natural language allowance and container-based budget 
 
 ## Status
 
-The Phase 2 UI foundation was never separately approved; its exploratory Expo scaffold became the base for Phase 4. Phase 3 added a local SQLite ledger (migrations v1–v4), repositories, a deterministic finance engine, the system Unallocated account, the permanent system Savings container, and automatic monthly rollover. Phase 4 connects Home, Budgets, Wallet, History, and Monthly History to that ledger through a SQLite-backed finance service and provider, including active and historical months, container lifecycle, Unallocated allocation, Savings transfers, rollover, and reporting. Phase 5 adds a local assistant prototype that turns constrained expense, income, Savings-contribution, and Savings-withdrawal sentences into validated drafts. It uses deterministic on-device rules, never writes directly, and saves only after explicit confirmation through the finance service. No LLM runtime or model file is integrated or benchmarked, so the on-device AI feasibility gate remains open. Profile content still uses sample data. Automated checks pass, but React Native UI/accessibility/E2E tests are not implemented. There is no GCash integration or cloud AI connection.
+The Phase 2 UI foundation was never separately approved; its exploratory Expo scaffold became the base for Phase 4. Phase 3 added a local SQLite ledger (migrations v1–v4), repositories, a deterministic finance engine, the system Unallocated account, the permanent system Savings container, and automatic monthly rollover. Phase 4 connects Home, Budgets, Wallet, History, and Monthly History to that ledger through a SQLite-backed finance service and provider, including active and historical months, container lifecycle, Unallocated allocation, Savings transfers, rollover, and reporting.
+
+Phase 5 adds an interpretation-only local assistant prototype. It classifies income, expense, wallet-transfer, container-transfer, Savings-transfer, read-only inquiry, clarification, and unsupported messages; produces validated drafts or answers; and never saves a transaction or changes balances. The current provider is the explicitly labeled `MockAssistantProvider` backed by deterministic rules, not an LLM. No local model/runtime is integrated, downloaded, or benchmarked, and no on-device inference has been verified. Confirmation and execution remain Phase 6 work. Profile content still uses sample data, React Native UI/accessibility/E2E tests are not implemented, and there is no GCash integration or cloud AI connection.
 
 ## Implemented screens
 
@@ -74,6 +76,58 @@ Connected workflows:
 - `src/features/assistant/AssistantScreen.tsx` sends user text through the provider and renders readable intent labels, drafts, extracted details, explicit missing fields, clarification chips, loading/error/retry states, and read-only answer cards. It reads local summaries but has no write or confirmation action.
 - Phase 5 is interpretation-only: the assistant layer has no database or native model access and cannot create ledger entries, change balances, or bypass Phase 6 confirmation.
 - The module is intentionally provider-ready for a future local-model adapter, but no model/runtime, download flow, integrity check, or benchmark exists yet. Chat messages are not persisted.
+
+## Phase 5 scope and boundaries
+
+**In scope**
+
+- Offline natural-language interpretation using deterministic rules.
+- Typed intent classification and structured `interpretation` output.
+- Expense, income, wallet-transfer, ordinary-container-transfer, Savings-contribution, and Savings-withdrawal drafts.
+- Read-only balance, spending, income, Savings, and budget questions.
+- Clarification for missing or ambiguous information and refusal of unsupported requests.
+- Provider abstraction, mock provider, output validation, assistant UI, and deterministic tests.
+
+**Deferred to Phase 6**
+
+- Real local-model inference and runtime integration.
+- Confirmation UI, transaction execution, ledger writes, and rollback of saved AI drafts.
+- AI draft audit persistence.
+- Prompt-injection, model-accuracy, and on-device performance evaluation.
+
+**Run the prototype**
+
+```powershell
+npm install
+npm start
+```
+
+Open the Assistant tab. The mock provider requires no model download, native module, development build, or network connection. `npm run web` also runs the browser preview.
+
+**Run the tests**
+
+```powershell
+npm test
+npm run lint
+npm run typecheck
+npx expo-doctor
+```
+
+The AI tests use deterministic local responses and do not require an LLM, internet access, or a model download.
+
+**Native build requirements**
+
+- The Phase 5 mock prototype runs in Expo Go and web without native AI dependencies.
+- A real local LLM would require a development build and prebuild/native changes because Expo Go cannot load the required native libraries.
+- Candidate requirements differ: `react-native-executorch` documents Android 13+ and iOS 17+; `llama.rn` requires a native build and has device-dependent acceleration. No such runtime is installed.
+
+**Known limitations**
+
+- No real LLM, model file, download flow, or on-device inference exists; Android/iOS inference is unverified.
+- The mock provider is a rules engine, not a natural-language model.
+- Assistant state and drafts are session-only.
+- No React Native UI/accessibility/E2E test suite exists.
+- Phase 5 cannot save or execute transactions.
 
 ## Local model integration status
 

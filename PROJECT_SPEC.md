@@ -788,6 +788,10 @@ The sequence is a planning proposal. Each phase requires user approval before th
 - Ask for missing or ambiguous information and reject unsupported requests.
 - Never directly modify SQLite, the finance repository, wallet balances, container balances, or transaction history.
 - Status: a deterministic local-rule prototype is implemented behind an `AssistantProvider` boundary as the explicitly labeled `MockAssistantProvider`. It classifies messages into typed intents, drafts constrained expense, income, wallet-transfer, ordinary-container-transfer, Savings-contribution, and Savings-withdrawal entries, answers active-month read-only questions, asks for missing or ambiguous transfer endpoints, blocks archived/future/invalid requests, and exposes no confirmation or save action. `ValidatedAssistantProvider` checks output structure, amounts, dates, entity existence/status, balances, and interpretation consistency before display. The AI layer has no finance service, repository, engine, SQLite, or write access. Chat state is session-only. No `LocalLlmProvider` runtime is integrated.
+- Run the prototype with `npm install` and `npm start`, then open the Assistant tab. Mock mode needs no model download, native module, development build, or network access.
+- Run `npm test`, `npm run lint`, `npm run typecheck`, and `npx expo-doctor` for verification. AI tests use deterministic local responses and require no real LLM, internet, or model download.
+- Native build requirement: the mock prototype runs in Expo Go/web. A real local runtime would require a development build/prebuild and native configuration; Expo Go cannot load it.
+- Deferred to Phase 6: confirmation, transaction execution, ledger writes, rollback of saved AI drafts, and `ai_drafts` audit persistence.
 - Not implemented or verified: an on-device Qwen2.5-1.5B runtime, model download/integrity, OPPO Reno8 5G memory/latency/thermal benchmarks, natural-language accuracy evaluation, prompt-injection testing, or `ai_drafts` audit persistence. The feasibility gate therefore remains open.
 
 ### Phase 6 — Chatbot confirmation and execution
