@@ -123,7 +123,7 @@ test('assistant matches an explicitly named expense container', () => {
 
   assert.equal(result.kind, 'proposal');
   if (result.kind !== 'proposal') return;
-  assert.equal(result.intent, 'transaction');
+  assert.equal(result.intent, 'expense');
   assert.equal(result.proposal.containerId, 'container-food');
   assert.equal(result.proposal.amountMinor, 14_500);
   assert.equal(result.proposal.title, 'Lunch');
@@ -148,19 +148,99 @@ test('assistant drafts income into Unallocated by default', () => {
   );
 });
 
-test('assistant drafts a Savings contribution as a transfer', () => {
+test('assistant interprets a natural income sentence', () => {
   const result = interpretAssistantMessage(
-    'Move ₱300 to savings',
+    'My mom sent me ₱1,000',
     createContext(),
   );
 
   assert.equal(result.kind, 'proposal');
   if (result.kind !== 'proposal') return;
-  assert.equal(result.intent, 'transfer');
+  assert.equal(result.intent, 'income');
+  assert.equal(result.proposal.action, 'income');
+  assert.equal(result.proposal.amountMinor, 100_000);
+});
+
+test('assistant keeps expense intent when the amount is missing', () => {
+  const result = interpretAssistantMessage(
+    'I spent some money yesterday',
+    createContext(),
+  );
+
+  assert.equal(result.kind, 'clarification');
+  if (result.kind !== 'clarification') return;
+  assert.equal(result.intent, 'expense');
+  assert.equal(result.clarification.reason, 'amount');
+  assert.equal(result.clarification.pending, undefined);
+});
+
+test('assistant drafts a Savings contribution with an explicit source', () => {
+  const result = interpretAssistantMessage(
+    'Move ₱300 from Unallocated to savings',
+    createContext(),
+  );
+
+  assert.equal(result.kind, 'proposal');
+  if (result.kind !== 'proposal') return;
+  assert.equal(result.intent, 'container_transfer');
   assert.equal(result.proposal.action, 'savings_contribution');
   assert.equal(result.proposal.containerId, 'system-unallocated');
   assert.equal(result.proposal.destinationContainerId, 'system-savings');
   assert.equal(result.proposal.amountMinor, 30_000);
+});
+
+test('assistant asks for a missing Savings contribution source', () => {
+  const result = interpretAssistantMessage(
+    'Move ₱300 to savings',
+    createContext(),
+  );
+
+  assert.equal(result.kind, 'clarification');
+  if (result.kind !== 'clarification') return;
+  assert.equal(result.intent, 'container_transfer');
+  assert.equal(result.clarification.reason, 'container');
+  assert.equal(result.clarification.pending?.amountMinor, 30_000);
+  assert.equal(result.clarification.pending?.destinationContainerId, undefined);
+
+  const pending = result.clarification.pending;
+  assert.ok(pending);
+  const proposal = resolveAssistantContainerChoice(
+    'system-unallocated',
+    pending,
+    createContext(),
+  );
+  assert.equal(proposal.kind, 'proposal');
+  if (proposal.kind !== 'proposal') return;
+  assert.equal(proposal.intent, 'container_transfer');
+  assert.equal(proposal.proposal.containerId, 'system-unallocated');
+  assert.equal(proposal.proposal.destinationContainerId, 'system-savings');
+});
+
+test('assistant interprets an identified container-to-Savings transfer', () => {
+  const context = createContext();
+  context.containers.push({
+    id: 'container-general',
+    name: 'General',
+    status: 'active',
+    systemKey: null,
+    balanceMinor: 60_000,
+    limitMinor: 0,
+    spentMinor: 0,
+    remainingMinor: 0,
+  });
+
+  const result = interpretAssistantMessage(
+    'Move ₱500 from General to Savings',
+    context,
+  );
+
+  assert.equal(result.kind, 'proposal');
+  if (result.kind !== 'proposal') return;
+  assert.equal(result.intent, 'container_transfer');
+  assert.equal(result.proposal.action, 'savings_contribution');
+  assert.equal(result.proposal.containerId, 'container-general');
+  assert.equal(result.proposal.destinationContainerId, 'system-savings');
+  assert.equal(result.proposal.amountMinor, 50_000);
 });
 
 test('assistant uses an explicitly named Savings source', () => {
@@ -200,7 +280,7 @@ test('assistant drafts a wallet-to-wallet transfer', () => {
 
   assert.equal(result.kind, 'proposal');
   if (result.kind !== 'proposal') return;
-  assert.equal(result.intent, 'transfer');
+  assert.equal(result.intent, 'wallet_transfer');
   assert.equal(result.proposal.action, 'wallet_transfer');
   assert.equal(result.proposal.amountMinor, 10_000);
   assert.equal(result.proposal.title, 'Wallet transfer');
@@ -217,7 +297,7 @@ test('assistant asks for a missing wallet transfer source', () => {
 
   assert.equal(result.kind, 'clarification');
   if (result.kind !== 'clarification') return;
-  assert.equal(result.intent, 'transfer');
+  assert.equal(result.intent, 'wallet_transfer');
   assert.equal(result.clarification.reason, 'wallet');
   assert.deepEqual(
     result.clarification.walletOptions?.map((wallet) => wallet.id),
@@ -260,7 +340,7 @@ test('assistant drafts an ordinary container-to-container transfer', () => {
 
   assert.equal(result.kind, 'proposal');
   if (result.kind !== 'proposal') return;
-  assert.equal(result.intent, 'transfer');
+  assert.equal(result.intent, 'container_transfer');
   assert.equal(result.proposal.action, 'container_transfer');
   assert.equal(result.proposal.amountMinor, 15_000);
   assert.equal(result.proposal.title, 'Container transfer');
@@ -344,6 +424,7 @@ test('assistant rejects invalid and unsupported transfer requests', () => {
   );
   assert.equal(insufficient.kind, 'refusal');
   if (insufficient.kind !== 'refusal') return;
+  assert.equal(insufficient.intent, 'container_transfer');
   assert.match(insufficient.message, /only ₱200\.00/);
 
   const unknownCategory = interpretAssistantMessage(
@@ -352,6 +433,7 @@ test('assistant rejects invalid and unsupported transfer requests', () => {
   );
   assert.equal(unknownCategory.kind, 'clarification');
   if (unknownCategory.kind !== 'clarification') return;
+  assert.equal(unknownCategory.intent, 'unknown');
   assert.equal(unknownCategory.clarification.reason, 'transfer');
 
   const unsupported = interpretAssistantMessage(
@@ -359,6 +441,8 @@ test('assistant rejects invalid and unsupported transfer requests', () => {
     createContext(),
   );
   assert.equal(unsupported.kind, 'refusal');
+  if (unsupported.kind !== 'refusal') return;
+  assert.equal(unsupported.intent, 'unknown');
 });
 
 test('assistant understands Taglish expense wording', () => {
@@ -471,7 +555,7 @@ test('assistant answers a read-only Savings balance question', () => {
 
   assert.equal(result.kind, 'answer');
   if (result.kind !== 'answer') return;
-  assert.equal(result.intent, 'question');
+  assert.equal(result.intent, 'balance_inquiry');
   assert.equal(result.answer.topic, 'savings_balance');
   assert.deepEqual(result.answer.figures, [
     { label: 'Savings balance', amountMinor: 40_000 },
@@ -485,6 +569,7 @@ test('assistant answers monthly spending and income questions', () => {
   );
   assert.equal(spending.kind, 'answer');
   if (spending.kind !== 'answer') return;
+  assert.equal(spending.intent, 'spending_summary');
   assert.equal(spending.answer.topic, 'monthly_spending');
   assert.equal(spending.answer.figures[0]?.amountMinor, 120_000);
 
@@ -494,6 +579,7 @@ test('assistant answers monthly spending and income questions', () => {
   );
   assert.equal(income.kind, 'answer');
   if (income.kind !== 'answer') return;
+  assert.equal(income.intent, 'income_summary');
   assert.equal(income.answer.topic, 'monthly_income');
   assert.equal(income.answer.figures[0]?.amountMinor, 200_000);
 });
@@ -505,6 +591,7 @@ test('assistant answers container and budget questions', () => {
   );
   assert.equal(balance.kind, 'answer');
   if (balance.kind !== 'answer') return;
+  assert.equal(balance.intent, 'balance_inquiry');
   assert.equal(balance.answer.topic, 'container_balance');
   assert.equal(balance.answer.figures[0]?.amountMinor, 20_000);
 
@@ -514,17 +601,19 @@ test('assistant answers container and budget questions', () => {
   );
   assert.equal(budget.kind, 'answer');
   if (budget.kind !== 'answer') return;
+  assert.equal(budget.intent, 'budget_inquiry');
   assert.equal(budget.answer.topic, 'budget_remaining');
   assert.equal(budget.answer.figures[2]?.amountMinor, 20_000);
 });
 
 test('assistant answers wallet and Unallocated questions read-only', () => {
   const wallet = interpretAssistantMessage(
-    'How much is in my wallet?',
+    'How much money do I have?',
     createContext(),
   );
   assert.equal(wallet.kind, 'answer');
   if (wallet.kind !== 'answer') return;
+  assert.equal(wallet.intent, 'balance_inquiry');
   assert.equal(wallet.answer.topic, 'wallet_balance');
   assert.equal(
     wallet.answer.figures.reduce(
@@ -540,6 +629,7 @@ test('assistant answers wallet and Unallocated questions read-only', () => {
   );
   assert.equal(unallocated.kind, 'answer');
   if (unallocated.kind !== 'answer') return;
+  assert.equal(unallocated.intent, 'balance_inquiry');
   assert.equal(unallocated.answer.topic, 'unallocated_balance');
   assert.equal(unallocated.answer.figures[0]?.amountMinor, 50_000);
 });
@@ -552,7 +642,7 @@ test('assistant recognizes a clarification request', () => {
 
   assert.equal(result.kind, 'answer');
   if (result.kind !== 'answer') return;
-  assert.equal(result.intent, 'clarification');
+  assert.equal(result.intent, 'clarification_request');
   assert.equal(result.answer.topic, 'help');
 });
 
@@ -564,14 +654,14 @@ test('assistant declines out-of-scope historical questions', () => {
 
   assert.equal(result.kind, 'answer');
   if (result.kind !== 'answer') return;
-  assert.equal(result.intent, 'question');
+  assert.equal(result.intent, 'unknown');
   assert.equal(result.answer.topic, 'help');
   assert.match(result.message, /Monthly History/);
 });
 
 test('assistant does not expose any execution step', () => {
   const result = interpretAssistantMessage(
-    'Move ₱300 to savings',
+    'Move ₱300 from Unallocated to savings',
     createContext(),
   );
 
