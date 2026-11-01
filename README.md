@@ -131,7 +131,7 @@ The AI tests use deterministic local responses and do not require an LLM, intern
 
 ## Local model integration status
 
-Target device: **OPPO Reno8 5G**, MediaTek Dimensity 1300, Mali-G77 MC9, **8 GB physical RAM**, 256 GB storage, Android. Virtual RAM is not counted as physical RAM. Target model: **Qwen2.5-1.5B-Instruct**, preferably quantized Q4_K_M where the runtime supports it.
+Test device: **OPPO Reno8 5G (CPH2359)**, MediaTek Dimensity 1300, Mali-G77 MC9, **8 GB physical RAM**, 256 GB storage, **Android 14 / ColorOS 14.0**. A 4 GB RAM-expansion setting is enabled but is **not** counted as physical RAM. This is one test target, not Pocketa’s fixed minimum or only supported device. Target model: **Qwen2.5-1.5B-Instruct**, preferably quantized Q4_K_M where the runtime supports it.
 
 The app is on Expo SDK 57, React Native 0.86.3, and the New Architecture. Expo Go cannot load the custom native libraries required by current on-device LLM runtimes, so a development build and prebuild/native changes would be required.
 

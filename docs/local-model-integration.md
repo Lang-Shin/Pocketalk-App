@@ -8,14 +8,34 @@ Run the Phase 5 prototype with `npm install` and `npm start`, then open the Assi
 
 Phase 6 owns confirmation, transaction execution, ledger writes, and AI-draft audit persistence. Phase 5 only interprets and displays validated drafts/answers.
 
+## Phase 5.5 Section A baseline
+
+Recorded on 2026-11-01:
+
+- Expo SDK 57, React Native 0.86.3, React 19.2.3, TypeScript 6.0.3
+- New Architecture; no `android/` or `ios/` project
+- No development client, local-model runtime, model artifact, model download, or device-capability module
+- Active assistant provider: `MockAssistantProvider`, wrapped by `ValidatedAssistantProvider`
+- `npm test`: 151/151 passed
+- `npm run lint`: passed
+- `npm run typecheck`: passed
+- `npx expo-doctor`: 21/21 passed
+- Android export: passed
+- Web export: passed
+- `git diff --check`: passed
+
+These are JavaScript/bundling checks. No native development build, model load, offline inference, memory, latency, thermal, or physical-device AI test has been performed.
+
 ## Target device and model
 
 - Device: OPPO Reno8 5G (CPH2359)
 - SoC: MediaTek Dimensity 1300
 - GPU: ARM Mali-G77 MC9
 - RAM: 8 GB physical LPDDR4x
+- RAM expansion: 4 GB currently enabled; excluded from all capacity calculations
 - Storage: 256 GB UFS 3.1
-- OS: Android; the actual installed major version must be checked on the device
+- OS: Android 14
+- ColorOS: 14.0
 - Model: `Qwen2.5-1.5B-Instruct` (Apache-2.0)
 - Initial quantized target: `Q4_K_M` where supported, approximately 0.93-1.0 GB for the GGUF weights
 - Initial context target: 2,048-4,096 tokens, not the model's full context
@@ -151,7 +171,7 @@ While inference is running, verify:
 
 ## Current blockers
 
-- The actual Android major version on the OPPO Reno8 5G is not confirmed. `react-native-executorch` requires Android 13+ per its documentation.
+- The OPPO Reno8 5G reports Android 14, which satisfies `react-native-executorch`’s documented Android 13+ requirement for this one device. Pocketa’s minimum supported Android version remains unresolved, so this does not establish product-wide compatibility.
 - No development build or native toolchain run has been performed for either candidate.
 - No model has been downloaded or benchmarked.
 - Dimensity 1300 uses a Mali GPU; `llama.rn` OpenCL support is Qualcomm Adreno-focused, so CPU-only inference is the realistic baseline.

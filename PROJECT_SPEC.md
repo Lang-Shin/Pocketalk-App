@@ -547,13 +547,13 @@ Negative wallet and container balances are blocked in the current model. Overdra
 
 ### 8.1 Status of on-device AI
 
-On-device LLM support is an **unverified technical requirement**, not a confirmed working implementation. The intended model is **Qwen2.5-1.5B-Instruct**, not Qwen3-4B. The target device is an **OPPO Reno8 5G** with a MediaTek Dimensity 1300, Mali-G77 MC9, **8 GB physical RAM**, 256 GB storage, and Android. Virtual RAM must not be counted as physical RAM.
+On-device LLM support is an **unverified technical requirement**, not a confirmed working implementation. The intended model is **Qwen2.5-1.5B-Instruct**, not Qwen3-4B. The physical test device is an **OPPO Reno8 5G (CPH2359)** with a MediaTek Dimensity 1300, Mali-G77 MC9, **8 GB physical RAM**, 256 GB storage, **Android 14 / ColorOS 14.0**, and a 4 GB RAM-expansion setting that is not counted as physical RAM. This is one test target, not the product minimum or only supported device.
 
 Current findings:
 
 - Qwen2.5-1.5B-Instruct is Apache-2.0. A Q4_K_M GGUF is roughly 0.93–1.0 GB for the weights; runtime memory also includes the KV cache and runtime overhead.
 - Start with a 2,048–4,096-token context rather than the model’s full context.
-- The phone’s installed Android major version is not confirmed. OPPO shipped the Reno8 5G with Android 12 and it has been upgradable to Android 14; `react-native-executorch` documents Android 13+.
+- The test device reports Android 14 / ColorOS 14.0, satisfying `react-native-executorch`’s documented Android 13+ requirement for that device. Pocketa’s minimum supported Android version remains unresolved and must not be inferred from this single device.
 - `react-native-executorch` 0.10.x documents Expo SDK 57 / RN 0.86 and New Architecture support through a development build. Its prepared Qwen2.5-1.5B quantized 8da4w artifact is about 1.1 GiB, not Q4_K_M, and requires `react-native-blob-util`, Babel/worklets setup, Android 13+, and iOS 17+.
 - `llama.rn` 0.12.x supports the New Architecture and Expo config plugins with GGUF models, including Q4_K_M, and supports JSON-schema/GBNF constrained output. Its Android OpenCL path is Qualcomm Adreno-focused, so CPU inference is the realistic baseline on the Dimensity 1300’s Mali GPU. RN 0.86 compatibility must be verified in a development build.
 - LiteRT-LM has Qwen2.5-1.5B artifacts but no documented official React Native binding, so it would require a custom native bridge.
