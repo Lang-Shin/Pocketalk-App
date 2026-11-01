@@ -1,6 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useMemo, useRef, useState } from 'react';
 import {
+  ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
   ScrollView,
@@ -13,12 +14,16 @@ import type {
   AssistantAnswer,
   AssistantClarification,
   AssistantContext,
+  AssistantIntent,
+  AssistantInterpretation,
+  AssistantMissingField,
   AssistantProposal,
   AssistantResult,
 } from '@/ai/localAssistant';
 import { assistantProvider } from '@/ai/providers';
 import { AppText } from '@/components/AppText';
 import { ChatBubble } from '@/components/chat/ChatBubble';
+import { AppButton } from '@/components/ui/AppButton';
 import { Chip } from '@/components/ui/Chip';
 import { IconButton } from '@/components/ui/IconButton';
 import { NoticeBanner } from '@/components/ui/NoticeBanner';
@@ -39,7 +44,32 @@ interface ThreadMessage extends ChatMessage {
   proposal?: AssistantProposal;
   clarification?: AssistantClarification;
   answer?: AssistantAnswer;
+  interpretation?: AssistantInterpretation;
+  retryText?: string;
 }
+
+const INTENT_LABELS: Record<AssistantIntent, string> = {
+  income: 'Income',
+  expense: 'Expense',
+  wallet_transfer: 'Wallet transfer',
+  container_transfer: 'Container transfer',
+  balance_inquiry: 'Balance question',
+  spending_summary: 'Spending summary',
+  income_summary: 'Income summary',
+  budget_inquiry: 'Budget question',
+  clarification_request: 'Help request',
+  unknown: 'Unsupported',
+};
+
+const MISSING_FIELD_LABELS: Record<AssistantMissingField, string> = {
+  amount: 'amount',
+  effectiveDate: 'effective date',
+  sourceWallet: 'source wallet',
+  destinationWallet: 'destination wallet',
+  sourceContainer: 'source container',
+  destinationContainer: 'destination container',
+  transferKind: 'transfer type',
+};
 
 const SUGGESTIONS = [
   '\u20B150 jeepney fare',
@@ -145,16 +175,34 @@ export function AssistantScreen() {
     );
   }
 
-  const appendProviderError = () => {
+  const appendProviderError = (retryText?: string) => {
     setMessages((current) => [
       ...current,
       {
         id: nextMessageId('assistant'),
         role: 'assistant',
-        text: 'The assistant could not complete that request. Try again.',
+        text: retryText
+          ? 'The assistant runtime is unavailable or could not finish. No transaction was saved. You can retry this message.'
+          : 'The assistant runtime is unavailable or could not finish. No transaction was saved. Try again or choose another option.',
         createdAt: new Date().toISOString(),
+        retryText,
       },
     ]);
+  };
+
+  const requestInterpretation = async (text: string) => {
+    setIsResponding(true);
+    try {
+      const result = await assistantProvider.interpret(text, context);
+      setMessages((current) => [
+        ...current,
+        createThreadMessage(result),
+      ]);
+    } catch {
+      appendProviderError(text);
+    } finally {
+      setIsResponding(false);
+    }
   };
 
   const handleSend = async () => {
@@ -169,20 +217,16 @@ export function AssistantScreen() {
     };
 
     setInput('');
-    setIsResponding(true);
     setMessages((current) => [...current, userMessage]);
+    await requestInterpretation(text);
+  };
 
-    try {
-      const result = await assistantProvider.interpret(text, context);
-      setMessages((current) => [
-        ...current,
-        createThreadMessage(result),
-      ]);
-    } catch {
-      appendProviderError();
-    } finally {
-      setIsResponding(false);
-    }
+  const retryMessage = async (message: ThreadMessage) => {
+    if (!message.retryText || isResponding) return;
+    setMessages((current) =>
+      current.filter((candidate) => candidate.id !== message.id),
+    );
+    await requestInterpretation(message.retryText);
   };
 
   const appendChoiceResult = (
@@ -270,11 +314,30 @@ export function AssistantScreen() {
         >
           {messages.map((message) => (
             <ChatBubble key={message.id} message={message}>
+              {message.interpretation && !message.proposal ? (
+                <IntentLine interpretation={message.interpretation} />
+              ) : null}
               {message.proposal ? (
                 <DraftCard proposal={message.proposal} />
               ) : null}
               {message.answer ? (
                 <AnswerCard answer={message.answer} />
+              ) : null}
+              {message.clarification ? (
+                <ClarificationDetails
+                  interpretation={message.interpretation}
+                />
+              ) : null}
+              {message.retryText ? (
+                <AppButton
+                  label="Try again"
+                  size="small"
+                  variant="outline"
+                  icon="refresh"
+                  onPress={() => void retryMessage(message)}
+                  disabled={isResponding}
+                  fullWidth
+                />
               ) : null}
               {message.clarification?.options?.length ? (
                 <View style={styles.options}>
@@ -302,6 +365,30 @@ export function AssistantScreen() {
               ) : null}
             </ChatBubble>
           ))}
+          {isResponding ? (
+            <View
+              style={[
+                styles.loadingRow,
+                {
+                  backgroundColor: theme.colors.surface,
+                  borderColor: theme.colors.border,
+                },
+              ]}
+            >
+              <ActivityIndicator
+                size="small"
+                color={theme.colors.primary}
+              />
+              <View style={styles.loadingCopy}>
+                <AppText variant="caption" weight="semibold">
+                  Interpreting your message…
+                </AppText>
+                <AppText variant="caption" color={theme.colors.textSecondary}>
+                  No transaction is being saved.
+                </AppText>
+              </View>
+            </View>
+          ) : null}
         </ScrollView>
 
         <View
@@ -495,6 +582,113 @@ function DraftCard({ proposal }: { proposal: AssistantProposal }) {
   );
 }
 
+function IntentLine({
+  interpretation,
+}: {
+  interpretation: AssistantInterpretation;
+}) {
+  const { theme } = useAppTheme();
+
+  return (
+    <View style={styles.intentLine}>
+      <AppText variant="micro" color={theme.colors.textTertiary}>
+        INTERPRETED AS
+      </AppText>
+      <AppText
+        variant="caption"
+        weight="semibold"
+        color={theme.colors.primary}
+      >
+        {INTENT_LABELS[interpretation.intent]}
+      </AppText>
+    </View>
+  );
+}
+
+function ClarificationDetails({
+  interpretation,
+}: {
+  interpretation?: AssistantInterpretation;
+}) {
+  const { theme } = useAppTheme();
+  if (!interpretation) return null;
+
+  const rows: { label: string; value: string }[] = [];
+  if (interpretation.amountMinor !== undefined) {
+    rows.push({
+      label: 'Amount',
+      value: formatPeso(interpretation.amountMinor),
+    });
+  }
+  if (interpretation.effectiveDate) {
+    rows.push({
+      label: 'Effective date',
+      value: formatDateKey(interpretation.effectiveDate),
+    });
+  }
+  if (interpretation.sourceWallet) {
+    rows.push({
+      label: 'From wallet',
+      value: interpretation.sourceWallet.name,
+    });
+  }
+  if (interpretation.destinationWallet) {
+    rows.push({
+      label: 'To wallet',
+      value: interpretation.destinationWallet.name,
+    });
+  }
+  if (interpretation.sourceContainer) {
+    rows.push({
+      label: 'From container',
+      value: interpretation.sourceContainer.name,
+    });
+  }
+  if (interpretation.destinationContainer) {
+    rows.push({
+      label: 'To container',
+      value: interpretation.destinationContainer.name,
+    });
+  }
+  if (interpretation.description) {
+    rows.push({
+      label: 'Description',
+      value: interpretation.description,
+    });
+  }
+
+  const missing = interpretation.missingFields
+    .map((field) => MISSING_FIELD_LABELS[field])
+    .join(', ');
+
+  return (
+    <View
+      style={[
+        styles.detailCard,
+        {
+          backgroundColor: theme.colors.warningSoft,
+          borderColor: theme.colors.warning,
+        },
+      ]}
+    >
+      <AppText variant="micro" color={theme.colors.warning}>
+        NEEDS MORE INFORMATION
+      </AppText>
+      {rows.map((row) => (
+        <DraftLine key={row.label} label={row.label} value={row.value} />
+      ))}
+      {missing ? (
+        <AppText variant="caption" weight="semibold" color={theme.colors.warning}>
+          Missing: {missing}
+        </AppText>
+      ) : null}
+      <AppText variant="caption" color={theme.colors.textSecondary}>
+        No transaction was saved.
+      </AppText>
+    </View>
+  );
+}
+
 function AnswerCard({ answer }: { answer: AssistantAnswer }) {
   const { theme } = useAppTheme();
   if (answer.figures.length === 0) return null;
@@ -563,6 +757,7 @@ function createThreadMessage(result: AssistantResult): ThreadMessage {
     clarification:
       result.kind === 'clarification' ? result.clarification : undefined,
     answer: result.kind === 'answer' ? result.answer : undefined,
+    interpretation: result.interpretation,
   };
 }
 
@@ -612,6 +807,33 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
     gap: spacing.sm,
     marginTop: spacing.xs,
+  },
+  intentLine: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    gap: spacing.xs,
+    marginTop: spacing.xs,
+  },
+  detailCard: {
+    width: '100%',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: radii.md,
+    padding: spacing.md,
+    gap: spacing.sm,
+    marginTop: spacing.xs,
+  },
+  loadingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: radii.md,
+    padding: spacing.md,
+  },
+  loadingCopy: {
+    flex: 1,
+    gap: 2,
   },
   composerArea: {
     borderTopWidth: StyleSheet.hairlineWidth,

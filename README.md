@@ -70,7 +70,7 @@ Connected workflows:
 - `src/ai/localAssistant.ts` contains the deterministic classifier, parser, container/wallet resolution, proposal validation, clarification model, and read-only question answers.
 - Every result includes a typed `interpretation` object with the intent, optional integer minor-unit amount and PHP currency, effective date, source/destination wallets or containers, description, confidence, explicit `missingFields`, `clarificationQuestion`, and a short user-facing `reasoningSummary`. Confidence is parse metadata, not proof of correctness or authorization to write.
 - `src/ai/providers` defines `AssistantProvider`; `MockAssistantProvider` is the current, clearly labeled rules-based implementation. The assistant screen accesses interpretation through this provider boundary.
-- `src/features/assistant/AssistantScreen.tsx` sends user text through the provider and renders drafts, clarification chips, and read-only answer cards. It reads local summaries but has no write or confirmation action.
+- `src/features/assistant/AssistantScreen.tsx` sends user text through the provider and renders readable intent labels, drafts, extracted details, explicit missing fields, clarification chips, loading/error/retry states, and read-only answer cards. It reads local summaries but has no write or confirmation action.
 - Phase 5 is interpretation-only: the assistant layer has no database or native model access and cannot create ledger entries, change balances, or bypass Phase 6 confirmation.
 - The module is intentionally provider-ready for a future local-model adapter, but no model/runtime, download flow, integrity check, or benchmark exists yet. Chat messages are not persisted.
 
