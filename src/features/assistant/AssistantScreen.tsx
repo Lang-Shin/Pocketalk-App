@@ -12,6 +12,7 @@ import {
 import {
   interpretAssistantMessage,
   resolveAssistantContainerChoice,
+  resolveAssistantWalletChoice,
   type AssistantAnswer,
   type AssistantClarification,
   type AssistantContext,
@@ -46,6 +47,8 @@ const SUGGESTIONS = [
   '\u20B150 jeepney fare',
   'Received \u20B12,000 allowance',
   'Move \u20B1300 to savings',
+  'Transfer \u20B1100 from GCash to cash',
+  'Move \u20B1100 from Food & drinks to Transport',
   'How much is in savings?',
   'How much did I spend this month?',
 ];
@@ -163,18 +166,10 @@ export function AssistantScreen() {
     setInput('');
   };
 
-  const handleChoice = (
+  const appendChoiceResult = (
     message: ThreadMessage,
-    containerId: string,
+    result: AssistantResult,
   ) => {
-    const pending = message.clarification?.pending;
-    if (!pending) return;
-
-    const result = resolveAssistantContainerChoice(
-      containerId,
-      pending,
-      context,
-    );
     setMessages((current) => [
       ...current.map((candidate) =>
         candidate.id === message.id
@@ -183,6 +178,30 @@ export function AssistantScreen() {
       ),
       createThreadMessage(result),
     ]);
+  };
+
+  const handleContainerChoice = (
+    message: ThreadMessage,
+    containerId: string,
+  ) => {
+    const pending = message.clarification?.pending;
+    if (!pending) return;
+    appendChoiceResult(
+      message,
+      resolveAssistantContainerChoice(containerId, pending, context),
+    );
+  };
+
+  const handleWalletChoice = (
+    message: ThreadMessage,
+    walletId: string,
+  ) => {
+    const pending = message.clarification?.pending;
+    if (!pending) return;
+    appendChoiceResult(
+      message,
+      resolveAssistantWalletChoice(walletId, pending, context),
+    );
   };
 
   return (
@@ -227,7 +246,20 @@ export function AssistantScreen() {
                     <Chip
                       key={option.id}
                       label={option.name}
-                      onPress={() => handleChoice(message, option.id)}
+                      onPress={() =>
+                        handleContainerChoice(message, option.id)
+                      }
+                    />
+                  ))}
+                </View>
+              ) : null}
+              {message.clarification?.walletOptions?.length ? (
+                <View style={styles.options}>
+                  {message.clarification.walletOptions.map((option) => (
+                    <Chip
+                      key={option.id}
+                      label={option.name}
+                      onPress={() => handleWalletChoice(message, option.id)}
                     />
                   ))}
                 </View>
@@ -349,6 +381,30 @@ function DraftCard({ proposal }: { proposal: AssistantProposal }) {
       {proposal.walletLabel ? (
         <DraftLine label="Wallet" value={proposal.walletLabel} />
       ) : null}
+      {proposal.action === 'wallet_transfer' ? (
+        <>
+          <DraftLine
+            label="From wallet"
+            value={proposal.sourceWalletLabel ?? 'Wallet'}
+          />
+          <DraftLine
+            label="To wallet"
+            value={proposal.destinationWalletLabel ?? 'Wallet'}
+          />
+        </>
+      ) : null}
+      {proposal.action === 'container_transfer' ? (
+        <>
+          <DraftLine
+            label="From container"
+            value={proposal.containerLabel ?? 'Container'}
+          />
+          <DraftLine
+            label="To container"
+            value={proposal.destinationContainerLabel ?? 'Container'}
+          />
+        </>
+      ) : null}
       {proposal.action === 'expense' ? (
         <DraftLine
           label="Container"
@@ -454,7 +510,7 @@ function createWelcomeMessage(): ThreadMessage {
   return {
     id: nextMessageId('assistant'),
     role: 'assistant',
-    text: 'Hi! I interpret expenses, income, Savings transfers, and simple local finance questions from a short message. I use deterministic rules rather than a language model. I can prepare a draft, but I cannot save it or change balances in this phase.',
+    text: 'Hi! I interpret expenses, income, wallet transfers, container transfers, Savings transfers, and simple local finance questions. I use deterministic rules rather than a language model. I can prepare a draft, but I cannot save it or change balances in this phase.',
     createdAt: new Date().toISOString(),
   };
 }
@@ -480,6 +536,8 @@ function nextMessageId(role: ChatMessage['role']): string {
 function actionLabel(action: AssistantProposal['action']): string {
   if (action === 'expense') return 'PROPOSED EXPENSE';
   if (action === 'income') return 'PROPOSED INCOME';
+  if (action === 'wallet_transfer') return 'PROPOSED WALLET TRANSFER';
+  if (action === 'container_transfer') return 'PROPOSED CONTAINER TRANSFER';
   if (action === 'savings_contribution') {
     return 'PROPOSED SAVINGS CONTRIBUTION';
   }
@@ -488,9 +546,14 @@ function actionLabel(action: AssistantProposal['action']): string {
 
 function actionIcon(
   proposal: AssistantProposal,
-): 'receipt-outline' | 'arrow-down-circle-outline' | 'swap-horizontal-outline' {
+):
+  | 'receipt-outline'
+  | 'arrow-down-circle-outline'
+  | 'wallet-outline'
+  | 'swap-horizontal-outline' {
   if (proposal.action === 'expense') return 'receipt-outline';
   if (proposal.action === 'income') return 'arrow-down-circle-outline';
+  if (proposal.action === 'wallet_transfer') return 'wallet-outline';
   return 'swap-horizontal-outline';
 }
 

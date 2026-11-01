@@ -15,6 +15,8 @@ import {
 export type AssistantAction =
   | 'expense'
   | 'income'
+  | 'wallet_transfer'
+  | 'container_transfer'
   | 'savings_contribution'
   | 'savings_withdrawal';
 
@@ -98,6 +100,10 @@ export interface AssistantProposal {
   monthKey: string;
   walletId?: string;
   walletLabel?: string;
+  sourceWalletId?: string;
+  sourceWalletLabel?: string;
+  destinationWalletId?: string;
+  destinationWalletLabel?: string;
   containerId?: string;
   containerLabel?: string;
   destinationContainerId?: string;
@@ -112,20 +118,30 @@ export interface AssistantContainerChoice {
   balanceMinor: number;
 }
 
+export interface AssistantWalletChoice {
+  id: string;
+  name: string;
+  kind: WalletKind;
+  balanceMinor: number;
+}
+
 export interface AssistantPendingIntent {
   action: AssistantAction;
   amountMinor: number;
   title: string;
   effectiveDate: string;
   walletId?: string;
+  sourceWalletId?: string;
+  destinationWalletId?: string;
   sourceContainerId?: string;
   destinationContainerId?: string;
   role: 'source' | 'destination';
 }
 
 export interface AssistantClarification {
-  reason: 'amount' | 'container' | 'wallet' | 'setup';
+  reason: 'amount' | 'container' | 'wallet' | 'transfer' | 'setup';
   options?: AssistantContainerChoice[];
+  walletOptions?: AssistantWalletChoice[];
   pending?: AssistantPendingIntent;
 }
 
@@ -164,6 +180,8 @@ interface DraftParts {
   title: string;
   effectiveDate: string;
   walletId?: string;
+  sourceWalletId?: string;
+  destinationWalletId?: string;
   sourceContainerId?: string;
   destinationContainerId?: string;
 }
@@ -190,13 +208,16 @@ export function interpretAssistantMessage(
     return answerQuestion(statement, context);
   }
 
-  const action = detectAction(statement);
+  const action = detectAction(statement, context);
   if (!action) {
+    if (looksLikeTransfer(statement)) {
+      return transferCategoryClarification();
+    }
     return {
       kind: 'refusal',
       intent: 'unsupported',
       message:
-        'I can draft expenses, income, Savings contributions, and Savings withdrawals, or answer simple questions about your local balances. Try a short sentence with an amount.',
+        'I can draft expenses, income, wallet transfers, container transfers, Savings transfers, and read-only questions. Name the source and destination, and include an amount.',
     };
   }
 
@@ -227,6 +248,24 @@ export function interpretAssistantMessage(
       intent: 'unsupported',
       message: 'Future-dated entries are blocked. Choose today or an earlier date.',
     };
+  }
+
+  if (action === 'wallet_transfer') {
+    return interpretWalletTransfer(statement, context, {
+      action,
+      amountMinor: parsedAmount.amountMinor,
+      title: 'Wallet transfer',
+      effectiveDate,
+    });
+  }
+
+  if (action === 'container_transfer') {
+    return interpretContainerTransfer(statement, context, {
+      action,
+      amountMinor: parsedAmount.amountMinor,
+      title: 'Container transfer',
+      effectiveDate,
+    });
   }
 
   const title = extractTitle(statement, action);
@@ -363,6 +402,57 @@ export function resolveAssistantContainerChoice(
     };
   }
 
+  if (pending.action === 'container_transfer') {
+    if (choice.systemKey != null) {
+      return {
+        kind: 'refusal',
+        intent: 'unsupported',
+        message: 'Container transfers require active ordinary containers.',
+      };
+    }
+    const sourceContainerId =
+      pending.role === 'source' ? choice.id : pending.sourceContainerId;
+    const destinationContainerId =
+      pending.role === 'destination'
+        ? choice.id
+        : pending.destinationContainerId;
+    const nextPending: AssistantPendingIntent = {
+      ...pending,
+      sourceContainerId,
+      destinationContainerId,
+      role: 'source',
+    };
+
+    if (!sourceContainerId) {
+      return containerTransferClarification(
+        'Which container should send the money?',
+        nextPending,
+        context,
+        'source',
+      );
+    }
+    if (!destinationContainerId) {
+      return containerTransferClarification(
+        'Which container should receive the money?',
+        nextPending,
+        context,
+        'destination',
+      );
+    }
+
+    return assembleProposal(
+      {
+        action: pending.action,
+        amountMinor: pending.amountMinor,
+        title: pending.title,
+        effectiveDate: pending.effectiveDate,
+        sourceContainerId,
+        destinationContainerId,
+      },
+      context,
+    );
+  }
+
   if (pending.role === 'source') {
     return assembleProposal(
       {
@@ -390,6 +480,460 @@ export function resolveAssistantContainerChoice(
     },
     context,
   );
+}
+
+export function resolveAssistantWalletChoice(
+  walletId: string,
+  pending: AssistantPendingIntent,
+  context: AssistantContext,
+): AssistantResult {
+  const choice = context.wallets.find((wallet) => wallet.id === walletId);
+  if (!choice) {
+    return {
+      kind: 'refusal',
+      intent: 'unsupported',
+      message: 'That wallet is no longer available. Choose another wallet.',
+    };
+  }
+
+  const sourceWalletId =
+    pending.role === 'source' ? choice.id : pending.sourceWalletId;
+  const destinationWalletId =
+    pending.role === 'destination'
+      ? choice.id
+      : pending.destinationWalletId;
+  const nextPending: AssistantPendingIntent = {
+    ...pending,
+    sourceWalletId,
+    destinationWalletId,
+    role: 'source',
+  };
+
+  if (!sourceWalletId) {
+    return walletTransferClarification(
+      'Which wallet should send the money?',
+      nextPending,
+      context,
+      'source',
+    );
+  }
+  if (!destinationWalletId) {
+    return walletTransferClarification(
+      'Which wallet should receive the money?',
+      nextPending,
+      context,
+      'destination',
+    );
+  }
+
+  return assembleProposal(
+    {
+      action: 'wallet_transfer',
+      amountMinor: pending.amountMinor,
+      title: pending.title,
+      effectiveDate: pending.effectiveDate,
+      sourceWalletId,
+      destinationWalletId,
+    },
+    context,
+  );
+}
+
+type TransferBase = Pick<
+  AssistantPendingIntent,
+  'action' | 'amountMinor' | 'title' | 'effectiveDate'
+>;
+
+function interpretWalletTransfer(
+  text: string,
+  context: AssistantContext,
+  base: TransferBase,
+): AssistantResult {
+  const endpoints = extractTransferEndpoints(text);
+  const sourceMatches = endpoints.sourceSegment
+    ? resolveWalletMatches(endpoints.sourceSegment, context.wallets)
+    : [];
+  const destinationMatches = endpoints.destinationSegment
+    ? resolveWalletMatches(endpoints.destinationSegment, context.wallets)
+    : [];
+  const source =
+    sourceMatches.length === 1 ? sourceMatches[0] : undefined;
+  const destination =
+    destinationMatches.length === 1 ? destinationMatches[0] : undefined;
+  const pending: AssistantPendingIntent = {
+    ...base,
+    role: 'source',
+    sourceWalletId: source?.id,
+    destinationWalletId: destination?.id,
+  };
+
+  if (sourceMatches.length > 1) {
+    return walletTransferClarification(
+      'Which wallet should send the money?',
+      pending,
+      context,
+      'source',
+      sourceMatches,
+    );
+  }
+  if (endpoints.sourceSegment && !source) {
+    return walletTransferClarification(
+      `I could not match “${endpoints.sourceSegment}” to a wallet. Choose the source wallet.`,
+      pending,
+      context,
+      'source',
+    );
+  }
+  if (destinationMatches.length > 1) {
+    return walletTransferClarification(
+      'Which wallet should receive the money?',
+      pending,
+      context,
+      'destination',
+      destinationMatches,
+    );
+  }
+  if (endpoints.destinationSegment && !destination) {
+    return walletTransferClarification(
+      `I could not match “${endpoints.destinationSegment}” to a wallet. Choose the destination wallet.`,
+      pending,
+      context,
+      'destination',
+    );
+  }
+  if (!source) {
+    return walletTransferClarification(
+      'Which wallet should send the money?',
+      pending,
+      context,
+      'source',
+    );
+  }
+  if (!destination) {
+    return walletTransferClarification(
+      'Which wallet should receive the money?',
+      pending,
+      context,
+      'destination',
+    );
+  }
+
+  return assembleProposal(
+    {
+      ...base,
+      sourceWalletId: source.id,
+      destinationWalletId: destination.id,
+    },
+    context,
+  );
+}
+
+function interpretContainerTransfer(
+  text: string,
+  context: AssistantContext,
+  base: TransferBase,
+): AssistantResult {
+  const endpoints = extractTransferEndpoints(text);
+  const sourceMatches = endpoints.sourceSegment
+    ? resolveOrdinaryContainerMatches(endpoints.sourceSegment, context)
+    : [];
+  const destinationMatches = endpoints.destinationSegment
+    ? resolveOrdinaryContainerMatches(endpoints.destinationSegment, context)
+    : [];
+  const source =
+    sourceMatches.length === 1 ? sourceMatches[0] : undefined;
+  const destination =
+    destinationMatches.length === 1 ? destinationMatches[0] : undefined;
+  const pending: AssistantPendingIntent = {
+    ...base,
+    role: 'source',
+    sourceContainerId: source?.id,
+    destinationContainerId: destination?.id,
+  };
+
+  const archivedSource = endpoints.sourceSegment
+    ? findArchivedMention(endpoints.sourceSegment, context)
+    : undefined;
+  if (archivedSource) {
+    return containerTransferClarification(
+      `${archivedSource.name} is archived. Choose an active source container.`,
+      pending,
+      context,
+      'source',
+    );
+  }
+  const archivedDestination = endpoints.destinationSegment
+    ? findArchivedMention(endpoints.destinationSegment, context)
+    : undefined;
+  if (archivedDestination) {
+    return containerTransferClarification(
+      `${archivedDestination.name} is archived. Choose an active destination container.`,
+      pending,
+      context,
+      'destination',
+    );
+  }
+
+  if (sourceMatches.length > 1) {
+    return containerTransferClarification(
+      'Which container should send the money?',
+      pending,
+      context,
+      'source',
+      sourceMatches,
+    );
+  }
+  if (endpoints.sourceSegment && !source) {
+    return containerTransferClarification(
+      `I could not match “${endpoints.sourceSegment}” to an active ordinary container. Choose the source container.`,
+      pending,
+      context,
+      'source',
+    );
+  }
+  if (destinationMatches.length > 1) {
+    return containerTransferClarification(
+      'Which container should receive the money?',
+      pending,
+      context,
+      'destination',
+      destinationMatches,
+    );
+  }
+  if (endpoints.destinationSegment && !destination) {
+    return containerTransferClarification(
+      `I could not match “${endpoints.destinationSegment}” to an active ordinary container. Choose the destination container.`,
+      pending,
+      context,
+      'destination',
+    );
+  }
+  if (!source) {
+    return containerTransferClarification(
+      'Which container should send the money?',
+      pending,
+      context,
+      'source',
+    );
+  }
+  if (!destination) {
+    return containerTransferClarification(
+      'Which container should receive the money?',
+      pending,
+      context,
+      'destination',
+    );
+  }
+
+  return assembleProposal(
+    {
+      ...base,
+      sourceContainerId: source.id,
+      destinationContainerId: destination.id,
+    },
+    context,
+  );
+}
+
+function walletTransferClarification(
+  message: string,
+  pending: AssistantPendingIntent,
+  context: AssistantContext,
+  role: 'source' | 'destination',
+  matches?: AssistantWalletOption[],
+): AssistantResult {
+  const excludedId =
+    role === 'source' ? pending.destinationWalletId : pending.sourceWalletId;
+  const options = (matches ?? context.wallets).filter(
+    (wallet) => wallet.id !== excludedId,
+  );
+  if (options.length === 0) {
+    return {
+      kind: 'refusal',
+      intent: 'unsupported',
+      message:
+        'A wallet transfer needs two available wallets. Add another wallet or use a different transfer.',
+    };
+  }
+  return {
+    kind: 'clarification',
+    intent: 'transfer',
+    message,
+    clarification: {
+      reason: 'wallet',
+      walletOptions: options.map((wallet) => ({
+        id: wallet.id,
+        name: wallet.name,
+        kind: wallet.kind,
+        balanceMinor: wallet.balanceMinor,
+      })),
+      pending: { ...pending, role },
+    },
+  };
+}
+
+function containerTransferClarification(
+  message: string,
+  pending: AssistantPendingIntent,
+  context: AssistantContext,
+  role: 'source' | 'destination',
+  matches?: AssistantContainerOption[],
+): AssistantResult {
+  const excludedId =
+    role === 'source'
+      ? pending.destinationContainerId
+      : pending.sourceContainerId;
+  const options = (matches ?? ordinaryContainers(context)).filter(
+    (container) => container.id !== excludedId,
+  );
+  if (options.length === 0) {
+    return {
+      kind: 'refusal',
+      intent: 'unsupported',
+      message:
+        'A container transfer needs two active ordinary containers. Create or reactivate another container first.',
+    };
+  }
+  return {
+    kind: 'clarification',
+    intent: 'transfer',
+    message,
+    clarification: {
+      reason: 'container',
+      options: options.map((container) => ({
+        id: container.id,
+        name: container.name,
+        balanceMinor: container.balanceMinor,
+      })),
+      pending: { ...pending, role },
+    },
+  };
+}
+
+function resolveWalletMatches(
+  text: string,
+  wallets: AssistantWalletOption[],
+): AssistantWalletOption[] {
+  const normalized = normalize(text);
+  return wallets.filter((wallet) => {
+    const normalizedName = normalize(wallet.name);
+    if (
+      normalizedName.length >= 3 &&
+      normalized.includes(normalizedName)
+    ) {
+      return true;
+    }
+    if (wallet.kind === 'cash') {
+      return /\bcash\b/.test(normalized);
+    }
+    return /\bgcash\b|\bvirtual gcash\b/.test(normalized);
+  });
+}
+
+function resolveOrdinaryContainerMatches(
+  text: string,
+  context: AssistantContext,
+): AssistantContainerOption[] {
+  return ordinaryContainers(context).filter((container) =>
+    mentionsContainer(text, container),
+  );
+}
+
+function ordinaryContainers(
+  context: AssistantContext,
+): AssistantContainerOption[] {
+  return context.containers.filter(
+    (container) =>
+      container.status === 'active' && container.systemKey == null,
+  );
+}
+
+function extractTransferEndpoints(text: string): {
+  sourceSegment: string | null;
+  destinationSegment: string | null;
+} {
+  const cleaned = text
+    .replace(/\b\d{4}-\d{2}-\d{2}\b/g, ' ')
+    .replace(
+      /\b(?:today|ngayon|kanina|yesterday|kahapon|tomorrow|bukas)\b/gi,
+      ' ',
+    )
+    .replace(/\s+/g, ' ')
+    .trim();
+  const fromTo =
+    /\b(?:from|galing sa|mula sa)\s+(.+?)\s+(?:to|into|papunta sa)\s+(.+)$/i.exec(
+      cleaned,
+    );
+  if (fromTo) {
+    return {
+      sourceSegment: cleanTransferSegment(fromTo[1]),
+      destinationSegment: cleanTransferSegment(fromTo[2]),
+    };
+  }
+
+  const fromOnly =
+    /\b(?:from|galing sa|mula sa)\s+(.+)$/i.exec(cleaned);
+  const toOnly =
+    /\b(?:to|into|papunta sa)\s+(.+)$/i.exec(cleaned);
+  if (fromOnly && toOnly) {
+    const sourceIndex = fromOnly.index ?? 0;
+    const destinationIndex = toOnly.index ?? 0;
+    if (sourceIndex < destinationIndex) {
+      return {
+        sourceSegment: cleanTransferSegment(fromOnly[1]),
+        destinationSegment: null,
+      };
+    }
+    return {
+      sourceSegment: null,
+      destinationSegment: cleanTransferSegment(toOnly[1]),
+    };
+  }
+  if (fromOnly) {
+    return {
+      sourceSegment: cleanTransferSegment(fromOnly[1]),
+      destinationSegment: null,
+    };
+  }
+  if (toOnly) {
+    return {
+      sourceSegment: null,
+      destinationSegment: cleanTransferSegment(toOnly[1]),
+    };
+  }
+  return { sourceSegment: null, destinationSegment: null };
+}
+
+function cleanTransferSegment(
+  value: string | undefined,
+): string | null {
+  if (!value) return null;
+  const cleaned = value
+    .replace(
+      /\b(?:today|ngayon|kanina|yesterday|kahapon|tomorrow|bukas)\b/gi,
+      ' ',
+    )
+    .replace(/\b\d{4}-\d{2}-\d{2}\b/g, ' ')
+    .replace(/\s+/g, ' ')
+    .replace(/^[-:,;\s]+|[-:,;\s]+$/g, '')
+    .trim();
+  return cleaned || null;
+}
+
+function looksLikeTransfer(text: string): boolean {
+  return /\b(?:transfer|transferred|move|moved|ilipat|inilipat)\b|\b(?:galing|mula)\s+sa\b/i.test(
+    text,
+  );
+}
+
+function transferCategoryClarification(): AssistantResult {
+  return {
+    kind: 'clarification',
+    intent: 'transfer',
+    message:
+      'Is this a transfer between wallets or between containers? Name the source and destination.',
+    clarification: { reason: 'transfer' },
+  };
 }
 
 function assembleProposal(
@@ -423,6 +967,16 @@ function assembleProposal(
 
   const wallet = parts.walletId
     ? context.wallets.find((candidate) => candidate.id === parts.walletId)
+    : undefined;
+  const sourceWallet = parts.sourceWalletId
+    ? context.wallets.find(
+        (candidate) => candidate.id === parts.sourceWalletId,
+      )
+    : undefined;
+  const destinationWallet = parts.destinationWalletId
+    ? context.wallets.find(
+        (candidate) => candidate.id === parts.destinationWalletId,
+      )
     : undefined;
   const source = parts.sourceContainerId
     ? context.containers.find(
@@ -481,6 +1035,66 @@ function assembleProposal(
         kind: 'refusal',
         intent: 'unsupported',
         message: 'Choose an active container for this income.',
+      };
+    }
+  }
+
+  if (parts.action === 'wallet_transfer') {
+    if (!sourceWallet || !destinationWallet) {
+      return {
+        kind: 'refusal',
+        intent: 'unsupported',
+        message: 'Choose both a source wallet and a destination wallet.',
+      };
+    }
+    if (sourceWallet.id === destinationWallet.id) {
+      return {
+        kind: 'refusal',
+        intent: 'unsupported',
+        message: 'Choose two different wallets for a wallet transfer.',
+      };
+    }
+    if (sourceWallet.balanceMinor < parts.amountMinor) {
+      return {
+        kind: 'refusal',
+        intent: 'unsupported',
+        message: `${sourceWallet.name} has only ${formatPeso(
+          sourceWallet.balanceMinor,
+        )}. Lower the amount.`,
+      };
+    }
+  }
+
+  if (parts.action === 'container_transfer') {
+    if (
+      !source ||
+      !destination ||
+      source.status !== 'active' ||
+      destination.status !== 'active' ||
+      source.systemKey != null ||
+      destination.systemKey != null
+    ) {
+      return {
+        kind: 'refusal',
+        intent: 'unsupported',
+        message:
+          'Choose two active ordinary containers for a container transfer.',
+      };
+    }
+    if (source.id === destination.id) {
+      return {
+        kind: 'refusal',
+        intent: 'unsupported',
+        message: 'Choose two different containers for a container transfer.',
+      };
+    }
+    if (source.balanceMinor < parts.amountMinor) {
+      return {
+        kind: 'refusal',
+        intent: 'unsupported',
+        message: `${source.name} has only ${formatPeso(
+          source.balanceMinor,
+        )}. Lower the amount.`,
       };
     }
   }
@@ -555,12 +1169,17 @@ function assembleProposal(
     monthKey: monthKeyForDateKey(parts.effectiveDate),
     walletId: wallet?.id,
     walletLabel: wallet?.name,
+    sourceWalletId: sourceWallet?.id,
+    sourceWalletLabel: sourceWallet?.name,
+    destinationWalletId: destinationWallet?.id,
+    destinationWalletLabel: destinationWallet?.name,
     containerId: source?.id ?? destination?.id,
     containerLabel: source?.name ?? destination?.name,
     destinationContainerId: destination?.id,
     destinationContainerLabel: destination?.name,
-    sourceBalanceMinor: source?.balanceMinor,
-    destinationBalanceMinor: destination?.balanceMinor,
+    sourceBalanceMinor: source?.balanceMinor ?? sourceWallet?.balanceMinor,
+    destinationBalanceMinor:
+      destination?.balanceMinor ?? destinationWallet?.balanceMinor,
   };
 
   return {
@@ -1034,7 +1653,7 @@ function helpResult(): AssistantResult {
     kind: 'answer',
     intent: 'clarification',
     message:
-      'I can interpret expenses, income, Savings transfers, and read-only questions. Try “I spent ₱120 on lunch”, “I received ₱2,000 allowance”, “Move ₱300 to savings”, or “How much is in Savings?”. I never change balances or save transactions.',
+      'I can interpret expenses, income, wallet transfers, container transfers, Savings transfers, and read-only questions. Try “I spent ₱120 on lunch”, “Transfer ₱100 from Cash to GCash”, “Move ₱100 from Food to Transport”, “Move ₱300 to savings”, or “How much is in Savings?”. I never change balances or save transactions.',
     answer: {
       topic: 'help',
       title: 'What I can understand',
@@ -1317,7 +1936,10 @@ function answerQuestion(
   };
 }
 
-function detectAction(text: string): AssistantAction | null {
+function detectAction(
+  text: string,
+  context: AssistantContext,
+): AssistantAction | null {
   const lower = text.toLowerCase();
   const mentionsSavings = /\bsavings?\b|\bipon\b|\bimpok\b/.test(lower);
   const mentionsWithdrawal =
@@ -1341,6 +1963,27 @@ function detectAction(text: string): AssistantAction | null {
   if (mentionsSavings && mentionsContribution) return 'savings_contribution';
   if (mentionsExpense && !mentionsIncome) return 'expense';
   if (mentionsIncome && !mentionsExpense) return 'income';
+  if (looksLikeTransfer(text)) {
+    if (
+      resolveWalletMatches(text, context.wallets).length > 0 ||
+      /\bwallet\b/.test(lower)
+    ) {
+      return 'wallet_transfer';
+    }
+    if (/\bcontainers?\b/.test(lower)) {
+      return 'container_transfer';
+    }
+    if (
+      context.containers.some(
+        (container) =>
+          container.systemKey == null &&
+          (container.status === 'active' || container.status === 'archived') &&
+          mentionsContainer(text, container),
+      )
+    ) {
+      return 'container_transfer';
+    }
+  }
   return null;
 }
 
@@ -1551,6 +2194,12 @@ function proposalMessage(action: AssistantAction): string {
   }
   if (action === 'income') {
     return 'I interpreted that as income and prepared a draft. No ledger entry has been created.';
+  }
+  if (action === 'wallet_transfer') {
+    return 'I interpreted that as a wallet transfer and prepared a draft. No ledger entry has been created.';
+  }
+  if (action === 'container_transfer') {
+    return 'I interpreted that as a container transfer and prepared a draft. No ledger entry has been created.';
   }
   if (action === 'savings_contribution') {
     return 'I interpreted that as a Savings contribution and prepared a draft. It is a transfer, not an expense. No ledger entry has been created.';

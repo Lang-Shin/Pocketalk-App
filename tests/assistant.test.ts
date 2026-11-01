@@ -4,6 +4,7 @@ import test from 'node:test';
 import {
   interpretAssistantMessage,
   resolveAssistantContainerChoice,
+  resolveAssistantWalletChoice,
   type AssistantContext,
 } from '../src/ai/localAssistant';
 
@@ -189,6 +190,175 @@ test('assistant resolves a Savings withdrawal destination', () => {
     result.proposal.destinationContainerId,
     'container-food',
   );
+});
+
+test('assistant drafts a wallet-to-wallet transfer', () => {
+  const result = interpretAssistantMessage(
+    'Transfer ₱100 from Cash to GCash',
+    createContext(),
+  );
+
+  assert.equal(result.kind, 'proposal');
+  if (result.kind !== 'proposal') return;
+  assert.equal(result.intent, 'transfer');
+  assert.equal(result.proposal.action, 'wallet_transfer');
+  assert.equal(result.proposal.amountMinor, 10_000);
+  assert.equal(result.proposal.title, 'Wallet transfer');
+  assert.equal(result.proposal.sourceWalletId, 'wallet-cash');
+  assert.equal(result.proposal.destinationWalletId, 'wallet-gcash');
+  assert.equal('moneyEntry' in result, false);
+});
+
+test('assistant asks for a missing wallet transfer source', () => {
+  const result = interpretAssistantMessage(
+    'Transfer ₱100 to Cash',
+    createContext(),
+  );
+
+  assert.equal(result.kind, 'clarification');
+  if (result.kind !== 'clarification') return;
+  assert.equal(result.intent, 'transfer');
+  assert.equal(result.clarification.reason, 'wallet');
+  assert.deepEqual(
+    result.clarification.walletOptions?.map((wallet) => wallet.id),
+    ['wallet-gcash'],
+  );
+
+  const pending = result.clarification.pending;
+  assert.ok(pending);
+  const proposal = resolveAssistantWalletChoice(
+    'wallet-gcash',
+    pending,
+    createContext(),
+  );
+  assert.equal(proposal.kind, 'proposal');
+  if (proposal.kind !== 'proposal') return;
+  assert.equal(proposal.proposal.sourceWalletId, 'wallet-gcash');
+  assert.equal(proposal.proposal.destinationWalletId, 'wallet-cash');
+});
+
+test('assistant asks for a missing wallet transfer destination', () => {
+  const result = interpretAssistantMessage(
+    'Transfer ₱100 from GCash',
+    createContext(),
+  );
+
+  assert.equal(result.kind, 'clarification');
+  if (result.kind !== 'clarification') return;
+  assert.equal(result.clarification.reason, 'wallet');
+  assert.deepEqual(
+    result.clarification.walletOptions?.map((wallet) => wallet.id),
+    ['wallet-cash'],
+  );
+});
+
+test('assistant drafts an ordinary container-to-container transfer', () => {
+  const result = interpretAssistantMessage(
+    'Move ₱150 from Food & drinks to Transport',
+    createContext(),
+  );
+
+  assert.equal(result.kind, 'proposal');
+  if (result.kind !== 'proposal') return;
+  assert.equal(result.intent, 'transfer');
+  assert.equal(result.proposal.action, 'container_transfer');
+  assert.equal(result.proposal.amountMinor, 15_000);
+  assert.equal(result.proposal.title, 'Container transfer');
+  assert.equal(result.proposal.containerId, 'container-food');
+  assert.equal(result.proposal.destinationContainerId, 'container-transport');
+  assert.equal('moneyEntry' in result, false);
+});
+
+test('assistant asks for missing container transfer endpoints', () => {
+  const missingDestination = interpretAssistantMessage(
+    'Move ₱150 from Food & drinks',
+    createContext(),
+  );
+  assert.equal(missingDestination.kind, 'clarification');
+  if (missingDestination.kind !== 'clarification') return;
+  assert.equal(missingDestination.clarification.reason, 'container');
+  assert.deepEqual(
+    missingDestination.clarification.options?.map((option) => option.id),
+    ['container-transport'],
+  );
+
+  const missingSource = interpretAssistantMessage(
+    'Move ₱150 to Transport',
+    createContext(),
+  );
+  assert.equal(missingSource.kind, 'clarification');
+  if (missingSource.kind !== 'clarification') return;
+  assert.deepEqual(
+    missingSource.clarification.options?.map((option) => option.id),
+    ['container-food'],
+  );
+});
+
+test('assistant clarifies ambiguous container transfer endpoints', () => {
+  const context = createContext();
+  context.containers.push({
+    id: 'container-food-delivery',
+    name: 'Food delivery',
+    status: 'active',
+    systemKey: null,
+    balanceMinor: 5_000,
+    limitMinor: 0,
+    spentMinor: 0,
+    remainingMinor: 0,
+  });
+
+  const result = interpretAssistantMessage(
+    'Move ₱50 from Food to Food delivery',
+    context,
+  );
+
+  assert.equal(result.kind, 'clarification');
+  if (result.kind !== 'clarification') return;
+  assert.equal(result.clarification.reason, 'container');
+  assert.deepEqual(
+    result.clarification.options?.map((option) => option.id),
+    ['container-food', 'container-food-delivery'],
+  );
+});
+
+test('assistant rejects invalid and unsupported transfer requests', () => {
+  const missingAmount = interpretAssistantMessage(
+    'Move from Food & drinks to Transport',
+    createContext(),
+  );
+  assert.equal(missingAmount.kind, 'clarification');
+  if (missingAmount.kind !== 'clarification') return;
+  assert.equal(missingAmount.clarification.reason, 'amount');
+
+  const zeroAmount = interpretAssistantMessage(
+    'Move ₱0 from Food & drinks to Transport',
+    createContext(),
+  );
+  assert.equal(zeroAmount.kind, 'clarification');
+  if (zeroAmount.kind !== 'clarification') return;
+  assert.equal(zeroAmount.clarification.reason, 'amount');
+
+  const insufficient = interpretAssistantMessage(
+    'Move ₱500 from Food & drinks to Transport',
+    createContext(),
+  );
+  assert.equal(insufficient.kind, 'refusal');
+  if (insufficient.kind !== 'refusal') return;
+  assert.match(insufficient.message, /only ₱200\.00/);
+
+  const unknownCategory = interpretAssistantMessage(
+    'Transfer ₱100',
+    createContext(),
+  );
+  assert.equal(unknownCategory.kind, 'clarification');
+  if (unknownCategory.kind !== 'clarification') return;
+  assert.equal(unknownCategory.clarification.reason, 'transfer');
+
+  const unsupported = interpretAssistantMessage(
+    'Hello there',
+    createContext(),
+  );
+  assert.equal(unsupported.kind, 'refusal');
 });
 
 test('assistant understands Taglish expense wording', () => {
