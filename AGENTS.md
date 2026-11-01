@@ -27,10 +27,10 @@ Do not assume the repository is empty or that files described in planning docume
 Current status when these instructions were updated:
 
 - Phase 1 was research and planning only.
-- Phase 2 (UI foundation) has **not** been approved or completed.
-- An uncommitted, exploratory Expo UI scaffold exists in the working tree from earlier work. It is not accepted as Phase 2 and must not be treated as feature-complete or as approval to continue.
+- Phase 2 (UI foundation) has **not** been separately approved or completed.
+- The exploratory Expo UI scaffold from earlier work became the base for Phase 4. It is not accepted as Phase 2 completion or as approval to continue.
 - Phase 3 (SQLite data layer and deterministic financial engine) is implemented: migrations v1-v4, the finance engine, system Unallocated and Savings containers, automatic monthly rollover, reversals/corrections, and SQLite-backed tests.
-- Phase 4 (UI integration) is implemented and awaiting review: budget screens use a SQLite-backed service/provider, active/historical month selection, container management, Unallocated allocation, Savings transfers, carryover, reporting, and filtered transaction history with detail views. Profile and assistant content remain sample-backed. Service- and session-level integration, history-filter, wallet-support, and responsive layout/grid tests pass (103 total); React Native UI/accessibility and device end-to-end tests are not yet implemented. Phase 4 must not add separate long-term savings goals/targets, AI, cloud sync, or GCash integration.
+- Phase 4 (UI integration) implementation is complete for its approved screen and workflow scope, but the phase gate remains open. SQLite-backed screens are Home, Budgets, Wallet, History, and Monthly History. Connected workflows include startup/loading/error/retry, active/historical month selection, income and expense entry with effective dates, wallet and container transfers (allocation, return, Savings contribution, Savings withdrawal), container lifecycle, rollover, monthly reporting, and filtered transaction history with detail views. Profile and assistant content remain sample-backed. Service- and session-level integration, history-filter, wallet-support, and responsive layout/grid tests pass (103 total); lint, typecheck, `expo-doctor`, and Android/web exports pass. React Native UI/accessibility and device end-to-end tests are not implemented, and native Android runtime verification is **BLOCKED / NOT VERIFIED** because no Android SDK, emulator, device, or `adb` was available. Phase 4 does not add separate long-term savings goals/targets, AI, cloud sync, automatic allowance income, or GCash integration. Phase 5 has not started.
 
 ## 3. Preserve Existing Work
 

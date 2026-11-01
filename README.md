@@ -4,7 +4,33 @@ AI-powered mobile app for natural language allowance and container-based budget 
 
 ## Status
 
-The Phase 2 UI foundation remains an unapproved exploratory Expo scaffold. Phase 3 added a local SQLite ledger (migrations v1–v4), repositories, a deterministic finance engine, the system Unallocated account, the permanent system Savings container, and automatic monthly rollover. Phase 4 now connects the budgeting screens to that ledger through a SQLite-backed finance service and provider, including active and historical months, container lifecycle, Unallocated allocation, Savings transfers, and reporting. Phase 4 is awaiting review. Profile and assistant content still use sample data, and there is no GCash integration or AI model connection.
+The Phase 2 UI foundation was never separately approved; its exploratory Expo scaffold became the base for Phase 4. Phase 3 added a local SQLite ledger (migrations v1–v4), repositories, a deterministic finance engine, the system Unallocated account, the permanent system Savings container, and automatic monthly rollover. Phase 4 connects Home, Budgets, Wallet, History, and Monthly History to that ledger through a SQLite-backed finance service and provider, including active and historical months, container lifecycle, Unallocated allocation, Savings transfers, rollover, and reporting. Profile and assistant content still use sample data. Automated checks pass, but the Phase 4 gate remains open because React Native UI/accessibility/E2E tests are not implemented and native Android runtime verification is blocked. Phase 5 has not started, and there is no GCash integration or AI model connection.
+
+## Phase 4 implementation
+
+SQLite-backed screens:
+
+- **Home** reads the active month, wallet totals, recent activity, Savings balance, and month summary.
+- **Budgets** reads and writes active/historical months, container limits and metadata, Unallocated, Savings, rollover results, and container lifecycle actions.
+- **Wallet** reads wallet totals and wallet activity and records wallet transfers, income, expenses, and container transfers.
+- **History** reads transactions by effective date with type/date/container/wallet filters and transaction detail.
+- **Monthly History** reads historical summaries, container results, rollover results, Savings contributions/withdrawals/ending balance, and prior-month transactions.
+
+Sample-backed screens:
+
+- **Profile** uses local sample profile content; theme preference is session-only.
+- **Assistant** is a UI preview only. It cannot call an AI model or save transactions.
+
+Connected workflows:
+
+- Startup, migration, loading, error, and retry states through `FinanceSession` and `FinanceProvider`.
+- Active month from the device local date, with foreground/resume refresh and historical month selection.
+- Income and expense entry with effective dates, optional notes, wallet/container validation, and idempotency.
+- Wallet-to-wallet transfers and container transfers routed to Unallocated allocation, return to Unallocated, Savings contribution, or Savings withdrawal.
+- Container create, rename, recolor, re-icon, optional monthly limit, archive, reactivate, and safe delete.
+- Automatic calendar-month rollover into Unallocated, excluding Savings and Unallocated.
+- Monthly reporting that keeps net savings separate from Savings contributions, withdrawals, and ending balance.
+- Default Cash on hand and Virtual GCash wallets, with no bank or GCash connection.
 
 ## Stack
 
@@ -58,16 +84,18 @@ npx expo export --platform android
 npx expo export --platform web
 ```
 
+At the Phase 4 wrap-up, all listed checks pass: 103/103 tests, 21/21 `expo-doctor` checks, and successful Android and web exports. Native Android runtime verification remains blocked because no Android SDK, emulator, device, or `adb` was available.
+
 The current suite contains 103 tests covering migrations, persistence, foreign keys, rollback, WAL, idempotency, calendar boundaries, peso parsing, balance invariants, transfers, reversals/corrections, container lifecycle, historical labels, recorded-date metadata, net savings, late entries, Unallocated bootstrapping, allocation/return flows, system-container protections, allocation idempotency, Savings container protection and accumulation, Savings transfers (contribute, withdraw, Savings→ordinary), monthly rollover sweeps (ordinary and archived containers, excluding Savings and Unallocated), multiple missed months, leap-year and year-boundary rollover, local-midnight cutoff and timezone metadata, late entry and correction replay, clock-backward stability, rollover atomicity and idempotency, file-backed close/reopen persistence without duplicate sweeps, new allowance after rollover, full carryover/net-savings/Savings-balance reporting, and service-level default-wallet, optional income/expense notes, default-Unallocated income, overdraft rejection, archived-container reactivation, system-container protection, all container/Savings transfer routes and transfer idempotency, metadata, read-only history, monthly-history flows, saved historical transactions, month-end rollover results, explicit open/pre-baseline months, history type/date/container/wallet filter combinations, and wallet balance preservation, multi-wallet balance derivation, global container balance aggregation, wallet-transfer invariant preservation, responsive content/grid sizing at phone, tablet, and wide viewports, and session-level integration across startup, loading/error/retry states, income, expenses, transfers, Savings, container lifecycle, duplicate submission, revision-driven refresh, rollover, historical reporting, and file-backed restart persistence. The database and service tests run against real SQLite via `node:sqlite`; they do not verify native Expo SQLite behavior. No React Native UI test framework is installed, so screen behavior and accessibility remain manually unverified.
 
 ## Current boundaries
 
-- Phase 4 is implemented and awaiting review. Budget screens read and write the local SQLite ledger; Profile and assistant content still use the sample repository. There are no separate long-term savings goals or targets.
+- Phase 4 implementation is complete for its approved screen and workflow scope, but the phase gate remains open. Home, Budgets, Wallet, History, and Monthly History read and write the local SQLite ledger. Profile and assistant content still use sample data. There are no separate long-term savings goals or targets, no automatic monthly allowance income, no AI functionality, no cloud sync, and no real GCash integration.
 - The active month follows the device's local date. Provider refreshes on foreground/resume and while the app remains open, but native device timezone-change and overnight rollover behavior is still unverified.
-- Native Expo SQLite startup, restart, migration, and WAL behavior is unverified until tested on Android. WAL is enabled only for non-web native initialization; in-memory test databases do not use WAL.
+- Native Expo SQLite startup, restart, migration, WAL, transaction, navigation/form, keyboard, and storage-path behavior is **BLOCKED / NOT VERIFIED**. No Android SDK, emulator, device, or `adb` was available. Configuration inspection is not a substitute for device verification. WAL is enabled only for non-web native initialization; in-memory test databases do not use WAL.
 - Web SQLite bundling is configured through `metro.config.js`, but browser worker/WASM runtime behavior has not been verified; Android/iOS are the primary targets.
 - Budget-limit behavior across rollover remains `UNRESOLVED` in the specification. Materialized versus derived monthly summaries and the late-correction overdraw recovery UX are also unresolved.
-- There is no React Native UI test framework or end-to-end device test yet. Screen persistence, accessibility, safe-area, keyboard, and touch flows require manual verification. Responsive layout and card-grid sizing are covered by unit tests at 320, 360, 390, 430, 768, and 1280 widths, but on-device visual checks at those sizes are still manual.
+- There is no React Native UI test framework or end-to-end device test. Screen rendering, accessibility semantics, safe-area, keyboard, and touch flows require manual verification, so the Phase 4 gate is not fully closed. Responsive layout and card-grid sizing are covered by unit tests at 320, 360, 390, 430, 768, and 1280 widths, and web screenshots were checked at those sizes, but on-device visual checks are still manual.
 - The assistant is a UI preview; it does not call an AI model and cannot save transactions.
 - The virtual GCash wallet is manually maintained and is not connected to GCash.
 - Wallet management (custom wallet creation, archiving, and lifecycle) remains unresolved in the specification (§14 Decision 24). The app exposes the two established default wallets (Cash on hand and Virtual GCash) under the approved global-container accounting model; containers are global allocations of recorded funds and do not belong to individual wallets.
