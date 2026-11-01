@@ -79,7 +79,7 @@ export default function TabsLayout() {
         name="assistant"
         options={{
           title: 'Assistant',
-          tabBarAccessibilityLabel: 'AI assistant preview',
+          tabBarAccessibilityLabel: 'Local assistant',
           tabBarIcon: ({ color, size, focused }) => (
             <Ionicons
               name={focused ? 'sparkles' : 'sparkles-outline'}

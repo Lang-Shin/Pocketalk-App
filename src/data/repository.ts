@@ -1,8 +1,7 @@
-import type { ChatMessage, ProfileData } from './models';
-import { mockChatThread, mockProfile } from './mockData';
+import type { ProfileData } from './models';
+import { mockProfile } from './mockData';
 
 export interface PocketaRepository {
-  getAssistantThread: () => Promise<ChatMessage[]>;
   getProfile: () => Promise<ProfileData>;
 }
 
@@ -15,7 +14,6 @@ function withMockDelay<T>(value: T): Promise<T> {
 }
 
 export const mockRepository: PocketaRepository = {
-  getAssistantThread: () => withMockDelay(mockChatThread),
   getProfile: () => withMockDelay(mockProfile),
 };
 

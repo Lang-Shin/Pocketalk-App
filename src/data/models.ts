@@ -133,22 +133,11 @@ export interface MonthRolloverSummary {
   sweptTotalMinor: number;
 }
 
-export interface ProposedTransactionDraft {
-  action: 'expense' | 'income' | 'transfer';
-  title: string;
-  amountMinor: number;
-  sourceLabel?: string;
-  destinationLabel?: string;
-  dateLabel: string;
-  note: string;
-}
-
 export interface ChatMessage {
   id: string;
   role: 'assistant' | 'user';
   text: string;
   createdAt: string;
-  draft?: ProposedTransactionDraft;
 }
 
 export interface ProfileData {

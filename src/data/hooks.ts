@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 
-import type { ChatMessage, ProfileData } from './models';
+import type { ProfileData } from './models';
 import { pocketaRepository } from './repository';
 
 export type QueryStatus = 'loading' | 'success' | 'error';
@@ -57,10 +57,6 @@ export function useRepositoryQuery<T>(
   }, []);
 
   return { ...state, retry };
-}
-
-export function useAssistantThread(): QueryResult<ChatMessage[]> {
-  return useRepositoryQuery(pocketaRepository.getAssistantThread);
 }
 
 export function useProfileData(): QueryResult<ProfileData> {

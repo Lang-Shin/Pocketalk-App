@@ -278,7 +278,7 @@ export function HomeScreen() {
           </View>
         </View>
         <AppButton
-          label="Open assistant preview"
+          label="Open assistant"
           icon="chatbubble-ellipses-outline"
           onPress={() => router.push('/assistant')}
           fullWidth

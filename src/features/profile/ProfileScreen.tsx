@@ -249,7 +249,7 @@ export function ProfileScreen() {
         </Card>
         <NoticeBanner
           title="Your ledger is saved"
-          message="Budget changes are written to SQLite on this device. Profile and assistant content still use sample data."
+          message="Budget changes are written to SQLite on this device. Profile content is still sample data. Assistant drafts use local rules and save only after confirmation."
           icon="shield-checkmark-outline"
         />
       </View>
@@ -271,8 +271,8 @@ export function ProfileScreen() {
             icon="flask-outline"
             tone="amber"
             label="Build stage"
-            description="Local ledger, rollover, and budgeting workflows"
-            value="Phase 4"
+            description="Local ledger and local assistant prototype"
+            value="Phase 5"
           />
         </Card>
       </View>
@@ -295,8 +295,9 @@ export function ProfileScreen() {
           color={theme.colors.textTertiary}
           align="center"
         >
-          Budget data is stored locally on this device. Profile and assistant
-          content are still samples, and no bank or GCash account is connected.
+          Budget data is stored locally on this device. Profile content is still
+          sample data. The assistant uses deterministic local rules, not a
+          language model, and no bank or GCash account is connected.
         </AppText>
       </View>
     </Screen>
