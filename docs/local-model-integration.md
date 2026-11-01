@@ -42,25 +42,100 @@ These are JavaScript/bundling checks. No native development build, model load, o
 
 Virtual RAM / memory expansion must not be counted as physical RAM. Capacity decisions must use physical RAM and actual available memory.
 
-## Runtime comparison
+## Phase 5.5 Section B — Runtime compatibility evidence
 
-| Runtime | Expo/RN fit | Qwen2.5-1.5B support | Native requirements | Assessment |
-|---|---|---|---|---|
-| `react-native-executorch` 0.10.x | Explicitly supports Expo SDK 57 / RN 0.86 and the New Architecture | Pre-exported quantized 8da4w `.pte` is about 1.1 GiB; not Q4_K_M | Development build/prebuild, native libraries, `react-native-blob-util`, Babel/worklets setup, Android 13+ and iOS 17+ per docs | Primary candidate when explicit Expo SDK 57 compatibility is the priority |
-| `llama.rn` 0.12.x | New Architecture; Expo config plugin; development build required | Loads Qwen2.5 GGUF directly, including Q4_K_M | Development build/prebuild; Android arm64-v8a; model stored outside the app binary | Primary candidate if Q4_K_M and JSON-schema/GBNF constrained output are mandatory; RN 0.86 compatibility must be verified in a dev build |
-| LiteRT-LM | Android/iOS native; no documented official React Native binding | Qwen2.5-1.5B artifacts exist | Custom native Android/iOS bridge and build integration | Defer unless the native bridge cost is justified |
+Access date for all sources: **2026-11-01**.
 
-Both `react-native-executorch` and `llama.rn` would require a development build. Expo Go cannot load these native libraries. The current app has no `android/` or `ios/` project, so adopting either runtime requires prebuild/CNG changes.
+Evidence labels:
 
-## Recommendation
+- **Verified:** stated by official documentation or official package metadata.
+- **Documented but untested:** officially documented, but not verified in Pocketa.
+- **Assumption:** planning hypothesis requiring validation.
+- **Unknown:** no reliable evidence yet.
+- **Known incompatibility:** contradicts the current architecture or target.
 
-Do not integrate a runtime until the target device's Android major version and available physical memory are confirmed and a development-build spike is approved.
+### Verified official documentation
 
-If compatibility with the current Expo SDK 57 / RN 0.86 stack is the deciding factor, evaluate `react-native-executorch` first with its quantized Qwen2.5-1.5B artifact. Its documented Android 13+ requirement blocks it if the phone remains on Android 12.
+- Expo SDK 57 targets React Native 0.86; `expo@57.0.17` moved the project to React Native 0.86.3. The current app uses SDK 57 and RN 0.86.3.
+- `react-native-executorch` requires the New Architecture and a development build; Expo Go is not supported.
+- The ExecuTorch compatibility table explicitly lists `react-native-executorch` 0.10.x as supporting React Native 0.86 and Expo SDK 57.
+- ExecuTorch documents `react-native-worklets` `>=0.10.0 <0.14.0`, `react-native-blob-util`, and the `react-native-worklets/plugin` Babel plugin as requirements.
+- ExecuTorch documents Android 13+ and iOS 17+.
+- The ExecuTorch Qwen2.5-1.5B XNNPACK artifact is 8da4w, approximately 1.1 GiB, with a 16,384-token context, published for ExecuTorch v1.4.1. It is not a Q4_K_M artifact.
+- `llama.rn` v0.10+ requires the New Architecture and documents an Expo config plugin, development build, GGUF loading, and GBNF/JSON-schema constrained output.
+- `llama.rn` documents Android arm64-v8a/x86_64 support and OpenCL acceleration limited to Qualcomm Adreno GPUs and Q4_0/Q6_K data types.
+- LiteRT-LM officially supports Android/iOS and lists Qwen2.5-1.5B as a supported model, with Kotlin, Swift, JavaScript/web, C++, Python, and Flutter APIs.
+- Qwen2.5-1.5B-Instruct is Apache-2.0, has 1.54B parameters, and supports a 32,768-token context.
 
-If Q4_K_M is mandatory and constrained JSON is required, evaluate `llama.rn` first with the Qwen2.5-1.5B-Instruct Q4_K_M GGUF and JSON-schema/GBNF output. Verify that its native build works with RN 0.86 before committing to it.
+### Documented but untested for Pocketa
+
+- Loading and running Qwen2.5-1.5B on the OPPO Reno8 5G.
+- Actual memory, latency, thermal, battery, and stability behavior.
+- Structured-output reliability of Qwen2.5-1.5B for Pocketa’s interpretation schema.
+- `react-native-executorch` 0.11.0 compatibility: npm `latest` resolves to 0.11.0, but the fetched compatibility table lists 0.10.x as the RN 0.86 row and does not show a 0.11.x row.
+- `llama.rn` compatibility with React Native 0.86: its documentation has no explicit RN 0.86 compatibility matrix. The npm `latest` tag resolves to `0.13.0-rc.9`, a pre-release-named version.
+- Building either runtime in this Expo SDK 57 project, which currently has no `android/`, `ios/`, or development-client project.
+- CPU-only Q4_K_M inference on the Dimensity 1300’s Mali GPU.
+
+### Assumptions
+
+- 8 GB physical RAM may be enough for Qwen2.5-1.5B with a modest 2-4K context, but this is unmeasured.
+- The 4 GB RAM-expansion setting provides no reliable additional model capacity and is excluded.
+- A model can be provisioned outside the app binary and loaded locally during the spike.
+- Development-build overhead is acceptable for the feasibility test.
+- Model download can be user-initiated and integrity-checked in a later integration step.
+
+### Unknowns
+
+- Pocketa’s minimum supported Android API level and physical RAM threshold.
+- Whether ExecuTorch 0.11.0 is compatible with RN 0.86 despite the missing table row.
+- Whether `llama.rn` builds cleanly with Expo SDK 57 / RN 0.86.
+- Whether Q4_K_M is necessary or ExecuTorch’s 8da4w artifact is sufficient.
+- Which model quantization and context length provide acceptable quality and latency.
+- Whether Qwen2.5-1.5B can reliably produce the required structured JSON.
+- Actual available memory after ColorOS 14.0 overhead.
+- iOS support requirements and timeline.
+
+### Known incompatibilities and blockers
+
+- Expo Go cannot load custom native runtime libraries.
+- `react-native-executorch` requires Android 13+; the OPPO test device runs Android 14, but the product minimum is unresolved.
+- LiteRT-LM has no documented official React Native binding and would require a custom native bridge.
+- `llama.rn` OpenCL acceleration is Qualcomm-Adreno-focused; the Dimensity 1300 uses Mali, so CPU inference is the realistic baseline.
+- Q4_K_M is not the ExecuTorch Qwen2.5 artifact format.
+
+### Runtime comparison
+
+| Runtime | Version evidence | Expo/RN fit | Qwen2.5-1.5B support | Native requirements | Assessment |
+|---|---|---|---|---|---|
+| `react-native-executorch` | 0.10.x explicitly supports RN 0.86 / Expo 57; npm `latest` is 0.11.0; `legacy` is 0.10.7 | Verified for 0.10.x; 0.11.0 row not shown | 8da4w `.pte`, about 1.1 GiB, 16,384-token export; not Q4_K_M | Development build/prebuild, New Architecture, worklets 0.10+, `react-native-blob-util`, Babel plugin, Android 13+/iOS 17+ | First spike candidate, subject to version and device verification |
+| `llama.rn` | npm `latest` is 0.13.0-rc.9; no explicit RN 0.86 matrix | New Architecture and Expo plugin documented; RN 0.86 untested | GGUF Qwen2.5 support, including Q4_K_M; GBNF/JSON-schema output | Development build/prebuild, Expo plugin, Android arm64-v8a; CPU on Mali | Fallback if Q4_K_M/constrained JSON is required; RC and build compatibility are risks |
+| LiteRT-LM | Official Qwen2.5-1.5B support; no RN API | No official React Native binding | `.litertlm`, listed around 1,598 MB in official model table | Custom native Android/iOS bridge | Defer unless native bridge cost is justified |
+
+### Section B recommendation
+
+No final runtime is selected. The first spike candidate is `react-native-executorch` **0.10.x**, because it has the only explicit RN 0.86 / Expo SDK 57 compatibility evidence found. The current 0.11.0 package must be checked separately before use.
+
+Use `llama.rn` as the fallback spike only if Q4_K_M or JSON-schema/GBNF output is mandatory, and only after verifying RN 0.86 and Expo build compatibility. Do not adopt the current RC package without a stability review.
+
+LiteRT-LM is not a practical first integration because it requires a custom React Native native bridge.
 
 The model file must not be bundled in the APK/AAB. It must only be downloaded after explicit user action showing the model name, size, source, and storage impact. The download must be integrity-checked and removable.
+
+### Sources
+
+| Source | Access date |
+|---|---|
+| [Expo SDK 57 changelog](https://expo.dev/changelog/sdk-57) | 2026-11-01 |
+| [React Native ExecuTorch compatibility](https://docs.swmansion.com/react-native-executorch/docs/other/compatibility) | 2026-11-01 |
+| [React Native ExecuTorch getting started](https://docs.swmansion.com/react-native-executorch/docs/fundamentals/getting-started) | 2026-11-01 |
+| [npm `react-native-executorch` dist-tags](https://registry.npmjs.org/-/package/react-native-executorch/dist-tags) | 2026-11-01 |
+| [Software Mansion Qwen2.5 ExecuTorch artifacts](https://huggingface.co/software-mansion/Qwen2.5-ExecuTorch) | 2026-11-01 |
+| [llama.rn repository README](https://github.com/mybigday/llama.rn) | 2026-11-01 |
+| [npm `llama.rn` dist-tags](https://registry.npmjs.org/-/package/llama.rn/dist-tags) | 2026-11-01 |
+| [LiteRT-LM overview](https://developers.google.com/edge/litert-lm/overview) | 2026-11-01 |
+| [LiteRT-LM repository](https://github.com/google-ai-edge/LiteRT-LM) | 2026-11-01 |
+| [Qwen2.5-1.5B-Instruct model card](https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct) | 2026-11-01 |
 
 ## Required provider boundary
 

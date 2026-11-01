@@ -137,13 +137,13 @@ The app is on Expo SDK 57, React Native 0.86.3, and the New Architecture. Expo G
 
 | Candidate | Architecture fit | Qwen2.5-1.5B footprint | Current assessment |
 |---|---|---|---|
-| `react-native-executorch` 0.10.x | Explicit Expo SDK 57 / RN 0.86 support; New Architecture; development build; Android 13+ and iOS 17+ per docs | Quantized 8da4w `.pte` is about 1.1 GiB; not Q4_K_M | Primary candidate when Expo compatibility is the priority; requires `react-native-blob-util`, Babel/worklets setup, and a dev build |
-| `llama.rn` 0.12.x | New Architecture; Expo config plugin; development build | Q4_K_M GGUF is about 0.93-1.0 GB before KV/runtime overhead | Primary candidate if Q4_K_M and JSON-schema/GBNF output are required; RN 0.86 compatibility needs a dev-build spike |
+| `react-native-executorch` | 0.10.x explicitly supports Expo SDK 57 / RN 0.86; npm `latest` is 0.11.0, whose compatibility row was not shown in the fetched docs | Quantized 8da4w `.pte` is about 1.1 GiB; not Q4_K_M | First spike candidate; requires `react-native-blob-util`, Babel/worklets setup, and a dev build |
+| `llama.rn` | New Architecture and Expo config plugin documented; npm `latest` is 0.13.0-rc.9; no explicit RN 0.86 compatibility matrix | Q4_K_M GGUF is about 0.93-1.0 GB before KV/runtime overhead | Fallback if Q4_K_M/JSON-schema output is required; RC and RN 0.86 build compatibility are risks |
 | LiteRT-LM | Android/iOS native runtimes; no documented official React Native binding | Qwen2.5-1.5B artifacts exist | Requires a custom native bridge; defer |
 
-The model file must not be bundled. Download must require explicit user awareness and integrity checking. No runtime dependency or model has been added, and there is no cloud fallback. See `docs/local-model-integration.md` for the runtime comparison, blockers, and the full OPPO Reno8 5G verification procedure.
+No final runtime is selected. The model file must not be bundled. Download must require explicit user awareness and integrity checking. No runtime dependency or model has been added, and there is no cloud fallback. See `docs/local-model-integration.md` for the evidence matrix, sources, blockers, and the full OPPO Reno8 5G verification procedure.
 
-The assistant now uses an `AssistantProvider` boundary with `load()`, `unload()`, and interpretation methods. The current provider is `MockAssistantProvider`, which runs the existing deterministic rules and is explicitly labeled as **not a language model**. A `LocalLlmProvider` should only be added after the target Android version is confirmed and a development-build spike passes memory, latency, thermal, offline, JSON-reliability, and failure-path checks.
+The assistant now uses an `AssistantProvider` boundary with `load()`, `unload()`, and interpretation methods. The current provider is `MockAssistantProvider`, which runs the existing deterministic rules and is explicitly labeled as **not a language model**. A `LocalLlmProvider` should only be added after the supported Android range and device profiles are confirmed and a development-build spike passes memory, latency, thermal, offline, JSON-reliability, and failure-path checks.
 
 ## Run locally
 
