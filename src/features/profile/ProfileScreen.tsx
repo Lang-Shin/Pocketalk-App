@@ -206,9 +206,9 @@ export function ProfileScreen() {
           <SettingRow
             icon="shield-checkmark-outline"
             tone="blue"
-            label="AI can never write money"
-            description="Every proposed transaction needs your confirmation"
-            value="Enforced by design"
+            label="Assistant cannot write money"
+            description="Phase 5 only interprets drafts and reads balances"
+            value="Read-only prototype"
           />
         </Card>
       </View>
@@ -249,7 +249,7 @@ export function ProfileScreen() {
         </Card>
         <NoticeBanner
           title="Your ledger is saved"
-          message="Budget changes are written to SQLite on this device. Profile content is still sample data. Assistant drafts use local rules and save only after confirmation."
+          message="Budget changes are written to SQLite on this device. Profile content is still sample data. The assistant prototype only interprets drafts and reads local summaries; it cannot save or change balances."
           icon="shield-checkmark-outline"
         />
       </View>
@@ -271,7 +271,7 @@ export function ProfileScreen() {
             icon="flask-outline"
             tone="amber"
             label="Build stage"
-            description="Local ledger and local assistant prototype"
+            description="Local ledger and read-only assistant prototype"
             value="Phase 5"
           />
         </Card>

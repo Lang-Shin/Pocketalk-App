@@ -2,13 +2,10 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
-  assistantProposalToMoneyEntry,
   interpretAssistantMessage,
   resolveAssistantContainerChoice,
   type AssistantContext,
 } from '../src/ai/localAssistant';
-import { FinanceService } from '../src/data/financeService';
-import { createHarness } from './helpers/financeTestHarness';
 
 function createContext(): AssistantContext {
   return {
@@ -35,6 +32,9 @@ function createContext(): AssistantContext {
         status: 'active',
         systemKey: 'unallocated',
         balanceMinor: 50_000,
+        limitMinor: 0,
+        spentMinor: 0,
+        remainingMinor: 0,
       },
       {
         id: 'system-savings',
@@ -42,6 +42,9 @@ function createContext(): AssistantContext {
         status: 'active',
         systemKey: 'savings',
         balanceMinor: 40_000,
+        limitMinor: 0,
+        spentMinor: 0,
+        remainingMinor: 0,
       },
       {
         id: 'container-food',
@@ -49,6 +52,9 @@ function createContext(): AssistantContext {
         status: 'active',
         systemKey: null,
         balanceMinor: 20_000,
+        limitMinor: 100_000,
+        spentMinor: 80_000,
+        remainingMinor: 20_000,
       },
       {
         id: 'container-transport',
@@ -56,8 +62,24 @@ function createContext(): AssistantContext {
         status: 'active',
         systemKey: null,
         balanceMinor: 10_000,
+        limitMinor: 50_000,
+        spentMinor: 40_000,
+        remainingMinor: 10_000,
       },
     ],
+    summary: {
+      monthKey: '2026-10',
+      incomeMinor: 200_000,
+      expenseMinor: 120_000,
+      netSavingsMinor: 80_000,
+      totalLimitMinor: 150_000,
+      totalSpentMinor: 120_000,
+      totalRemainingMinor: 30_000,
+      savingsContributionsMinor: 30_000,
+      savingsWithdrawalsMinor: 0,
+      savingsEndingBalanceMinor: 40_000,
+      unallocatedEndingBalanceMinor: 50_000,
+    },
   };
 }
 
@@ -100,16 +122,11 @@ test('assistant matches an explicitly named expense container', () => {
 
   assert.equal(result.kind, 'proposal');
   if (result.kind !== 'proposal') return;
+  assert.equal(result.intent, 'transaction');
   assert.equal(result.proposal.containerId, 'container-food');
-  assert.deepEqual(assistantProposalToMoneyEntry(result.proposal), {
-    mode: 'expense',
-    amountMinor: 14_500,
-    title: 'Lunch',
-    effectiveDate: '2026-10-20',
-    walletId: 'wallet-gcash',
-    containerId: 'container-food',
-    idempotencyKey: `assistant:${result.proposal.id}`,
-  });
+  assert.equal(result.proposal.amountMinor, 14_500);
+  assert.equal(result.proposal.title, 'Lunch');
+  assert.equal(result.proposal.walletId, 'wallet-gcash');
 });
 
 test('assistant drafts income into Unallocated by default', () => {
@@ -138,18 +155,11 @@ test('assistant drafts a Savings contribution as a transfer', () => {
 
   assert.equal(result.kind, 'proposal');
   if (result.kind !== 'proposal') return;
+  assert.equal(result.intent, 'transfer');
   assert.equal(result.proposal.action, 'savings_contribution');
   assert.equal(result.proposal.containerId, 'system-unallocated');
   assert.equal(result.proposal.destinationContainerId, 'system-savings');
-  assert.deepEqual(assistantProposalToMoneyEntry(result.proposal), {
-    mode: 'container_transfer',
-    amountMinor: 30_000,
-    title: 'Savings contribution',
-    effectiveDate: '2026-10-20',
-    containerId: 'system-unallocated',
-    destinationContainerId: 'system-savings',
-    idempotencyKey: `assistant:${result.proposal.id}`,
-  });
+  assert.equal(result.proposal.amountMinor, 30_000);
 });
 
 test('assistant uses an explicitly named Savings source', () => {
@@ -239,6 +249,9 @@ test('assistant rejects archived containers and offers active choices', () => {
     status: 'archived',
     systemKey: null,
     balanceMinor: 500,
+    limitMinor: 0,
+    spentMinor: 0,
+    remainingMinor: 0,
   });
 
   const result = interpretAssistantMessage(
@@ -280,71 +293,120 @@ test('assistant asks for clarification instead of guessing', () => {
   assert.equal(unsupported.kind, 'refusal');
 });
 
-test('a confirmed assistant transfer writes through the finance service once', async () => {
-  const harness = await createHarness(new Date(2026, 9, 20, 12));
-  const service = new FinanceService(harness.engine, {
-    now: harness.clock.now,
-  });
+test('assistant answers a read-only Savings balance question', () => {
+  const result = interpretAssistantMessage(
+    'How much is in Savings?',
+    createContext(),
+  );
 
-  try {
-    await service.initialize();
-    await service.recordMoneyEntry({
-      mode: 'income',
-      amountMinor: 100_000,
-      title: 'Allowance',
-      effectiveDate: '2026-10-20',
-      walletId: 'wallet-gcash',
-    });
+  assert.equal(result.kind, 'answer');
+  if (result.kind !== 'answer') return;
+  assert.equal(result.intent, 'question');
+  assert.equal(result.answer.topic, 'savings_balance');
+  assert.deepEqual(result.answer.figures, [
+    { label: 'Savings balance', amountMinor: 40_000 },
+  ]);
+});
 
-    const view = await service.getMonthView('2026-10');
-    const walletView = await service.getWalletView();
-    const context: AssistantContext = {
-      todayDateKey: service.todayDateKey,
-      activeMonthKey: service.activeMonthKey,
-      wallets: walletView.wallets.map((wallet) => ({
-        id: wallet.id,
-        name: wallet.name,
-        kind: wallet.kind,
-        balanceMinor: wallet.balanceMinor,
-      })),
-      containers: view.containers.map((container) => ({
-        id: container.id,
-        name: container.name,
-        status: container.status,
-        systemKey: container.systemKey,
-        balanceMinor: container.balanceMinor,
-      })),
-    };
+test('assistant answers monthly spending and income questions', () => {
+  const spending = interpretAssistantMessage(
+    'How much did I spend this month?',
+    createContext(),
+  );
+  assert.equal(spending.kind, 'answer');
+  if (spending.kind !== 'answer') return;
+  assert.equal(spending.answer.topic, 'monthly_spending');
+  assert.equal(spending.answer.figures[0]?.amountMinor, 120_000);
 
-    const result = interpretAssistantMessage(
-      'Move ₱300 to savings',
-      context,
-    );
-    assert.equal(result.kind, 'proposal');
-    if (result.kind !== 'proposal') return;
+  const income = interpretAssistantMessage(
+    'How much did I receive this month?',
+    createContext(),
+  );
+  assert.equal(income.kind, 'answer');
+  if (income.kind !== 'answer') return;
+  assert.equal(income.answer.topic, 'monthly_income');
+  assert.equal(income.answer.figures[0]?.amountMinor, 200_000);
+});
 
-    const entry = assistantProposalToMoneyEntry(result.proposal);
-    await service.recordMoneyEntry(entry);
-    await service.recordMoneyEntry(entry);
+test('assistant answers container and budget questions', () => {
+  const balance = interpretAssistantMessage(
+    'How much is in Food & drinks?',
+    createContext(),
+  );
+  assert.equal(balance.kind, 'answer');
+  if (balance.kind !== 'answer') return;
+  assert.equal(balance.answer.topic, 'container_balance');
+  assert.equal(balance.answer.figures[0]?.amountMinor, 20_000);
 
-    const after = await service.getMonthView('2026-10');
-    assert.equal(after.summary.savingsContributionsMinor, 30_000);
-    assert.equal(after.summary.expenseMinor, 0);
-    assert.equal(after.summary.incomeMinor, 100_000);
-    assert.equal(
-      after.containers.find((container) => container.id === 'system-savings')
-        ?.balanceMinor,
-      30_000,
-    );
-    assert.equal(
-      after.transactions.filter(
-        (transaction) =>
-          transaction.kind === 'savings' &&
-          transaction.destinationContainerId === 'system-savings',
-      ).length,
-      1,
-    );
-  } finally {
-    harness.database.close();
-  }
+  const budget = interpretAssistantMessage(
+    'How much budget is left in Food & drinks?',
+    createContext(),
+  );
+  assert.equal(budget.kind, 'answer');
+  if (budget.kind !== 'answer') return;
+  assert.equal(budget.answer.topic, 'budget_remaining');
+  assert.equal(budget.answer.figures[2]?.amountMinor, 20_000);
+});
+
+test('assistant answers wallet and Unallocated questions read-only', () => {
+  const wallet = interpretAssistantMessage(
+    'How much is in my wallet?',
+    createContext(),
+  );
+  assert.equal(wallet.kind, 'answer');
+  if (wallet.kind !== 'answer') return;
+  assert.equal(wallet.answer.topic, 'wallet_balance');
+  assert.equal(
+    wallet.answer.figures.reduce(
+      (sum, figure) => sum + figure.amountMinor,
+      0,
+    ),
+    200_000,
+  );
+
+  const unallocated = interpretAssistantMessage(
+    'How much is in Unallocated?',
+    createContext(),
+  );
+  assert.equal(unallocated.kind, 'answer');
+  if (unallocated.kind !== 'answer') return;
+  assert.equal(unallocated.answer.topic, 'unallocated_balance');
+  assert.equal(unallocated.answer.figures[0]?.amountMinor, 50_000);
+});
+
+test('assistant recognizes a clarification request', () => {
+  const result = interpretAssistantMessage(
+    'What can you do?',
+    createContext(),
+  );
+
+  assert.equal(result.kind, 'answer');
+  if (result.kind !== 'answer') return;
+  assert.equal(result.intent, 'clarification');
+  assert.equal(result.answer.topic, 'help');
+});
+
+test('assistant declines out-of-scope historical questions', () => {
+  const result = interpretAssistantMessage(
+    'How much did I spend last month?',
+    createContext(),
+  );
+
+  assert.equal(result.kind, 'answer');
+  if (result.kind !== 'answer') return;
+  assert.equal(result.intent, 'question');
+  assert.equal(result.answer.topic, 'help');
+  assert.match(result.message, /Monthly History/);
+});
+
+test('assistant does not expose any execution step', () => {
+  const result = interpretAssistantMessage(
+    'Move ₱300 to savings',
+    createContext(),
+  );
+
+  assert.equal(result.kind, 'proposal');
+  if (result.kind !== 'proposal') return;
+  assert.equal('moneyEntry' in result, false);
+  assert.match(result.message, /No ledger entry/i);
 });

@@ -1,5 +1,4 @@
 import { Ionicons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
 import { useMemo, useRef, useState } from 'react';
 import {
   KeyboardAvoidingView,
@@ -11,9 +10,9 @@ import {
 } from 'react-native';
 
 import {
-  assistantProposalToMoneyEntry,
   interpretAssistantMessage,
   resolveAssistantContainerChoice,
+  type AssistantAnswer,
   type AssistantClarification,
   type AssistantContext,
   type AssistantProposal,
@@ -21,8 +20,6 @@ import {
 } from '@/ai/localAssistant';
 import { AppText } from '@/components/AppText';
 import { ChatBubble } from '@/components/chat/ChatBubble';
-import { ConfirmationDialog } from '@/components/feedback/ConfirmationDialog';
-import { AppButton } from '@/components/ui/AppButton';
 import { Chip } from '@/components/ui/Chip';
 import { IconButton } from '@/components/ui/IconButton';
 import { NoticeBanner } from '@/components/ui/NoticeBanner';
@@ -39,41 +36,31 @@ import { formatPeso } from '@/lib/money';
 import { formatDateKey, formatMonthKey } from '@/lib/period';
 import { useAppTheme, radii, spacing } from '@/theme';
 
-type DraftStatus = 'pending' | 'saving' | 'saved' | 'error';
-
 interface ThreadMessage extends ChatMessage {
   proposal?: AssistantProposal;
   clarification?: AssistantClarification;
-  draftStatus?: DraftStatus;
-  draftError?: string;
+  answer?: AssistantAnswer;
 }
 
 const SUGGESTIONS = [
   '\u20B150 jeepney fare',
   'Received \u20B12,000 allowance',
   'Move \u20B1300 to savings',
+  'How much is in savings?',
+  'How much did I spend this month?',
 ];
 
 let messageSequence = 0;
 
 export function AssistantScreen() {
-  const router = useRouter();
   const { theme } = useAppTheme();
-  const {
-    activeMonthKey,
-    todayDateKey,
-    recordMoneyEntry,
-  } = useFinance();
+  const { activeMonthKey, todayDateKey } = useFinance();
   const monthQuery = useFinanceMonth(activeMonthKey);
   const walletQuery = useFinanceWallets();
   const [messages, setMessages] = useState<ThreadMessage[]>(() => [
     createWelcomeMessage(),
   ]);
   const [input, setInput] = useState('');
-  const [reviewing, setReviewing] = useState<{
-    messageId: string;
-    proposal: AssistantProposal;
-  } | null>(null);
   const scrollRef = useRef<ScrollView>(null);
 
   const context = useMemo<AssistantContext | null>(() => {
@@ -93,7 +80,27 @@ export function AssistantScreen() {
         status: container.status,
         systemKey: container.systemKey,
         balanceMinor: container.balanceMinor,
+        limitMinor: container.limitMinor,
+        spentMinor: container.spentMinor,
+        remainingMinor: container.remainingMinor,
       })),
+      summary: {
+        monthKey: monthQuery.data.summary.monthKey,
+        incomeMinor: monthQuery.data.summary.incomeMinor,
+        expenseMinor: monthQuery.data.summary.expenseMinor,
+        netSavingsMinor: monthQuery.data.summary.netSavingsMinor,
+        totalLimitMinor: monthQuery.data.summary.totalLimitMinor,
+        totalSpentMinor: monthQuery.data.summary.totalSpentMinor,
+        totalRemainingMinor: monthQuery.data.summary.totalRemainingMinor,
+        savingsContributionsMinor:
+          monthQuery.data.summary.savingsContributionsMinor,
+        savingsWithdrawalsMinor:
+          monthQuery.data.summary.savingsWithdrawalsMinor,
+        savingsEndingBalanceMinor:
+          monthQuery.data.summary.savingsEndingBalanceMinor,
+        unallocatedEndingBalanceMinor:
+          monthQuery.data.summary.unallocatedEndingBalanceMinor,
+      },
     };
   }, [activeMonthKey, monthQuery.data, todayDateKey, walletQuery.data]);
 
@@ -178,61 +185,11 @@ export function AssistantScreen() {
     ]);
   };
 
-  const handleConfirm = async () => {
-    const current = reviewing;
-    if (!current) return;
-
-    setReviewing(null);
-    setMessages((messagesNow) =>
-      messagesNow.map((message) =>
-        message.id === current.messageId
-          ? {
-              ...message,
-              draftStatus: 'saving',
-              draftError: undefined,
-            }
-          : message,
-      ),
-    );
-
-    const result = await recordMoneyEntry(
-      assistantProposalToMoneyEntry(current.proposal),
-    );
-
-    if (!result.ok) {
-      setMessages((messagesNow) =>
-        messagesNow.map((message) =>
-          message.id === current.messageId
-            ? {
-                ...message,
-                draftStatus: 'error',
-                draftError:
-                  result.message ?? 'The transaction could not be saved.',
-              }
-            : message,
-        ),
-      );
-      return;
-    }
-
-    setMessages((messagesNow) =>
-      messagesNow.map((message) =>
-        message.id === current.messageId
-          ? {
-              ...message,
-              draftStatus: 'saved',
-              draftError: undefined,
-            }
-          : message,
-      ),
-    );
-  };
-
   return (
     <Screen scroll={false}>
       <PageHeader
         title="Pocketa assistant"
-        subtitle="Draft money entries offline, then confirm them yourself."
+        subtitle="Interpret money messages and answer local questions offline."
         preview={false}
       />
 
@@ -241,8 +198,8 @@ export function AssistantScreen() {
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
         <NoticeBanner
-          title="Local rules prototype"
-          message="No language model is connected. Drafts come from deterministic rules on this device, and nothing is saved until you confirm."
+          title="Interpretation-only prototype"
+          message="No language model is connected. Drafts come from deterministic rules on this device. This screen never writes to the ledger; confirmation and saving belong to Phase 6."
           icon="hardware-chip-outline"
         />
 
@@ -259,18 +216,10 @@ export function AssistantScreen() {
           {messages.map((message) => (
             <ChatBubble key={message.id} message={message}>
               {message.proposal ? (
-                <DraftCard
-                  proposal={message.proposal}
-                  status={message.draftStatus ?? 'pending'}
-                  error={message.draftError}
-                  onReview={() =>
-                    setReviewing({
-                      messageId: message.id,
-                      proposal: message.proposal as AssistantProposal,
-                    })
-                  }
-                  onViewHistory={() => router.push('/history')}
-                />
+                <DraftCard proposal={message.proposal} />
+              ) : null}
+              {message.answer ? (
+                <AnswerCard answer={message.answer} />
               ) : null}
               {message.clarification?.options?.length ? (
                 <View style={styles.options}>
@@ -344,60 +293,24 @@ export function AssistantScreen() {
             color={theme.colors.textTertiary}
             align="center"
           >
-            LOCAL RULES PROTOTYPE · NO MODEL CONNECTED
+            INTERPRETATION ONLY · NO LEDGER WRITES
           </AppText>
         </View>
       </KeyboardAvoidingView>
-
-      {reviewing ? (
-        <ConfirmationDialog
-          visible
-          title="Review this transaction"
-          description="Confirming writes this entry to your local ledger. You can review or reverse it later in History."
-          details={buildDraftDetails(reviewing.proposal)}
-          confirmLabel="Confirm & save"
-          cancelLabel="Not now"
-          onConfirm={() => void handleConfirm()}
-          onCancel={() => setReviewing(null)}
-        />
-      ) : null}
     </Screen>
   );
 }
 
-function DraftCard({
-  proposal,
-  status,
-  error,
-  onReview,
-  onViewHistory,
-}: {
-  proposal: AssistantProposal;
-  status: DraftStatus;
-  error?: string;
-  onReview: () => void;
-  onViewHistory: () => void;
-}) {
+function DraftCard({ proposal }: { proposal: AssistantProposal }) {
   const { theme } = useAppTheme();
-  const saved = status === 'saved';
-  const saving = status === 'saving';
-  const failed = status === 'error';
 
   return (
     <View
       style={[
         styles.draft,
         {
-          backgroundColor: saved
-            ? theme.colors.successSoft
-            : failed
-              ? theme.colors.dangerSoft
-              : theme.colors.surfaceMuted,
-          borderColor: saved
-            ? theme.colors.success
-            : failed
-              ? theme.colors.danger
-              : theme.colors.border,
+          backgroundColor: theme.colors.surfaceMuted,
+          borderColor: theme.colors.border,
         },
       ]}
     >
@@ -405,19 +318,13 @@ function DraftCard({
         <View
           style={[
             styles.draftIcon,
-            {
-              backgroundColor: saved
-                ? theme.colors.successSoft
-                : theme.colors.primarySoft,
-            },
+            { backgroundColor: theme.colors.primarySoft },
           ]}
         >
           <Ionicons
-            name={saved ? 'checkmark' : actionIcon(proposal)}
+            name={actionIcon(proposal)}
             size={18}
-            color={
-              saved ? theme.colors.success : theme.colors.primary
-            }
+            color={theme.colors.primary}
           />
         </View>
         <View style={styles.draftCopy}>
@@ -473,58 +380,52 @@ function DraftCard({
       ) : null}
       <DraftLine label="When" value={formatDateKey(proposal.effectiveDate)} />
       <DraftLine label="Period" value={formatMonthKey(proposal.monthKey)} />
-      {!saved && proposal.sourceBalanceMinor !== undefined ? (
+      {proposal.sourceBalanceMinor !== undefined ? (
         <DraftLine
           label="Source now"
           value={formatPeso(proposal.sourceBalanceMinor)}
         />
       ) : null}
-      {!saved && proposal.destinationBalanceMinor !== undefined ? (
+      {proposal.destinationBalanceMinor !== undefined ? (
         <DraftLine
           label="Destination now"
           value={formatPeso(proposal.destinationBalanceMinor)}
         />
       ) : null}
 
-      {saved ? (
-        <>
-          <AppText variant="caption" color={theme.colors.success}>
-            Saved to your local ledger. No further write will happen from this
-            draft.
-          </AppText>
-          <AppButton
-            label="View in History"
-            size="small"
-            variant="outline"
-            icon="receipt-outline"
-            onPress={onViewHistory}
-            fullWidth
-          />
-        </>
-      ) : failed ? (
-        <>
-          <AppText variant="caption" color={theme.colors.danger}>
-            {error ?? 'The transaction could not be saved.'}
-          </AppText>
-          <AppButton
-            label="Review & try again"
-            size="small"
-            variant="outline"
-            icon="refresh"
-            onPress={onReview}
-            fullWidth
-          />
-        </>
-      ) : (
-        <AppButton
-          label={saving ? 'Saving…' : 'Review & confirm'}
-          size="small"
-          icon="checkmark-circle-outline"
-          onPress={onReview}
-          disabled={saving}
-          fullWidth
+      <AppText variant="caption" color={theme.colors.textSecondary}>
+        Draft only. This prototype cannot save or change balances; confirmation
+        and ledger writes belong to Phase 6.
+      </AppText>
+    </View>
+  );
+}
+
+function AnswerCard({ answer }: { answer: AssistantAnswer }) {
+  const { theme } = useAppTheme();
+  if (answer.figures.length === 0) return null;
+
+  return (
+    <View
+      style={[
+        styles.draft,
+        {
+          backgroundColor: theme.colors.surface,
+          borderColor: theme.colors.border,
+        },
+      ]}
+    >
+      <AppText variant="micro" color={theme.colors.textTertiary}>
+        READ-ONLY ANSWER
+      </AppText>
+      <AppText variant="h3">{answer.title}</AppText>
+      {answer.figures.map((figure) => (
+        <DraftLine
+          key={`${answer.topic}-${figure.label}`}
+          label={figure.label}
+          value={formatPeso(figure.amountMinor)}
         />
-      )}
+      ))}
     </View>
   );
 }
@@ -553,7 +454,7 @@ function createWelcomeMessage(): ThreadMessage {
   return {
     id: nextMessageId('assistant'),
     role: 'assistant',
-    text: 'Hi! I can draft an expense, income, Savings contribution, or Savings withdrawal from a short sentence. I use local rules rather than a language model, and you always confirm before anything is saved.',
+    text: 'Hi! I interpret expenses, income, Savings transfers, and simple local finance questions from a short message. I use deterministic rules rather than a language model. I can prepare a draft, but I cannot save it or change balances in this phase.',
     createdAt: new Date().toISOString(),
   };
 }
@@ -567,7 +468,7 @@ function createThreadMessage(result: AssistantResult): ThreadMessage {
     proposal: result.kind === 'proposal' ? result.proposal : undefined,
     clarification:
       result.kind === 'clarification' ? result.clarification : undefined,
-    draftStatus: result.kind === 'proposal' ? 'pending' : undefined,
+    answer: result.kind === 'answer' ? result.answer : undefined,
   };
 }
 
@@ -591,74 +492,6 @@ function actionIcon(
   if (proposal.action === 'expense') return 'receipt-outline';
   if (proposal.action === 'income') return 'arrow-down-circle-outline';
   return 'swap-horizontal-outline';
-}
-
-function buildDraftDetails(proposal: AssistantProposal) {
-  const details = [
-    {
-      label: 'Type',
-      value:
-        proposal.action === 'expense'
-          ? 'Expense'
-          : proposal.action === 'income'
-            ? 'Income'
-            : proposal.action === 'savings_contribution'
-              ? 'Savings contribution'
-              : 'Savings withdrawal',
-    },
-    { label: 'Amount', value: formatPeso(proposal.amountMinor) },
-  ];
-
-  if (proposal.walletLabel) {
-    details.push({ label: 'Wallet', value: proposal.walletLabel });
-  }
-  if (proposal.action === 'expense') {
-    details.push({
-      label: 'Container',
-      value: proposal.containerLabel ?? 'Budget container',
-    });
-  }
-  if (proposal.action === 'income') {
-    details.push({
-      label: 'To container',
-      value:
-        proposal.destinationContainerLabel ??
-        proposal.containerLabel ??
-        'Unallocated',
-    });
-  }
-  if (
-    proposal.action === 'savings_contribution' ||
-    proposal.action === 'savings_withdrawal'
-  ) {
-    details.push(
-      { label: 'From', value: proposal.containerLabel ?? 'Container' },
-      {
-        label: 'To',
-        value: proposal.destinationContainerLabel ?? 'Container',
-      },
-    );
-  }
-
-  details.push(
-    { label: 'Effective date', value: formatDateKey(proposal.effectiveDate) },
-    { label: 'Period', value: formatMonthKey(proposal.monthKey) },
-  );
-
-  if (proposal.sourceBalanceMinor !== undefined) {
-    details.push({
-      label: 'Source now',
-      value: formatPeso(proposal.sourceBalanceMinor),
-    });
-  }
-  if (proposal.destinationBalanceMinor !== undefined) {
-    details.push({
-      label: 'Destination now',
-      value: formatPeso(proposal.destinationBalanceMinor),
-    });
-  }
-
-  return details;
 }
 
 const styles = StyleSheet.create({

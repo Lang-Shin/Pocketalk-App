@@ -3,10 +3,10 @@ import type {
   SystemContainerKey,
   WalletKind,
 } from '@/data/models';
-import type { MoneyEntryInput } from '@/data/financeService';
 import { formatPeso, parsePesoToMinor } from '@/lib/money';
 import {
   dateKeyToLocalDate,
+  formatMonthKey,
   isValidDateKey,
   monthKeyForDateKey,
   toLocalDateKey,
@@ -17,6 +17,37 @@ export type AssistantAction =
   | 'income'
   | 'savings_contribution'
   | 'savings_withdrawal';
+
+export type AssistantMessageIntent =
+  | 'transaction'
+  | 'transfer'
+  | 'question'
+  | 'clarification'
+  | 'unsupported';
+
+export type AssistantQuestionTopic =
+  | 'savings_balance'
+  | 'unallocated_balance'
+  | 'wallet_balance'
+  | 'container_balance'
+  | 'container_spending'
+  | 'budget_remaining'
+  | 'monthly_spending'
+  | 'monthly_income'
+  | 'monthly_net_savings'
+  | 'monthly_savings_activity'
+  | 'help';
+
+export interface AssistantAnswerFigure {
+  label: string;
+  amountMinor: number;
+}
+
+export interface AssistantAnswer {
+  topic: AssistantQuestionTopic;
+  title: string;
+  figures: AssistantAnswerFigure[];
+}
 
 export interface AssistantWalletOption {
   id: string;
@@ -31,6 +62,23 @@ export interface AssistantContainerOption {
   status: ContainerStatus;
   systemKey?: SystemContainerKey | null;
   balanceMinor: number;
+  limitMinor: number;
+  spentMinor: number;
+  remainingMinor: number;
+}
+
+export interface AssistantMonthSummary {
+  monthKey: string;
+  incomeMinor: number;
+  expenseMinor: number;
+  netSavingsMinor: number;
+  totalLimitMinor: number;
+  totalSpentMinor: number;
+  totalRemainingMinor: number;
+  savingsContributionsMinor: number;
+  savingsWithdrawalsMinor: number;
+  savingsEndingBalanceMinor: number;
+  unallocatedEndingBalanceMinor: number;
 }
 
 export interface AssistantContext {
@@ -38,6 +86,7 @@ export interface AssistantContext {
   activeMonthKey: string;
   wallets: AssistantWalletOption[];
   containers: AssistantContainerOption[];
+  summary: AssistantMonthSummary;
 }
 
 export interface AssistantProposal {
@@ -83,16 +132,25 @@ export interface AssistantClarification {
 export type AssistantResult =
   | {
       kind: 'proposal';
+      intent: 'transaction' | 'transfer';
       message: string;
       proposal: AssistantProposal;
     }
   | {
       kind: 'clarification';
+      intent: 'transaction' | 'transfer' | 'clarification';
       message: string;
       clarification: AssistantClarification;
     }
   | {
+      kind: 'answer';
+      intent: 'question' | 'clarification';
+      message: string;
+      answer: AssistantAnswer;
+    }
+  | {
       kind: 'refusal';
+      intent: 'unsupported';
       message: string;
     };
 
@@ -118,26 +176,36 @@ export function interpretAssistantMessage(
 ): AssistantResult {
   const statement = text.trim();
   if (!statement) {
-    return {
-      kind: 'clarification',
-      message: 'Tell me what happened, including an amount.',
-      clarification: { reason: 'amount' },
-    };
+    return clarifyAmount(
+      'Tell me what happened, including an amount.',
+      'clarification',
+    );
+  }
+
+  if (isClarificationRequest(statement)) {
+    return helpResult();
+  }
+
+  if (isQuestion(statement)) {
+    return answerQuestion(statement, context);
   }
 
   const action = detectAction(statement);
   if (!action) {
     return {
       kind: 'refusal',
+      intent: 'unsupported',
       message:
-        'I can draft expenses, income, Savings contributions, and Savings withdrawals. Tell me one of those with an amount.',
+        'I can draft expenses, income, Savings contributions, and Savings withdrawals, or answer simple questions about your local balances. Try a short sentence with an amount.',
     };
   }
 
+  const intent = actionIntent(action);
   const parsedAmount = extractAmount(statement);
   if (!parsedAmount) {
     return {
       kind: 'clarification',
+      intent,
       message:
         'What amount should I use? Include a peso amount, such as ₱145 or 1,200.',
       clarification: { reason: 'amount' },
@@ -148,6 +216,7 @@ export function interpretAssistantMessage(
   if (!effectiveDate) {
     return {
       kind: 'refusal',
+      intent: 'unsupported',
       message:
         'I could not use that date. Use today, yesterday, or a valid date such as 2026-10-20.',
     };
@@ -155,6 +224,7 @@ export function interpretAssistantMessage(
   if (effectiveDate > context.todayDateKey) {
     return {
       kind: 'refusal',
+      intent: 'unsupported',
       message: 'Future-dated entries are blocked. Choose today or an earlier date.',
     };
   }
@@ -167,6 +237,7 @@ export function interpretAssistantMessage(
   if (needsWallet(action) && !wallet) {
     return {
       kind: 'clarification',
+      intent,
       message: 'There is no wallet available yet. Open the app again after setup.',
       clarification: { reason: 'wallet' },
     };
@@ -230,6 +301,7 @@ export function interpretAssistantMessage(
     if (!savings) {
       return {
         kind: 'refusal',
+        intent: 'unsupported',
         message: 'The local Savings container is not available.',
       };
     }
@@ -257,6 +329,7 @@ export function interpretAssistantMessage(
   if (!savings) {
     return {
       kind: 'refusal',
+      intent: 'unsupported',
       message: 'The local Savings container is not available.',
     };
   }
@@ -285,6 +358,7 @@ export function resolveAssistantContainerChoice(
   if (!choice) {
     return {
       kind: 'refusal',
+      intent: 'unsupported',
       message: 'That container is no longer available. Choose an active one.',
     };
   }
@@ -318,46 +392,6 @@ export function resolveAssistantContainerChoice(
   );
 }
 
-export function assistantProposalToMoneyEntry(
-  proposal: AssistantProposal,
-): MoneyEntryInput {
-  const idempotencyKey = `assistant:${proposal.id}`;
-
-  if (proposal.action === 'expense') {
-    return {
-      mode: 'expense',
-      amountMinor: proposal.amountMinor,
-      title: proposal.title,
-      effectiveDate: proposal.effectiveDate,
-      walletId: proposal.walletId,
-      containerId: proposal.containerId,
-      idempotencyKey,
-    };
-  }
-
-  if (proposal.action === 'income') {
-    return {
-      mode: 'income',
-      amountMinor: proposal.amountMinor,
-      title: proposal.title,
-      effectiveDate: proposal.effectiveDate,
-      walletId: proposal.walletId,
-      containerId: proposal.destinationContainerId,
-      idempotencyKey,
-    };
-  }
-
-  return {
-    mode: 'container_transfer',
-    amountMinor: proposal.amountMinor,
-    title: proposal.title,
-    effectiveDate: proposal.effectiveDate,
-    containerId: proposal.containerId,
-    destinationContainerId: proposal.destinationContainerId,
-    idempotencyKey,
-  };
-}
-
 function assembleProposal(
   parts: DraftParts,
   context: AssistantContext,
@@ -368,18 +402,21 @@ function assembleProposal(
   ) {
     return {
       kind: 'refusal',
+      intent: 'unsupported',
       message: 'Enter an amount greater than zero.',
     };
   }
   if (!isValidDateKey(parts.effectiveDate)) {
     return {
       kind: 'refusal',
+      intent: 'unsupported',
       message: 'Use a valid effective date in YYYY-MM-DD format.',
     };
   }
   if (parts.effectiveDate > context.todayDateKey) {
     return {
       kind: 'refusal',
+      intent: 'unsupported',
       message: 'Future-dated entries are blocked. Choose today or an earlier date.',
     };
   }
@@ -401,6 +438,7 @@ function assembleProposal(
   if (needsWallet(parts.action) && !wallet) {
     return {
       kind: 'refusal',
+      intent: 'unsupported',
       message: 'Choose a wallet before recording this entry.',
     };
   }
@@ -409,12 +447,14 @@ function assembleProposal(
     if (!source || source.status !== 'active' || source.systemKey != null) {
       return {
         kind: 'refusal',
+        intent: 'unsupported',
         message: 'Choose an active budget container for this expense.',
       };
     }
     if (wallet && wallet.balanceMinor < parts.amountMinor) {
       return {
         kind: 'refusal',
+        intent: 'unsupported',
         message: `${wallet.name} has only ${formatPeso(
           wallet.balanceMinor,
         )} recorded. Lower the amount or add income first.`,
@@ -423,6 +463,7 @@ function assembleProposal(
     if (source.balanceMinor < parts.amountMinor) {
       return {
         kind: 'refusal',
+        intent: 'unsupported',
         message: `${source.name} has only ${formatPeso(
           source.balanceMinor,
         )}. Allocate more money or lower the amount.`,
@@ -438,6 +479,7 @@ function assembleProposal(
     ) {
       return {
         kind: 'refusal',
+        intent: 'unsupported',
         message: 'Choose an active container for this income.',
       };
     }
@@ -451,18 +493,21 @@ function assembleProposal(
     ) {
       return {
         kind: 'refusal',
+        intent: 'unsupported',
         message: 'Choose an active container with money to move into Savings.',
       };
     }
     if (!destination || destination.systemKey !== 'savings') {
       return {
         kind: 'refusal',
+        intent: 'unsupported',
         message: 'The destination for a Savings contribution must be Savings.',
       };
     }
     if (source.balanceMinor < parts.amountMinor) {
       return {
         kind: 'refusal',
+        intent: 'unsupported',
         message: `${source.name} has only ${formatPeso(
           source.balanceMinor,
         )}. Choose another source or lower the amount.`,
@@ -474,6 +519,7 @@ function assembleProposal(
     if (!source || source.systemKey !== 'savings') {
       return {
         kind: 'refusal',
+        intent: 'unsupported',
         message: 'Savings withdrawals must start from Savings.',
       };
     }
@@ -484,12 +530,14 @@ function assembleProposal(
     ) {
       return {
         kind: 'refusal',
+        intent: 'unsupported',
         message: 'Choose an active container to receive this withdrawal.',
       };
     }
     if (source.balanceMinor < parts.amountMinor) {
       return {
         kind: 'refusal',
+        intent: 'unsupported',
         message: `Savings has only ${formatPeso(
           source.balanceMinor,
         )}. Lower the amount.`,
@@ -517,6 +565,7 @@ function assembleProposal(
 
   return {
     kind: 'proposal',
+    intent: actionIntent(parts.action),
     message: proposalMessage(parts.action),
     proposal,
   };
@@ -595,6 +644,7 @@ function resolveExpenseContainer(
     return {
       result: {
         kind: 'clarification',
+        intent: actionIntent(pendingBase.action),
         message:
           'There is no active budget container to use. Create one in Budgets, then try again.',
         clarification: { reason: 'setup' },
@@ -688,6 +738,7 @@ function unallocatedOrClarification(
       : {
           result: {
             kind: 'refusal',
+            intent: 'unsupported',
             message: 'No active container can receive this entry.',
           },
         };
@@ -696,6 +747,7 @@ function unallocatedOrClarification(
     return {
       result: {
         kind: 'refusal',
+        intent: 'unsupported',
         message: 'No active container can receive this entry.',
       },
     };
@@ -783,6 +835,7 @@ function sourceWithFunds(
       : {
           result: {
             kind: 'refusal',
+            intent: 'unsupported',
             message: 'There is not enough recorded money for that transfer.',
           },
         };
@@ -791,6 +844,7 @@ function sourceWithFunds(
     return {
       result: {
         kind: 'refusal',
+        intent: 'unsupported',
         message:
           'There is not enough recorded container money for that Savings contribution.',
       },
@@ -872,6 +926,7 @@ function destinationDefault(
       : {
           result: {
             kind: 'refusal',
+            intent: 'unsupported',
             message: 'No active container can receive this withdrawal.',
           },
         };
@@ -880,6 +935,7 @@ function destinationDefault(
     return {
       result: {
         kind: 'refusal',
+        intent: 'unsupported',
         message: 'No active container can receive this withdrawal.',
       },
     };
@@ -904,6 +960,7 @@ function containerClarification(
 ): AssistantResult {
   return {
     kind: 'clarification',
+    intent: actionIntent(pendingBase.action),
     message,
     clarification: {
       reason: 'container',
@@ -939,6 +996,325 @@ function findArchivedMention(
 
 function needsWallet(action: AssistantAction): boolean {
   return action === 'expense' || action === 'income';
+}
+
+function actionIntent(action: AssistantAction): 'transaction' | 'transfer' {
+  return action === 'expense' || action === 'income'
+    ? 'transaction'
+    : 'transfer';
+}
+
+function clarifyAmount(
+  message: string,
+  intent: 'transaction' | 'transfer' | 'clarification',
+): AssistantResult {
+  return {
+    kind: 'clarification',
+    intent,
+    message,
+    clarification: { reason: 'amount' },
+  };
+}
+
+function isClarificationRequest(text: string): boolean {
+  return /\b(what can you do|what do you do|how do i use|how does this work|what does this mean|explain|help me understand|clarify|i don't understand|hindi ko maintindihan|paano (?:ba )?(?:ito|gamitin))\b/i.test(
+    text,
+  );
+}
+
+function isQuestion(text: string): boolean {
+  if (/\?\s*$/.test(text)) return true;
+  return /^(?:what|what's|whats|how|how much|how many|where|which|when|can|could|do|does|did|is|are|magkano|ilan|ano|saan|kailan)\b/i.test(
+    text.trim(),
+  );
+}
+
+function helpResult(): AssistantResult {
+  return {
+    kind: 'answer',
+    intent: 'clarification',
+    message:
+      'I can interpret expenses, income, Savings transfers, and read-only questions. Try “I spent ₱120 on lunch”, “I received ₱2,000 allowance”, “Move ₱300 to savings”, or “How much is in Savings?”. I never change balances or save transactions.',
+    answer: {
+      topic: 'help',
+      title: 'What I can understand',
+      figures: [],
+    },
+  };
+}
+
+function answerQuestion(
+  text: string,
+  context: AssistantContext,
+): AssistantResult {
+  const lower = text.toLowerCase();
+  const summary = context.summary;
+  const period = formatMonthKey(summary.monthKey);
+  const mentionsSavings = /\bsavings?\b|\bipon\b|\bimpok\b/.test(lower);
+  const mentionsWallet = /\bwallet|gcash|cash|pera|money\b/.test(lower);
+  const mentionsUnallocated =
+    /\bunallocated\b|\bavailable to allocate\b|\bhindi pa nakalaan\b/.test(
+      lower,
+    );
+  const mentionsSpending =
+    /\bspent|spend|spending|gastos|gasto|expenses?\b/.test(lower);
+  const mentionsIncome =
+    /\breceived|receive|earned|earn|income|allowance|sweldo|sahod|padala\b/.test(
+      lower,
+    );
+  const mentionsNetSavings =
+    /\bnet savings?\b|\bsaved this month\b|\bnaipon\b/.test(lower);
+  const mentionsBudget =
+    /\bbudget|limit|remaining|natitira|sobra\b/.test(lower);
+  const mentionsSavingsActivity =
+    /\bcontribution|contributed|withdraw|withdrew|withdrawal|deposit|moved\b/.test(
+      lower,
+    );
+
+  if (/\blast month|previous month|nakaraang buwan\b/.test(lower)) {
+    return {
+      kind: 'answer',
+      intent: 'question',
+      message:
+        'I can answer balance and monthly questions for the active month only. Use Monthly History to select an earlier month.',
+      answer: { topic: 'help', title: 'Active month only', figures: [] },
+    };
+  }
+
+  const matchedContainer = context.containers.find(
+    (container) =>
+      container.status === 'active' &&
+      container.systemKey == null &&
+      mentionsContainer(text, container),
+  );
+
+  if (mentionsSavings && mentionsSavingsActivity) {
+    return {
+      kind: 'answer',
+      intent: 'question',
+      message: `For ${period}, Savings contributions and withdrawals are transfers, not income or expenses.`,
+      answer: {
+        topic: 'monthly_savings_activity',
+        title: 'Savings activity',
+        figures: [
+          {
+            label: 'Contributions',
+            amountMinor: summary.savingsContributionsMinor,
+          },
+          {
+            label: 'Withdrawals',
+            amountMinor: summary.savingsWithdrawalsMinor,
+          },
+          {
+            label: 'Savings ending balance',
+            amountMinor: summary.savingsEndingBalanceMinor,
+          },
+        ],
+      },
+    };
+  }
+
+  if (matchedContainer && mentionsBudget) {
+    return {
+      kind: 'answer',
+      intent: 'question',
+      message: `${matchedContainer.name} has ${formatPeso(
+        matchedContainer.remainingMinor,
+      )} remaining of its ${formatPeso(matchedContainer.limitMinor)} limit for ${period}.`,
+      answer: {
+        topic: 'budget_remaining',
+        title: `${matchedContainer.name} budget`,
+        figures: [
+          { label: 'Limit', amountMinor: matchedContainer.limitMinor },
+          { label: 'Spent', amountMinor: matchedContainer.spentMinor },
+          {
+            label: 'Remaining',
+            amountMinor: matchedContainer.remainingMinor,
+          },
+        ],
+      },
+    };
+  }
+
+  if (matchedContainer && mentionsSpending) {
+    return {
+      kind: 'answer',
+      intent: 'question',
+      message: `You recorded ${formatPeso(
+        matchedContainer.spentMinor,
+      )} in expenses on ${matchedContainer.name} for ${period}.`,
+      answer: {
+        topic: 'container_spending',
+        title: `${matchedContainer.name} spending`,
+        figures: [
+          {
+            label: 'Spent',
+            amountMinor: matchedContainer.spentMinor,
+          },
+          {
+            label: 'Recorded balance',
+            amountMinor: matchedContainer.balanceMinor,
+          },
+        ],
+      },
+    };
+  }
+
+  if (matchedContainer) {
+    return {
+      kind: 'answer',
+      intent: 'question',
+      message: `${matchedContainer.name} has ${formatPeso(
+        matchedContainer.balanceMinor,
+      )} recorded in ${period}.`,
+      answer: {
+        topic: 'container_balance',
+        title: `${matchedContainer.name} balance`,
+        figures: [
+          {
+            label: 'Recorded balance',
+            amountMinor: matchedContainer.balanceMinor,
+          },
+        ],
+      },
+    };
+  }
+
+  if (mentionsSavings) {
+    return {
+      kind: 'answer',
+      intent: 'question',
+      message: `Savings holds ${formatPeso(
+        summary.savingsEndingBalanceMinor,
+      )} at the end of ${period}. This balance is separate from monthly net savings.`,
+      answer: {
+        topic: 'savings_balance',
+        title: 'Savings balance',
+        figures: [
+          {
+            label: 'Savings balance',
+            amountMinor: summary.savingsEndingBalanceMinor,
+          },
+        ],
+      },
+    };
+  }
+
+  if (mentionsUnallocated) {
+    return {
+      kind: 'answer',
+      intent: 'question',
+      message: `Unallocated has ${formatPeso(
+        summary.unallocatedEndingBalanceMinor,
+      )} at the end of ${period}.`,
+      answer: {
+        topic: 'unallocated_balance',
+        title: 'Unallocated balance',
+        figures: [
+          {
+            label: 'Unallocated',
+            amountMinor: summary.unallocatedEndingBalanceMinor,
+          },
+        ],
+      },
+    };
+  }
+
+  if (mentionsNetSavings) {
+    return {
+      kind: 'answer',
+      intent: 'question',
+      message: `Net savings for ${period} is ${formatPeso(
+        summary.netSavingsMinor,
+      )}. It equals external income minus external expenses.`,
+      answer: {
+        topic: 'monthly_net_savings',
+        title: 'Net savings',
+        figures: [
+          { label: 'Income', amountMinor: summary.incomeMinor },
+          { label: 'Expenses', amountMinor: summary.expenseMinor },
+          { label: 'Net savings', amountMinor: summary.netSavingsMinor },
+        ],
+      },
+    };
+  }
+
+  if (mentionsSpending) {
+    return {
+      kind: 'answer',
+      intent: 'question',
+      message: `You recorded ${formatPeso(
+        summary.expenseMinor,
+      )} in expenses for ${period}.`,
+      answer: {
+        topic: 'monthly_spending',
+        title: 'Monthly expenses',
+        figures: [
+          { label: 'Expenses', amountMinor: summary.expenseMinor },
+        ],
+      },
+    };
+  }
+
+  if (mentionsIncome) {
+    return {
+      kind: 'answer',
+      intent: 'question',
+      message: `You recorded ${formatPeso(
+        summary.incomeMinor,
+      )} in income for ${period}.`,
+      answer: {
+        topic: 'monthly_income',
+        title: 'Monthly income',
+        figures: [{ label: 'Income', amountMinor: summary.incomeMinor }],
+      },
+    };
+  }
+
+  if (mentionsWallet || /\bbalance|total money|how much money\b/.test(lower)) {
+    const prefersCash = /\bcash\b/.test(lower);
+    const prefersGcash = /\bgcash\b/.test(lower);
+    const wallets =
+      prefersCash || prefersGcash
+        ? context.wallets.filter((wallet) =>
+            prefersCash
+              ? wallet.kind === 'cash'
+              : wallet.kind === 'virtual_gcash',
+          )
+        : context.wallets;
+    const total = wallets.reduce(
+      (sum, wallet) => sum + wallet.balanceMinor,
+      0,
+    );
+    return {
+      kind: 'answer',
+      intent: 'question',
+      message:
+        wallets.length === 1
+          ? `${wallets[0]?.name ?? 'That wallet'} has ${formatPeso(total)} recorded.`
+          : `Your wallets hold ${formatPeso(total)} in total.`,
+      answer: {
+        topic: 'wallet_balance',
+        title: 'Wallet balance',
+        figures: wallets.map((wallet) => ({
+          label: wallet.name,
+          amountMinor: wallet.balanceMinor,
+        })),
+      },
+    };
+  }
+
+  return {
+    kind: 'answer',
+    intent: 'question',
+    message:
+      'I can answer simple questions about Savings, Unallocated, wallet balances, container balances, budget remaining, and this month’s income, expenses, or net savings.',
+    answer: {
+      topic: 'help',
+      title: 'Read-only questions',
+      figures: [],
+    },
+  };
 }
 
 function detectAction(text: string): AssistantAction | null {
@@ -1171,13 +1547,13 @@ function shiftDateKey(dateKey: string, days: number): string {
 
 function proposalMessage(action: AssistantAction): string {
   if (action === 'expense') {
-    return 'I can draft that expense. Review the exact details below before saving.';
+    return 'I interpreted that as an expense and prepared a draft. No ledger entry has been created.';
   }
   if (action === 'income') {
-    return 'I can draft that income. Review the wallet and container before saving.';
+    return 'I interpreted that as income and prepared a draft. No ledger entry has been created.';
   }
   if (action === 'savings_contribution') {
-    return 'I can draft that Savings contribution. It is a transfer, not an expense.';
+    return 'I interpreted that as a Savings contribution and prepared a draft. It is a transfer, not an expense. No ledger entry has been created.';
   }
-  return 'I can draft that Savings withdrawal. It is a transfer, not income.';
+  return 'I interpreted that as a Savings withdrawal and prepared a draft. It is a transfer, not income. No ledger entry has been created.';
 }

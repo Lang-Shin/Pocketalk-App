@@ -272,8 +272,8 @@ export function HomeScreen() {
               variant="bodySmall"
               color={theme.colors.primarySoftText}
             >
-              Try {'\u201CI spent \u20B1120 on lunch.\u201D'} Pocketa prepares a
-              draft, then you confirm it.
+              Try {'\u201CI spent \u20B1120 on lunch.\u201D'} Pocketa interprets
+              a draft. Saving is not part of this prototype.
             </AppText>
           </View>
         </View>
