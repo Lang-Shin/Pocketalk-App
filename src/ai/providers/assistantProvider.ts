@@ -19,6 +19,8 @@ export interface AssistantProviderInfo {
 
 export interface AssistantProvider {
   readonly info: AssistantProviderInfo;
+  load(): Promise<void>;
+  unload(): Promise<void>;
   interpret(text: string, context: AssistantContext): Promise<AssistantResult>;
   resolveContainerChoice(
     containerId: string,

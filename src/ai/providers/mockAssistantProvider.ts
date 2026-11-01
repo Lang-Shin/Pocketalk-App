@@ -23,6 +23,14 @@ export class MockAssistantProvider implements AssistantProvider {
       'Deterministic local rules for interpreting finance messages. This is not a language model.',
   };
 
+  async load(): Promise<void> {
+    return;
+  }
+
+  async unload(): Promise<void> {
+    return;
+  }
+
   async interpret(
     text: string,
     context: AssistantContext,

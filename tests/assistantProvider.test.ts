@@ -73,6 +73,13 @@ test('the default provider is an explicitly labeled mock', () => {
   assert.match(provider.info.description, /not a language model/i);
 });
 
+test('the mock provider exposes no-op model lifecycle hooks', async () => {
+  const provider = new MockAssistantProvider();
+
+  await provider.load();
+  await provider.unload();
+});
+
 test('the mock provider interprets through the existing assistant engine', async () => {
   const provider = new MockAssistantProvider();
   const result = await provider.interpret(
