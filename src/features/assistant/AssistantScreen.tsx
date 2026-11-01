@@ -9,16 +9,14 @@ import {
   View,
 } from 'react-native';
 
-import {
-  interpretAssistantMessage,
-  resolveAssistantContainerChoice,
-  resolveAssistantWalletChoice,
-  type AssistantAnswer,
-  type AssistantClarification,
-  type AssistantContext,
-  type AssistantProposal,
-  type AssistantResult,
+import type {
+  AssistantAnswer,
+  AssistantClarification,
+  AssistantContext,
+  AssistantProposal,
+  AssistantResult,
 } from '@/ai/localAssistant';
+import { assistantProvider } from '@/ai/providers';
 import { AppText } from '@/components/AppText';
 import { ChatBubble } from '@/components/chat/ChatBubble';
 import { Chip } from '@/components/ui/Chip';
@@ -64,6 +62,7 @@ export function AssistantScreen() {
     createWelcomeMessage(),
   ]);
   const [input, setInput] = useState('');
+  const [isResponding, setIsResponding] = useState(false);
   const scrollRef = useRef<ScrollView>(null);
 
   const context = useMemo<AssistantContext | null>(() => {
@@ -112,7 +111,7 @@ export function AssistantScreen() {
       <Screen scroll={false}>
         <PageHeader
           title="Pocketa assistant"
-          subtitle="Draft money entries offline, then confirm them yourself."
+          subtitle="Interpret money messages and answer local questions offline."
           preview={false}
         />
         <LoadingState label="Opening the local assistant…" />
@@ -146,9 +145,21 @@ export function AssistantScreen() {
     );
   }
 
-  const handleSend = () => {
+  const appendProviderError = () => {
+    setMessages((current) => [
+      ...current,
+      {
+        id: nextMessageId('assistant'),
+        role: 'assistant',
+        text: 'The assistant could not complete that request. Try again.',
+        createdAt: new Date().toISOString(),
+      },
+    ]);
+  };
+
+  const handleSend = async () => {
     const text = input.trim();
-    if (!text) return;
+    if (!text || isResponding) return;
 
     const userMessage: ThreadMessage = {
       id: nextMessageId('user'),
@@ -156,14 +167,22 @@ export function AssistantScreen() {
       text,
       createdAt: new Date().toISOString(),
     };
-    const result = interpretAssistantMessage(text, context);
 
-    setMessages((current) => [
-      ...current,
-      userMessage,
-      createThreadMessage(result),
-    ]);
     setInput('');
+    setIsResponding(true);
+    setMessages((current) => [...current, userMessage]);
+
+    try {
+      const result = await assistantProvider.interpret(text, context);
+      setMessages((current) => [
+        ...current,
+        createThreadMessage(result),
+      ]);
+    } catch {
+      appendProviderError();
+    } finally {
+      setIsResponding(false);
+    }
   };
 
   const appendChoiceResult = (
@@ -180,15 +199,33 @@ export function AssistantScreen() {
     ]);
   };
 
+  const runChoice = async (
+    message: ThreadMessage,
+    resolve: () => Promise<AssistantResult>,
+  ) => {
+    if (isResponding) return;
+    setIsResponding(true);
+    try {
+      appendChoiceResult(message, await resolve());
+    } catch {
+      appendProviderError();
+    } finally {
+      setIsResponding(false);
+    }
+  };
+
   const handleContainerChoice = (
     message: ThreadMessage,
     containerId: string,
   ) => {
     const pending = message.clarification?.pending;
     if (!pending) return;
-    appendChoiceResult(
-      message,
-      resolveAssistantContainerChoice(containerId, pending, context),
+    void runChoice(message, () =>
+      assistantProvider.resolveContainerChoice(
+        containerId,
+        pending,
+        context,
+      ),
     );
   };
 
@@ -198,9 +235,8 @@ export function AssistantScreen() {
   ) => {
     const pending = message.clarification?.pending;
     if (!pending) return;
-    appendChoiceResult(
-      message,
-      resolveAssistantWalletChoice(walletId, pending, context),
+    void runChoice(message, () =>
+      assistantProvider.resolveWalletChoice(walletId, pending, context),
     );
   };
 
@@ -217,8 +253,8 @@ export function AssistantScreen() {
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
         <NoticeBanner
-          title="Interpretation-only prototype"
-          message="No language model is connected. Drafts come from deterministic rules on this device. This screen never writes to the ledger; confirmation and saving belong to Phase 6."
+          title={assistantProvider.info.displayName}
+          message={`${assistantProvider.info.description} No model is installed or downloaded. This screen never writes to the ledger; confirmation and saving belong to Phase 6.`}
           icon="hardware-chip-outline"
         />
 
@@ -301,7 +337,7 @@ export function AssistantScreen() {
             <TextInput
               value={input}
               onChangeText={setInput}
-              onSubmitEditing={handleSend}
+              onSubmitEditing={() => void handleSend()}
               placeholder="Tell Pocketa what happened…"
               placeholderTextColor={theme.colors.textTertiary}
               style={[styles.input, { color: theme.colors.text }]}
@@ -316,8 +352,8 @@ export function AssistantScreen() {
               accessibilityLabel="Send message"
               variant="primary"
               size={42}
-              onPress={handleSend}
-              disabled={!input.trim()}
+              onPress={() => void handleSend()}
+              disabled={!input.trim() || isResponding}
             />
           </View>
           <AppText
@@ -325,7 +361,9 @@ export function AssistantScreen() {
             color={theme.colors.textTertiary}
             align="center"
           >
-            INTERPRETATION ONLY · NO LEDGER WRITES
+            {isResponding
+              ? 'INTERPRETING…'
+              : 'INTERPRETATION ONLY · NO LEDGER WRITES'}
           </AppText>
         </View>
       </KeyboardAvoidingView>
