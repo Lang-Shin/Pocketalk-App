@@ -1,8 +1,11 @@
 import { MockAssistantProvider } from './mockAssistantProvider';
 import type { AssistantProvider } from './assistantProvider';
+import { ValidatedAssistantProvider } from './validatedAssistantProvider';
 
-export function createAssistantProvider(): AssistantProvider {
-  return new MockAssistantProvider();
+export function createAssistantProvider(
+  provider: AssistantProvider = new MockAssistantProvider(),
+): AssistantProvider {
+  return new ValidatedAssistantProvider(provider);
 }
 
 export const assistantProvider: AssistantProvider = createAssistantProvider();
@@ -13,3 +16,4 @@ export type {
   AssistantProviderKind,
 } from './assistantProvider';
 export { MockAssistantProvider } from './mockAssistantProvider';
+export { ValidatedAssistantProvider } from './validatedAssistantProvider';
