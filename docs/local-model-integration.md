@@ -174,6 +174,44 @@ Unresolved assumptions: the minimum Android API, exact RAM/storage thresholds, a
 
 Verification after Section C: 156/156 tests passed, lint passed, typecheck passed, and `expo-doctor` passed 21/21. These are policy/unit checks only; no device capability detector or native runtime was exercised.
 
+## Phase 5.5 Section D — Model and artifact evaluation
+
+Implemented as data-driven metadata in `src/ai/models`:
+
+- `ModelManifest` records model family, parameters, runtime, format, quantization, structured-output support, artifact size/status, device-performance status, context, minimum physical RAM, free storage, license, source, selection status, and distribution policy.
+- Candidate catalog:
+  - `qwen2.5-1.5b-executorch-xnnpack-8da4w` — ExecuTorch `.pte`, 8da4w, approximately 1.1 GiB, documented-approximate.
+  - `qwen2.5-1.5b-llama-rn-q4-k-m` — llama.rn GGUF, Q4_K_M, approximately 1 GiB, documented-approximate.
+- All candidates are marked `candidate` and `devicePerformanceStatus: unverified`, not `approved` or production-ready.
+- No model binary is downloaded, bundled, or present in the repository.
+
+### Compatibility policy
+
+- Supported runtime/format pairs are allowlisted:
+  - ExecuTorch: `.pte`
+  - llama.rn: `.gguf`
+  - LiteRT-LM: no integrated format in the current architecture
+- Unsupported runtime/format combinations are rejected.
+- Models must not be bundled.
+- Explicit user consent, checksum requirement, and user removal must all be enabled.
+- License and source are required.
+- Free storage must cover the artifact size.
+- A valid SHA-256 checksum is required before `installable` is true.
+- Candidate models remain `installable: false` and `productionReady: false` until checksum and approval evidence exist.
+- `productionReady` additionally requires `devicePerformanceStatus: measured`; documented characteristics alone are not device evidence.
+
+### Unresolved assumptions
+
+- Actual SHA-256 checksums for the candidate artifacts.
+- Exact artifact sizes; current values are documented approximations.
+- Final context length and quantization choice.
+- Actual memory and storage requirements on physical devices.
+- Whether Qwen2.5-1.5B provides sufficient structured-output quality.
+- Which runtime/model candidate is approved for production after device measurements.
+- Model download, update, storage, and deletion UX.
+
+Verification after Section D: 161/161 tests passed, lint passed, and typecheck passed. These are metadata/policy tests only; no model was downloaded or run.
+
 ## Required provider boundary
 
 `src/ai/providers/assistantProvider.ts` defines the provider interface, including `load()`, `unload()`, and interpretation methods. `src/ai/providers/mockAssistantProvider.ts` is the only implementation. A future local provider must keep model lifecycle, prompt construction, inference, cancellation, and unload behavior behind this boundary; screens must not call runtime APIs directly.
