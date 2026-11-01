@@ -137,6 +137,43 @@ The model file must not be bundled in the APK/AAB. It must only be downloaded af
 | [LiteRT-LM repository](https://github.com/google-ai-edge/LiteRT-LM) | 2026-11-01 |
 | [Qwen2.5-1.5B-Instruct model card](https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct) | 2026-11-01 |
 
+## Phase 5.5 Section C — Device capability profiles
+
+Implemented as pure TypeScript in `src/ai/device`:
+
+- `DeviceCapabilitySnapshot` records platform, Android API, ABI, physical RAM, optional reported virtual RAM, available storage, and runtime availability.
+- `DeviceCapabilityDetector` is injectable; no native detector is implemented yet.
+- `evaluateDeviceCapability()` deterministically returns a profile, local-AI decision, and reasons.
+- Virtual RAM is never used by the policy.
+- No device model or OPPO-specific identifier is hard-coded in production policy.
+
+### Provisional evaluation thresholds
+
+These are **Section C evaluation hypotheses**, not product support commitments. They require device evidence and may change.
+
+| Threshold | Provisional value |
+|---|---|
+| Minimum physical RAM | 4 GiB |
+| Typical physical RAM | 6 GiB |
+| Higher-end physical RAM | 12 GiB |
+| Minimum free storage | 3 GiB |
+| Minimum Android API | 26 |
+| Required ABI | `arm64-v8a` |
+
+### Decision behavior
+
+- Below a threshold, non-Android, wrong ABI, or insufficient storage: `unsupported` + `mock_fallback`.
+- Eligible profile with both runtimes unknown or unavailable: `mock_fallback`.
+- Eligible profile with at least one runtime reported available: `local_candidate`.
+- Mock remains available in every case.
+- Runtime availability is currently supplied by the injected snapshot; no real detector or runtime probe exists.
+
+The OPPO Reno8 5G’s 8 GB physical RAM places it in the provisional `typical` profile, but its local runtime availability remains unknown until a detector or runtime spike supplies evidence. Its 4 GB RAM expansion does not affect the result.
+
+Unresolved assumptions: the minimum Android API, exact RAM/storage thresholds, available-memory pressure handling, runtime probe accuracy, and how model size/context affects the storage threshold.
+
+Verification after Section C: 156/156 tests passed, lint passed, typecheck passed, and `expo-doctor` passed 21/21. These are policy/unit checks only; no device capability detector or native runtime was exercised.
+
 ## Required provider boundary
 
 `src/ai/providers/assistantProvider.ts` defines the provider interface, including `load()`, `unload()`, and interpretation methods. `src/ai/providers/mockAssistantProvider.ts` is the only implementation. A future local provider must keep model lifecycle, prompt construction, inference, cancellation, and unload behavior behind this boundary; screens must not call runtime APIs directly.
