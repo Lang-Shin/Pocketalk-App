@@ -200,7 +200,14 @@ test('assistant asks for a missing Savings contribution source', () => {
   assert.equal(result.intent, 'container_transfer');
   assert.equal(result.clarification.reason, 'container');
   assert.equal(result.clarification.pending?.amountMinor, 30_000);
-  assert.equal(result.clarification.pending?.destinationContainerId, undefined);
+  assert.equal(
+    result.clarification.pending?.destinationContainerId,
+    'system-savings',
+  );
+  assert.deepEqual(result.interpretation.destinationContainer, {
+    id: 'system-savings',
+    name: 'Savings',
+  });
 
   const pending = result.clarification.pending;
   assert.ok(pending);
@@ -286,6 +293,16 @@ test('assistant drafts a wallet-to-wallet transfer', () => {
   assert.equal(result.proposal.title, 'Wallet transfer');
   assert.equal(result.proposal.sourceWalletId, 'wallet-cash');
   assert.equal(result.proposal.destinationWalletId, 'wallet-gcash');
+  assert.deepEqual(result.interpretation.sourceWallet, {
+    id: 'wallet-cash',
+    name: 'Cash on hand',
+  });
+  assert.deepEqual(result.interpretation.destinationWallet, {
+    id: 'wallet-gcash',
+    name: 'Virtual GCash',
+  });
+  assert.equal(result.interpretation.amountMinor, 10_000);
+  assert.equal(result.interpretation.currency, 'PHP');
   assert.equal('moneyEntry' in result, false);
 });
 
@@ -346,6 +363,15 @@ test('assistant drafts an ordinary container-to-container transfer', () => {
   assert.equal(result.proposal.title, 'Container transfer');
   assert.equal(result.proposal.containerId, 'container-food');
   assert.equal(result.proposal.destinationContainerId, 'container-transport');
+  assert.deepEqual(result.interpretation.sourceContainer, {
+    id: 'container-food',
+    name: 'Food & drinks',
+  });
+  assert.deepEqual(result.interpretation.destinationContainer, {
+    id: 'container-transport',
+    name: 'Transport',
+  });
+  assert.equal(result.interpretation.amountMinor, 15_000);
   assert.equal('moneyEntry' in result, false);
 });
 
@@ -657,6 +683,117 @@ test('assistant declines out-of-scope historical questions', () => {
   assert.equal(result.intent, 'unknown');
   assert.equal(result.answer.topic, 'help');
   assert.match(result.message, /Monthly History/);
+});
+
+test('assistant exposes a structured expense interpretation', () => {
+  const result = interpretAssistantMessage(
+    'I spent ₱145 on lunch from Food & drinks kanina.',
+    createContext(),
+  );
+
+  assert.equal(result.kind, 'proposal');
+  if (result.kind !== 'proposal') return;
+  const interpretation = result.interpretation;
+  assert.equal(interpretation.intent, 'expense');
+  assert.equal(interpretation.amountMinor, 14_500);
+  assert.equal(Number.isSafeInteger(interpretation.amountMinor), true);
+  assert.equal(interpretation.currency, 'PHP');
+  assert.equal(interpretation.effectiveDate, '2026-10-20');
+  assert.deepEqual(interpretation.sourceWallet, {
+    id: 'wallet-gcash',
+    name: 'Virtual GCash',
+  });
+  assert.deepEqual(interpretation.sourceContainer, {
+    id: 'container-food',
+    name: 'Food & drinks',
+  });
+  assert.equal(interpretation.description, 'Lunch');
+  assert.deepEqual(interpretation.missingFields, []);
+  assert.equal(interpretation.clarificationQuestion, undefined);
+  assert.equal(interpretation.confidence > 0, true);
+  assert.equal(interpretation.confidence <= 1, true);
+  assert.match(interpretation.reasoningSummary, /expense/i);
+});
+
+test('structured clarification exposes missing fields without guessing', () => {
+  const missingAmount = interpretAssistantMessage(
+    'I spent some money yesterday',
+    createContext(),
+  );
+  assert.equal(missingAmount.kind, 'clarification');
+  if (missingAmount.kind !== 'clarification') return;
+  assert.deepEqual(missingAmount.interpretation.missingFields, ['amount']);
+  assert.equal(missingAmount.interpretation.amountMinor, undefined);
+  assert.equal(missingAmount.interpretation.effectiveDate, undefined);
+  assert.match(
+    missingAmount.interpretation.clarificationQuestion ?? '',
+    /amount/i,
+  );
+
+  const missingWallet = interpretAssistantMessage(
+    'Transfer ₱100 to Cash',
+    createContext(),
+  );
+  assert.equal(missingWallet.kind, 'clarification');
+  if (missingWallet.kind !== 'clarification') return;
+  assert.deepEqual(missingWallet.interpretation.missingFields, [
+    'sourceWallet',
+  ]);
+  assert.equal(missingWallet.interpretation.sourceWallet, undefined);
+  assert.deepEqual(missingWallet.interpretation.destinationWallet, {
+    id: 'wallet-cash',
+    name: 'Cash on hand',
+  });
+});
+
+test('structured clarification preserves ambiguous container uncertainty', () => {
+  const context = createContext();
+  context.containers.push({
+    id: 'container-food-delivery',
+    name: 'Food delivery',
+    status: 'active',
+    systemKey: null,
+    balanceMinor: 5_000,
+    limitMinor: 0,
+    spentMinor: 0,
+    remainingMinor: 0,
+  });
+
+  const result = interpretAssistantMessage(
+    'Move ₱50 from Food to Food delivery',
+    context,
+  );
+
+  assert.equal(result.kind, 'clarification');
+  if (result.kind !== 'clarification') return;
+  assert.deepEqual(result.interpretation.missingFields, [
+    'sourceContainer',
+  ]);
+  assert.equal(result.interpretation.sourceContainer, undefined);
+  assert.equal(result.interpretation.destinationContainer, undefined);
+});
+
+test('structured answers and refusals expose safe interpretation metadata', () => {
+  const answer = interpretAssistantMessage(
+    'How much money do I have?',
+    createContext(),
+  );
+  assert.equal(answer.kind, 'answer');
+  if (answer.kind !== 'answer') return;
+  assert.equal(answer.interpretation.intent, 'balance_inquiry');
+  assert.deepEqual(answer.interpretation.missingFields, []);
+  assert.equal(answer.interpretation.confidence > 0, true);
+  assert.equal(answer.interpretation.amountMinor, undefined);
+
+  const refusal = interpretAssistantMessage(
+    'Hello there',
+    createContext(),
+  );
+  assert.equal(refusal.kind, 'refusal');
+  if (refusal.kind !== 'refusal') return;
+  assert.equal(refusal.interpretation.intent, 'unknown');
+  assert.equal(refusal.interpretation.confidence, 0);
+  assert.equal(refusal.interpretation.reasoningSummary.length > 0, true);
 });
 
 test('assistant does not expose any execution step', () => {

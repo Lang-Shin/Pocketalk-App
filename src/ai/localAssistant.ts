@@ -150,7 +150,37 @@ export interface AssistantClarification {
   pending?: AssistantPendingIntent;
 }
 
-export type AssistantResult =
+export type AssistantMissingField =
+  | 'amount'
+  | 'effectiveDate'
+  | 'sourceWallet'
+  | 'destinationWallet'
+  | 'sourceContainer'
+  | 'destinationContainer'
+  | 'transferKind';
+
+export interface AssistantEntityRef {
+  id: string;
+  name: string;
+}
+
+export interface AssistantInterpretation {
+  intent: AssistantIntent;
+  amountMinor?: number;
+  currency?: 'PHP';
+  effectiveDate?: string;
+  sourceWallet?: AssistantEntityRef;
+  destinationWallet?: AssistantEntityRef;
+  sourceContainer?: AssistantEntityRef;
+  destinationContainer?: AssistantEntityRef;
+  description?: string;
+  confidence: number;
+  missingFields: AssistantMissingField[];
+  clarificationQuestion?: string;
+  reasoningSummary: string;
+}
+
+export type AssistantResultBase =
   | {
       kind: 'proposal';
       intent: AssistantIntent;
@@ -175,6 +205,10 @@ export type AssistantResult =
       message: string;
     };
 
+export type AssistantResult = AssistantResultBase & {
+  interpretation: AssistantInterpretation;
+};
+
 interface ParsedAmount {
   amountMinor: number;
 }
@@ -197,6 +231,16 @@ export function interpretAssistantMessage(
   text: string,
   context: AssistantContext,
 ): AssistantResult {
+  return attachInterpretation(
+    interpretAssistantMessageBase(text, context),
+    context,
+  );
+}
+
+function interpretAssistantMessageBase(
+  text: string,
+  context: AssistantContext,
+): AssistantResultBase {
   const statement = text.trim();
   if (!statement) {
     return clarifyAmount(
@@ -334,13 +378,6 @@ export function interpretAssistantMessage(
   }
 
   if (action === 'savings_contribution') {
-    const source = resolveSavingsSource(statement, context, {
-      action,
-      amountMinor,
-      title,
-      effectiveDate,
-    });
-    if ('result' in source) return source.result;
     const savings = findSystemContainer(context, 'savings');
     if (!savings) {
       return {
@@ -349,6 +386,14 @@ export function interpretAssistantMessage(
         message: 'The local Savings container is not available.',
       };
     }
+    const source = resolveSavingsSource(statement, context, {
+      action,
+      amountMinor,
+      title,
+      effectiveDate,
+      destinationContainerId: savings.id,
+    });
+    if ('result' in source) return source.result;
     return assembleProposal(
       {
         action,
@@ -395,6 +440,17 @@ export function resolveAssistantContainerChoice(
   pending: AssistantPendingIntent,
   context: AssistantContext,
 ): AssistantResult {
+  return attachInterpretation(
+    resolveAssistantContainerChoiceBase(containerId, pending, context),
+    context,
+  );
+}
+
+function resolveAssistantContainerChoiceBase(
+  containerId: string,
+  pending: AssistantPendingIntent,
+  context: AssistantContext,
+): AssistantResultBase {
   const choice = context.containers.find(
     (container) =>
       container.id === containerId && container.status === 'active',
@@ -536,6 +592,17 @@ export function resolveAssistantWalletChoice(
   pending: AssistantPendingIntent,
   context: AssistantContext,
 ): AssistantResult {
+  return attachInterpretation(
+    resolveAssistantWalletChoiceBase(walletId, pending, context),
+    context,
+  );
+}
+
+function resolveAssistantWalletChoiceBase(
+  walletId: string,
+  pending: AssistantPendingIntent,
+  context: AssistantContext,
+): AssistantResultBase {
   const choice = context.wallets.find((wallet) => wallet.id === walletId);
   if (!choice) {
     return {
@@ -597,7 +664,7 @@ function interpretWalletTransfer(
   text: string,
   context: AssistantContext,
   base: TransferBase,
-): AssistantResult {
+): AssistantResultBase {
   const endpoints = extractTransferEndpoints(text);
   const sourceMatches = endpoints.sourceSegment
     ? resolveWalletMatches(endpoints.sourceSegment, context.wallets)
@@ -681,7 +748,7 @@ function interpretContainerTransfer(
   text: string,
   context: AssistantContext,
   base: TransferBase,
-): AssistantResult {
+): AssistantResultBase {
   const endpoints = extractTransferEndpoints(text);
   const sourceMatches = endpoints.sourceSegment
     ? resolveOrdinaryContainerMatches(endpoints.sourceSegment, context)
@@ -790,7 +857,7 @@ function walletTransferClarification(
   context: AssistantContext,
   role: 'source' | 'destination',
   matches?: AssistantWalletOption[],
-): AssistantResult {
+): AssistantResultBase {
   const excludedId =
     role === 'source' ? pending.destinationWalletId : pending.sourceWalletId;
   const options = (matches ?? context.wallets).filter(
@@ -827,7 +894,7 @@ function containerTransferClarification(
   context: AssistantContext,
   role: 'source' | 'destination',
   matches?: AssistantContainerOption[],
-): AssistantResult {
+): AssistantResultBase {
   const excludedId =
     role === 'source'
       ? pending.destinationContainerId
@@ -975,7 +1042,7 @@ function looksLikeTransfer(text: string): boolean {
   );
 }
 
-function transferCategoryClarification(): AssistantResult {
+function transferCategoryClarification(): AssistantResultBase {
   return {
     kind: 'clarification',
     intent: 'unknown',
@@ -988,7 +1055,7 @@ function transferCategoryClarification(): AssistantResult {
 function assembleProposal(
   parts: DraftParts,
   context: AssistantContext,
-): AssistantResult {
+): AssistantResultBase {
   if (
     !Number.isSafeInteger(parts.amountMinor) ||
     parts.amountMinor <= 0
@@ -1245,7 +1312,7 @@ function resolveExpenseContainer(
   pendingBase: Omit<AssistantPendingIntent, 'role'>,
 ):
   | { container: AssistantContainerOption }
-  | { result: AssistantResult } {
+  | { result: AssistantResultBase } {
   const candidates = context.containers.filter(
     (container) =>
       container.status === 'active' && container.systemKey == null,
@@ -1337,7 +1404,7 @@ function resolveIncomeContainer(
   pendingBase: Omit<AssistantPendingIntent, 'role'>,
 ):
   | { container: AssistantContainerOption }
-  | { result: AssistantResult } {
+  | { result: AssistantResultBase } {
   const candidates = context.containers.filter(
     (container) =>
       container.status === 'active' && container.systemKey !== 'savings',
@@ -1394,7 +1461,7 @@ function unallocatedOrClarification(
   candidates: AssistantContainerOption[],
   pendingBase: Omit<AssistantPendingIntent, 'role'>,
   role: 'source' | 'destination',
-): { container: AssistantContainerOption } | { result: AssistantResult } {
+): { container: AssistantContainerOption } | { result: AssistantResultBase } {
   const unallocated = findSystemContainer(context, 'unallocated');
   if (unallocated && unallocated.status === 'active') {
     return { container: unallocated };
@@ -1437,7 +1504,7 @@ function resolveSavingsSource(
   pendingBase: Omit<AssistantPendingIntent, 'role'>,
 ):
   | { container: AssistantContainerOption }
-  | { result: AssistantResult } {
+  | { result: AssistantResultBase } {
   const candidates = context.containers.filter(
     (container) =>
       container.status === 'active' && container.systemKey !== 'savings',
@@ -1515,7 +1582,7 @@ function resolveSavingsDestination(
   pendingBase: Omit<AssistantPendingIntent, 'role'>,
 ):
   | { container: AssistantContainerOption }
-  | { result: AssistantResult } {
+  | { result: AssistantResultBase } {
   const candidates = context.containers.filter(
     (container) =>
       container.status === 'active' && container.systemKey !== 'savings',
@@ -1561,7 +1628,7 @@ function destinationDefault(
   context: AssistantContext,
   candidates: AssistantContainerOption[],
   pendingBase: Omit<AssistantPendingIntent, 'role'>,
-): { container: AssistantContainerOption } | { result: AssistantResult } {
+): { container: AssistantContainerOption } | { result: AssistantResultBase } {
   const unallocated = findSystemContainer(context, 'unallocated');
   if (unallocated && unallocated.status === 'active') {
     return { container: unallocated };
@@ -1604,7 +1671,7 @@ function containerClarification(
   options: AssistantContainerOption[],
   pendingBase: Omit<AssistantPendingIntent, 'role'>,
   role: 'source' | 'destination',
-): AssistantResult {
+): AssistantResultBase {
   return {
     kind: 'clarification',
     intent: intentForAction(pendingBase.action),
@@ -1645,6 +1712,168 @@ function needsWallet(action: AssistantAction): boolean {
   return action === 'expense' || action === 'income';
 }
 
+function attachInterpretation(
+  result: AssistantResultBase,
+  context: AssistantContext,
+): AssistantResult {
+  return { ...result, interpretation: buildInterpretation(result, context) };
+}
+
+function buildInterpretation(
+  result: AssistantResultBase,
+  context: AssistantContext,
+): AssistantInterpretation {
+  if (result.kind === 'proposal') {
+    const { proposal } = result;
+    const sourceWallet = walletRef(context, proposal.walletId);
+    const destinationWallet = walletRef(context, proposal.walletId);
+    const sourceContainer = containerRef(context, proposal.containerId);
+    const destinationContainer = containerRef(
+      context,
+      proposal.destinationContainerId,
+    );
+    const interpretation: AssistantInterpretation = {
+      intent: result.intent,
+      amountMinor: proposal.amountMinor,
+      currency: 'PHP',
+      effectiveDate: proposal.effectiveDate,
+      description: proposal.title,
+      confidence: 0.85,
+      missingFields: [],
+      reasoningSummary: `Interpreted this as ${result.intent.replace(
+        /_/g,
+        ' ',
+      )} for ${formatPeso(proposal.amountMinor)}.`,
+    };
+
+    if (proposal.action === 'expense') {
+      interpretation.sourceWallet = sourceWallet;
+      interpretation.sourceContainer = sourceContainer;
+    } else if (proposal.action === 'income') {
+      interpretation.destinationWallet = destinationWallet;
+      interpretation.destinationContainer = destinationContainer;
+    } else if (proposal.action === 'wallet_transfer') {
+      interpretation.sourceWallet = walletRef(
+        context,
+        proposal.sourceWalletId,
+      );
+      interpretation.destinationWallet = walletRef(
+        context,
+        proposal.destinationWalletId,
+      );
+    } else {
+      interpretation.sourceContainer = sourceContainer;
+      interpretation.destinationContainer = destinationContainer;
+    }
+
+    return interpretation;
+  }
+
+  if (result.kind === 'clarification') {
+    const { clarification } = result;
+    return {
+      intent: result.intent,
+      amountMinor: clarification.pending?.amountMinor,
+      currency: clarification.pending ? 'PHP' : undefined,
+      effectiveDate: clarification.pending?.effectiveDate,
+      sourceWallet: walletRef(
+        context,
+        clarification.pending?.sourceWalletId,
+      ),
+      destinationWallet: walletRef(
+        context,
+        clarification.pending?.destinationWalletId,
+      ),
+      sourceContainer: containerRef(
+        context,
+        clarification.pending?.sourceContainerId,
+      ),
+      destinationContainer: containerRef(
+        context,
+        clarification.pending?.destinationContainerId,
+      ),
+      confidence: 0.45,
+      missingFields: missingFieldsForClarification(clarification),
+      clarificationQuestion: result.message,
+      reasoningSummary: `The intent is ${result.intent.replace(
+        /_/g,
+        ' ',
+      )}, but required details are still missing or ambiguous.`,
+    };
+  }
+
+  if (result.kind === 'answer') {
+    return {
+      intent: result.intent,
+      confidence: 0.9,
+      missingFields: [],
+      reasoningSummary: `Answered a ${result.intent.replace(
+        /_/g,
+        ' ',
+      )} from the active month's local finance data.`,
+    };
+  }
+
+  return {
+    intent: result.intent,
+    confidence: 0,
+    missingFields: [],
+    reasoningSummary: result.message,
+  };
+}
+
+function missingFieldsForClarification(
+  clarification: AssistantClarification,
+): AssistantMissingField[] {
+  if (clarification.reason === 'amount') return ['amount'];
+  if (clarification.reason === 'wallet') {
+    return [
+      clarification.pending?.role === 'destination'
+        ? 'destinationWallet'
+        : 'sourceWallet',
+    ];
+  }
+  if (clarification.reason === 'container') {
+    return [
+      clarification.pending?.role === 'destination'
+        ? 'destinationContainer'
+        : 'sourceContainer',
+    ];
+  }
+  if (clarification.reason === 'transfer') {
+    return [
+      'transferKind',
+      'sourceWallet',
+      'destinationWallet',
+      'sourceContainer',
+      'destinationContainer',
+    ];
+  }
+  return ['sourceContainer', 'destinationContainer'];
+}
+
+function walletRef(
+  context: AssistantContext,
+  walletId: string | undefined,
+): AssistantEntityRef | undefined {
+  if (!walletId) return undefined;
+  const wallet = context.wallets.find((candidate) => candidate.id === walletId);
+  return wallet ? { id: wallet.id, name: wallet.name } : undefined;
+}
+
+function containerRef(
+  context: AssistantContext,
+  containerId: string | undefined,
+): AssistantEntityRef | undefined {
+  if (!containerId) return undefined;
+  const container = context.containers.find(
+    (candidate) => candidate.id === containerId,
+  );
+  return container
+    ? { id: container.id, name: container.name }
+    : undefined;
+}
+
 function intentForAction(action: AssistantAction): AssistantIntent {
   if (action === 'expense') return 'expense';
   if (action === 'income') return 'income';
@@ -1655,7 +1884,7 @@ function intentForAction(action: AssistantAction): AssistantIntent {
 function clarifyAmount(
   message: string,
   intent: AssistantIntent,
-): AssistantResult {
+): AssistantResultBase {
   return {
     kind: 'clarification',
     intent,
@@ -1677,7 +1906,7 @@ function isQuestion(text: string): boolean {
   );
 }
 
-function helpResult(): AssistantResult {
+function helpResult(): AssistantResultBase {
   return {
     kind: 'answer',
     intent: 'clarification_request',
@@ -1694,7 +1923,7 @@ function helpResult(): AssistantResult {
 function answerQuestion(
   text: string,
   context: AssistantContext,
-): AssistantResult {
+): AssistantResultBase {
   const lower = text.toLowerCase();
   const summary = context.summary;
   const period = formatMonthKey(summary.monthKey);
