@@ -349,6 +349,30 @@ test('assistant asks for a missing wallet transfer destination', () => {
   );
 });
 
+test('assistant clarifies ambiguous wallet names', () => {
+  const context = createContext();
+  context.wallets.push({
+    id: 'wallet-cash-wallet',
+    name: 'Cash wallet',
+    kind: 'cash',
+    balanceMinor: 50_000,
+  });
+
+  const result = interpretAssistantMessage(
+    'Transfer ₱100 from Cash wallet to GCash',
+    context,
+  );
+
+  assert.equal(result.kind, 'clarification');
+  if (result.kind !== 'clarification') return;
+  assert.equal(result.intent, 'wallet_transfer');
+  assert.equal(result.clarification.reason, 'wallet');
+  assert.deepEqual(
+    result.clarification.walletOptions?.map((wallet) => wallet.id),
+    ['wallet-cash', 'wallet-cash-wallet'],
+  );
+});
+
 test('assistant drafts an ordinary container-to-container transfer', () => {
   const result = interpretAssistantMessage(
     'Move ₱150 from Food & drinks to Transport',

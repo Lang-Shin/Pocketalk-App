@@ -1,5 +1,8 @@
 import assert from 'node:assert/strict';
+import { readdirSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import test from 'node:test';
+import { fileURLToPath } from 'node:url';
 
 import {
   interpretAssistantMessage,
@@ -226,3 +229,101 @@ test('the production factory accepts valid mock output', async () => {
   if (result.kind !== 'proposal') return;
   assert.equal(result.proposal.amountMinor, 5_000);
 });
+
+test('validation rejects malformed and unsupported output', () => {
+  const context = createContext();
+
+  assert.throws(
+    () => validateAssistantResult(null, context),
+    AssistantValidationError,
+  );
+  assert.throws(
+    () => validateAssistantResult({ kind: 'proposal' }, context),
+    AssistantValidationError,
+  );
+  assert.throws(
+    () =>
+      validateAssistantResult(
+        { ...proposalResult(), intent: 'not_a_real_intent' },
+        context,
+      ),
+    AssistantValidationError,
+  );
+});
+
+test('provider runtime errors are propagated instead of displayed as output', async () => {
+  const error = new Error('model unavailable');
+  const provider = new ValidatedAssistantProvider({
+    info: {
+      id: 'unavailable-provider',
+      displayName: 'Unavailable provider',
+      kind: 'local_llm',
+      isRealModel: true,
+      needsModelDownload: true,
+      offline: true,
+      description: 'Test-only unavailable provider.',
+    },
+    async load() {
+      throw error;
+    },
+    async unload() {},
+    async interpret() {
+      throw error;
+    },
+    async resolveContainerChoice() {
+      throw error;
+    },
+    async resolveWalletChoice() {
+      throw error;
+    },
+  });
+
+  await assert.rejects(
+    () => provider.interpret('test', createContext()),
+    error,
+  );
+});
+
+test('AI source has no financial repository or write path', () => {
+  const aiDirectory = fileURLToPath(new URL('../src/ai', import.meta.url));
+  const source = readSourceFiles(aiDirectory).join('\n');
+
+  for (const forbidden of [
+    /\bFinanceService\b/,
+    /\bFinanceEngine\b/,
+    /\bFinanceRepository\b/,
+    /financeService/,
+    /financeRepository/,
+    /financeEngine/,
+    /expo-sqlite/,
+    /recordMoneyEntry/,
+    /runRollover/,
+    /sqlite/i,
+  ]) {
+    assert.doesNotMatch(source, forbidden);
+  }
+
+  const screen = readFileSync(
+    fileURLToPath(
+      new URL(
+        '../src/features/assistant/AssistantScreen.tsx',
+        import.meta.url,
+      ),
+    ),
+    'utf8',
+  );
+  assert.doesNotMatch(
+    screen,
+    /recordMoneyEntry|FinanceService|ConfirmationDialog|transferBetweenContainers/,
+  );
+});
+
+function readSourceFiles(directory: string): string[] {
+  return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
+    const path = join(directory, entry.name);
+    if (entry.isDirectory()) return readSourceFiles(path);
+    return entry.isFile() && path.endsWith('.ts')
+      ? [readFileSync(path, 'utf8')]
+      : [];
+  });
+}
