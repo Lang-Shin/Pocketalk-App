@@ -16,4 +16,6 @@ export type {
   AssistantProviderKind,
 } from './assistantProvider';
 export { MockAssistantProvider } from './mockAssistantProvider';
+export { LocalLlmProvider } from './localLlmProvider';
+export type { LocalLlmProviderOptions } from './localLlmProvider';
 export { ValidatedAssistantProvider } from './validatedAssistantProvider';

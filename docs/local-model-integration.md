@@ -212,6 +212,28 @@ Implemented as data-driven metadata in `src/ai/models`:
 
 Verification after Section D: 161/161 tests passed, lint passed, and typecheck passed. These are metadata/policy tests only; no model was downloaded or run.
 
+## Phase 5.5 Section E — Local runtime adapter boundary
+
+Implemented native-free boundaries in `src/ai/runtime` and `src/ai/providers`:
+
+- `LocalModelRuntime` defines:
+  - `status()`
+  - `metrics()`
+  - `load()`
+  - `generate()`
+  - `cancel()`
+  - `unload()`
+- `LocalModelPromptBuilder` and `LocalModelResponseParser` keep prompt construction and output mapping injectable.
+- `LocalLlmProvider` implements the existing `AssistantProvider` contract, lazily loads an unloaded runtime, delegates lifecycle operations, and uses the injected prompt builder/parser.
+- `FakeLocalModelRuntime` is deterministic and supports queued responses, load/generation errors, held generation, cancellation, and lifecycle counters.
+- `ValidatedAssistantProvider` remains the outer validation wrapper; `LocalLlmProvider` output is not trusted.
+- `MockAssistantProvider` remains unchanged and is still the default provider.
+- No native runtime import, model download, model file, finance service, repository, SQLite, or finance engine is used.
+
+Cancellation is currently exposed at the runtime boundary. The assistant provider/UI does not yet expose a cancel control. Real runtime cancellation semantics, metrics quality, and prompt/parser behavior remain for later sections.
+
+Verification after Section E: 168/168 tests passed, lint passed, typecheck passed, and the AI source audit found no native or finance imports. No model was loaded or run.
+
 ## Required provider boundary
 
 `src/ai/providers/assistantProvider.ts` defines the provider interface, including `load()`, `unload()`, and interpretation methods. `src/ai/providers/mockAssistantProvider.ts` is the only implementation. A future local provider must keep model lifecycle, prompt construction, inference, cancellation, and unload behavior behind this boundary; screens must not call runtime APIs directly.
