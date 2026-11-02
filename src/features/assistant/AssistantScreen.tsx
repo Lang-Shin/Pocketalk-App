@@ -21,8 +21,13 @@ import type {
   AssistantResult,
 } from '@/ai/localAssistant';
 import { assistantProvider } from '@/ai/providers';
+import { createAssistantExecutionCoordinator } from '@/application/assistantExecution';
 import { AppText } from '@/components/AppText';
 import { ChatBubble } from '@/components/chat/ChatBubble';
+import {
+  ConfirmationDialog,
+  type ConfirmationDetail,
+} from '@/components/feedback/ConfirmationDialog';
 import { AppButton } from '@/components/ui/AppButton';
 import { Chip } from '@/components/ui/Chip';
 import { IconButton } from '@/components/ui/IconButton';
@@ -40,12 +45,23 @@ import { formatPeso } from '@/lib/money';
 import { formatDateKey, formatMonthKey } from '@/lib/period';
 import { useAppTheme, radii, spacing } from '@/theme';
 
+type ProposalExecution =
+  | { status: 'executing' }
+  | { status: 'success'; transactionId: string }
+  | { status: 'error'; message: string };
+
 interface ThreadMessage extends ChatMessage {
   proposal?: AssistantProposal;
   clarification?: AssistantClarification;
   answer?: AssistantAnswer;
   interpretation?: AssistantInterpretation;
   retryText?: string;
+  execution?: ProposalExecution;
+}
+
+interface PendingConfirmation {
+  messageId: string;
+  proposal: AssistantProposal;
 }
 
 const INTENT_LABELS: Record<AssistantIntent, string> = {
@@ -85,7 +101,7 @@ let messageSequence = 0;
 
 export function AssistantScreen() {
   const { theme } = useAppTheme();
-  const { activeMonthKey, todayDateKey } = useFinance();
+  const { activeMonthKey, todayDateKey, executeMoneyEntry } = useFinance();
   const monthQuery = useFinanceMonth(activeMonthKey);
   const walletQuery = useFinanceWallets();
   const [messages, setMessages] = useState<ThreadMessage[]>(() => [
@@ -93,7 +109,13 @@ export function AssistantScreen() {
   ]);
   const [input, setInput] = useState('');
   const [isResponding, setIsResponding] = useState(false);
+  const [pendingConfirmation, setPendingConfirmation] =
+    useState<PendingConfirmation | null>(null);
   const scrollRef = useRef<ScrollView>(null);
+  const executionCoordinator = useMemo(
+    () => createAssistantExecutionCoordinator({ executeMoneyEntry }),
+    [executeMoneyEntry],
+  );
 
   const context = useMemo<AssistantContext | null>(() => {
     if (!monthQuery.data || !walletQuery.data) return null;
@@ -284,6 +306,78 @@ export function AssistantScreen() {
     );
   };
 
+  const requestConfirmation = (message: ThreadMessage) => {
+    if (
+      !message.proposal ||
+      message.execution?.status === 'executing' ||
+      message.execution?.status === 'success'
+    ) {
+      return;
+    }
+    setPendingConfirmation({
+      messageId: message.id,
+      proposal: message.proposal,
+    });
+  };
+
+  const handleConfirmExecution = async () => {
+    const pending = pendingConfirmation;
+    if (!pending) return;
+    setPendingConfirmation(null);
+    setMessages((current) =>
+      current.map((message) =>
+        message.id === pending.messageId
+          ? { ...message, execution: { status: 'executing' } }
+          : message,
+      ),
+    );
+
+    try {
+      const result = await executionCoordinator.execute({
+        proposal: pending.proposal,
+        context,
+        confirmed: true,
+      });
+
+      setMessages((current) =>
+        current.map((message) => {
+          if (message.id !== pending.messageId) return message;
+          if (result.ok) {
+            return {
+              ...message,
+              text: 'Saved to your local ledger. This transaction now appears in History.',
+              execution: {
+                status: 'success',
+                transactionId: result.transactionId,
+              },
+            };
+          }
+          return {
+            ...message,
+            execution: { status: 'error', message: result.message },
+          };
+        }),
+      );
+    } catch (error) {
+      setMessages((current) =>
+        current.map((message) =>
+          message.id === pending.messageId
+            ? {
+                ...message,
+                execution: {
+                  status: 'error',
+                  message:
+                    error instanceof Error
+                      ? error.message
+                      : 'The transaction could not be saved. Nothing was changed.',
+                },
+              }
+            : message,
+        ),
+      );
+    }
+  };
+
   return (
     <Screen scroll={false}>
       <PageHeader
@@ -298,7 +392,7 @@ export function AssistantScreen() {
       >
         <NoticeBanner
           title={assistantProvider.info.displayName}
-          message={`${assistantProvider.info.description} No model is installed or downloaded. This screen never writes to the ledger; confirmation and saving belong to Phase 6.`}
+          message={`${assistantProvider.info.description} No model is installed or downloaded. Drafts stay on this device and are written only after you confirm them.`}
           icon="hardware-chip-outline"
         />
 
@@ -318,7 +412,11 @@ export function AssistantScreen() {
                 <IntentLine interpretation={message.interpretation} />
               ) : null}
               {message.proposal ? (
-                <DraftCard proposal={message.proposal} />
+                <DraftCard
+                  proposal={message.proposal}
+                  execution={message.execution}
+                  onConfirm={() => requestConfirmation(message)}
+                />
               ) : null}
               {message.answer ? (
                 <AnswerCard answer={message.answer} />
@@ -450,16 +548,46 @@ export function AssistantScreen() {
           >
             {isResponding
               ? 'INTERPRETING…'
-              : 'INTERPRETATION ONLY · NO LEDGER WRITES'}
+              : 'DRAFT FIRST · YOU CONFIRM EVERY WRITE'}
           </AppText>
         </View>
       </KeyboardAvoidingView>
+
+      <ConfirmationDialog
+        visible={pendingConfirmation !== null}
+        title={
+          pendingConfirmation
+            ? `Save this ${actionDisplayLabel(
+                pendingConfirmation.proposal.action,
+              ).toLowerCase()}?`
+            : 'Save this transaction?'
+        }
+        description="This writes the transaction to your local ledger immediately. Review the receipt before confirming."
+        details={
+          pendingConfirmation
+            ? proposalConfirmationDetails(pendingConfirmation.proposal)
+            : undefined
+        }
+        confirmLabel="Save transaction"
+        cancelLabel="Keep as draft"
+        onConfirm={() => void handleConfirmExecution()}
+        onCancel={() => setPendingConfirmation(null)}
+      />
     </Screen>
   );
 }
 
-function DraftCard({ proposal }: { proposal: AssistantProposal }) {
+function DraftCard({
+  proposal,
+  execution,
+  onConfirm,
+}: {
+  proposal: AssistantProposal;
+  execution?: ProposalExecution;
+  onConfirm: () => void;
+}) {
   const { theme } = useAppTheme();
+  const saved = execution?.status === 'success';
 
   return (
     <View
@@ -485,8 +613,11 @@ function DraftCard({ proposal }: { proposal: AssistantProposal }) {
           />
         </View>
         <View style={styles.draftCopy}>
-          <AppText variant="micro" color={theme.colors.textTertiary}>
-            {actionLabel(proposal.action)}
+          <AppText
+            variant="micro"
+            color={saved ? theme.colors.success : theme.colors.textTertiary}
+          >
+            {saved ? 'SAVED TRANSACTION' : actionLabel(proposal.action)}
           </AppText>
           <AppText variant="h3">{proposal.title}</AppText>
         </View>
@@ -574,12 +705,166 @@ function DraftCard({ proposal }: { proposal: AssistantProposal }) {
         />
       ) : null}
 
-      <AppText variant="caption" color={theme.colors.textSecondary}>
-        Draft only. This prototype cannot save or change balances; confirmation
-        and ledger writes belong to Phase 6.
-      </AppText>
+      {execution?.status === 'success' ? (
+        <View
+          accessibilityLiveRegion="polite"
+          style={[
+            styles.executionNotice,
+            {
+              backgroundColor: theme.colors.successSoft,
+              borderColor: theme.colors.success + '33',
+            },
+          ]}
+        >
+          <Ionicons
+            name="checkmark-circle"
+            size={18}
+            color={theme.colors.success}
+          />
+          <View style={styles.executionCopy}>
+            <AppText variant="label" color={theme.colors.success}>
+              Saved to your local ledger
+            </AppText>
+            <AppText variant="caption" color={theme.colors.textSecondary}>
+              This transaction now appears in History.
+            </AppText>
+            <AppText
+              variant="micro"
+              color={theme.colors.textTertiary}
+              numberOfLines={1}
+            >
+              Reference: {execution.transactionId}
+            </AppText>
+          </View>
+        </View>
+      ) : (
+        <>
+          {execution?.status === 'error' ? (
+            <View
+              accessibilityLiveRegion="polite"
+              style={[
+                styles.executionNotice,
+                {
+                  backgroundColor: theme.colors.warningSoft,
+                  borderColor: theme.colors.warning + '33',
+                },
+              ]}
+            >
+              <Ionicons
+                name="alert-circle-outline"
+                size={18}
+                color={theme.colors.warning}
+              />
+              <View style={styles.executionCopy}>
+                <AppText variant="label" color={theme.colors.warning}>
+                  Not saved
+                </AppText>
+                <AppText variant="caption" color={theme.colors.textSecondary}>
+                  {execution.message}
+                </AppText>
+              </View>
+            </View>
+          ) : null}
+
+          {execution?.status === 'executing' ? (
+            <View style={styles.executionProgress}>
+              <ActivityIndicator
+                size="small"
+                color={theme.colors.primary}
+              />
+              <AppText variant="caption" color={theme.colors.textSecondary}>
+                Saving to your local ledger…
+              </AppText>
+            </View>
+          ) : (
+            <AppButton
+              label={
+                execution?.status === 'error'
+                  ? 'Review and retry'
+                  : 'Confirm & save'
+              }
+              icon={execution?.status === 'error' ? 'refresh' : 'checkmark'}
+              onPress={onConfirm}
+              fullWidth
+            />
+          )}
+
+          <AppText variant="caption" color={theme.colors.textSecondary}>
+            Nothing changes until you confirm.
+          </AppText>
+        </>
+      )}
     </View>
   );
+}
+
+function proposalConfirmationDetails(
+  proposal: AssistantProposal,
+): ConfirmationDetail[] {
+  const details: ConfirmationDetail[] = [
+    {
+      label: 'Action',
+      value: actionDisplayLabel(proposal.action),
+    },
+    {
+      label: 'Amount',
+      value: formatPeso(proposal.amountMinor),
+    },
+    {
+      label: 'Description',
+      value: proposal.title,
+    },
+  ];
+
+  if (proposal.action === 'wallet_transfer') {
+    details.push(
+      {
+        label: 'From wallet',
+        value: proposal.sourceWalletLabel ?? 'Wallet',
+      },
+      {
+        label: 'To wallet',
+        value: proposal.destinationWalletLabel ?? 'Wallet',
+      },
+    );
+  } else if (proposal.action === 'expense') {
+    details.push(
+      { label: 'Wallet', value: proposal.walletLabel ?? 'Wallet' },
+      {
+        label: 'Container',
+        value: proposal.containerLabel ?? 'Budget container',
+      },
+    );
+  } else if (proposal.action === 'income') {
+    details.push(
+      { label: 'Wallet', value: proposal.walletLabel ?? 'Wallet' },
+      {
+        label: 'To container',
+        value:
+          proposal.destinationContainerLabel ??
+          proposal.containerLabel ??
+          'Unallocated',
+      },
+    );
+  } else {
+    details.push(
+      {
+        label: 'From container',
+        value: proposal.containerLabel ?? 'Container',
+      },
+      {
+        label: 'To container',
+        value: proposal.destinationContainerLabel ?? 'Container',
+      },
+    );
+  }
+
+  details.push(
+    { label: 'When', value: formatDateKey(proposal.effectiveDate) },
+    { label: 'Period', value: formatMonthKey(proposal.monthKey) },
+  );
+
+  return details;
 }
 
 function IntentLine({
@@ -742,7 +1027,7 @@ function createWelcomeMessage(): ThreadMessage {
   return {
     id: nextMessageId('assistant'),
     role: 'assistant',
-    text: 'Hi! I interpret expenses, income, wallet transfers, container transfers, Savings transfers, and simple local finance questions. I use deterministic rules rather than a language model. I can prepare a draft, but I cannot save it or change balances in this phase.',
+    text: 'Hi! I interpret expenses, income, wallet transfers, container transfers, Savings transfers, and simple local finance questions. I use deterministic rules rather than a language model. I can prepare a draft, and you can review and confirm it before anything is saved to your local ledger.',
     createdAt: new Date().toISOString(),
   };
 }
@@ -775,6 +1060,15 @@ function actionLabel(action: AssistantProposal['action']): string {
     return 'PROPOSED SAVINGS CONTRIBUTION';
   }
   return 'PROPOSED SAVINGS WITHDRAWAL';
+}
+
+function actionDisplayLabel(action: AssistantProposal['action']): string {
+  if (action === 'expense') return 'Expense';
+  if (action === 'income') return 'Income';
+  if (action === 'wallet_transfer') return 'Wallet transfer';
+  if (action === 'container_transfer') return 'Container transfer';
+  if (action === 'savings_contribution') return 'Savings contribution';
+  return 'Savings withdrawal';
 }
 
 function actionIcon(
@@ -895,5 +1189,23 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     gap: spacing.md,
+  },
+  executionNotice: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: spacing.sm,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: radii.md,
+    padding: spacing.sm,
+  },
+  executionCopy: {
+    flex: 1,
+    gap: 2,
+  },
+  executionProgress: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    paddingVertical: spacing.xs,
   },
 });

@@ -39,10 +39,6 @@ export function ChatBubble({ message, children }: ChatBubbleProps) {
       ) : null}
 
       <View
-        accessible
-        accessibilityLabel={`${isUser ? 'You' : 'Pocketa assistant'}: ${
-          message.text
-        }`}
         style={[
           styles.bubble,
           {
@@ -70,6 +66,9 @@ export function ChatBubble({ message, children }: ChatBubbleProps) {
         <AppText
           variant="bodySmall"
           color={isUser ? theme.colors.onPrimary : theme.colors.text}
+          accessibilityLabel={`${isUser ? 'You' : 'Pocketa assistant'}: ${
+            message.text
+          }`}
         >
           {message.text}
         </AppText>

@@ -284,7 +284,7 @@ test('provider runtime errors are propagated instead of displayed as output', as
   );
 });
 
-test('AI source has no financial repository or write path', () => {
+test('AI source has no finance access and the Assistant UI writes only through the coordinator', () => {
   const aiDirectory = fileURLToPath(new URL('../src/ai', import.meta.url));
   const source = readSourceFiles(aiDirectory).join('\n');
 
@@ -312,9 +312,10 @@ test('AI source has no financial repository or write path', () => {
     ),
     'utf8',
   );
+  assert.match(screen, /createAssistantExecutionCoordinator/);
   assert.doesNotMatch(
     screen,
-    /recordMoneyEntry|FinanceService|ConfirmationDialog|transferBetweenContainers/,
+    /recordMoneyEntry|FinanceService|FinanceEngine|FinanceRepository|transferBetweenContainers|expo-sqlite/,
   );
 });
 
