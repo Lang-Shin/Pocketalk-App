@@ -456,6 +456,28 @@ test('session execution returns transaction IDs and refreshes the revision', asy
   }
 });
 
+test('failed session execution does not refresh the revision', async () => {
+  const harness = await startSession();
+  try {
+    const revision = harness.session.getState().revision;
+
+    const failed = await harness.session.executeMoneyEntry({
+      mode: 'expense',
+      amountMinor: 2_500,
+      title: 'Lunch',
+      effectiveDate: '2026-10-20',
+      walletId: 'wallet-cash',
+      containerId: 'container-missing',
+      idempotencyKey: 'assistant:failed-expense',
+    });
+
+    assert.equal(failed.ok, false);
+    assert.equal(harness.session.getState().revision, revision);
+  } finally {
+    harness.database.close();
+  }
+});
+
 test('assistant execution reuses the transaction ID on retry without duplicating the expense', async () => {
   const harness = await startSession();
   try {
