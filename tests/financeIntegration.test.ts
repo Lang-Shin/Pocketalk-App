@@ -478,6 +478,125 @@ test('failed session execution does not refresh the revision', async () => {
   }
 });
 
+test('unconfirmed assistant execution produces no write or revision change', async () => {
+  const harness = await startSession();
+  try {
+    const foodId = await createContainer(harness, 'Food & drinks', 100_000);
+    const month = await harness.service.getMonthView('2026-10');
+    const wallets = await harness.service.getWalletView();
+    const context = toAssistantContext(
+      month,
+      wallets,
+      harness.session.getState().todayDateKey,
+    );
+    const revision = harness.session.getState().revision;
+    const proposal: AssistantProposal = {
+      id: 'assistant-unconfirmed-1',
+      action: 'income',
+      title: 'Allowance',
+      amountMinor: 10_000,
+      effectiveDate: '2026-10-20',
+      monthKey: '2026-10',
+      walletId: 'wallet-cash',
+      destinationContainerId: foodId,
+    };
+    const executor = {
+      executeMoneyEntry: (input: MoneyEntryInput) =>
+        harness.session.executeMoneyEntry(input),
+    };
+
+    const result = await executeConfirmedAssistantProposal(
+      { proposal, context, confirmed: false },
+      executor,
+    );
+
+    assert.equal(result.ok, false);
+    if (result.ok) return;
+    assert.match(result.message, /confirmation/i);
+    assert.equal(harness.session.getState().revision, revision);
+
+    const after = await harness.service.getMonthView('2026-10');
+    const afterWallets = await harness.service.getWalletView();
+    assert.equal(after.summary.incomeMinor, 0);
+    assert.equal(after.transactions.length, 0);
+    assert.equal(afterWallets.totalBalanceMinor, 0);
+    await assertBalanced(harness.service, '2026-10-20');
+  } finally {
+    harness.database.close();
+  }
+});
+
+test('confirmed assistant execution increments revision and refreshes finance views', async () => {
+  const harness = await startSession();
+  let unsubscribe = () => {};
+  try {
+    const foodId = await createContainer(harness, 'Food & drinks', 100_000);
+    const income = await harness.session.executeMoneyEntry({
+      mode: 'income',
+      amountMinor: 10_000,
+      title: 'Allowance',
+      effectiveDate: '2026-10-20',
+      walletId: 'wallet-cash',
+      containerId: foodId,
+      idempotencyKey: 'assistant:fund-food-success',
+    });
+    assert.ok(income.ok);
+
+    const month = await harness.service.getMonthView('2026-10');
+    const wallets = await harness.service.getWalletView();
+    const context = toAssistantContext(
+      month,
+      wallets,
+      harness.session.getState().todayDateKey,
+    );
+    const proposal: AssistantProposal = {
+      id: 'assistant-success-1',
+      action: 'expense',
+      title: 'Lunch',
+      amountMinor: 2_500,
+      effectiveDate: '2026-10-20',
+      monthKey: '2026-10',
+      walletId: 'wallet-cash',
+      containerId: foodId,
+    };
+    const executor = {
+      executeMoneyEntry: (input: MoneyEntryInput) =>
+        harness.session.executeMoneyEntry(input),
+    };
+    const revision = harness.session.getState().revision;
+    let notifications = 0;
+    unsubscribe = harness.session.subscribe(() => {
+      notifications += 1;
+    });
+
+    const result = await executeConfirmedAssistantProposal(
+      { proposal, context, confirmed: true },
+      executor,
+    );
+
+    assert.ok(result.ok, result.ok ? '' : result.message);
+    if (!result.ok) return;
+    assert.ok(result.transactionId);
+    assert.equal(harness.session.getState().revision, revision + 1);
+    assert.ok(notifications > 0);
+
+    const after = await harness.service.getMonthView('2026-10');
+    const afterWallets = await harness.service.getWalletView();
+    assert.equal(after.summary.expenseMinor, 2_500);
+    assert.equal(money(after.containers, foodId), 7_500);
+    assert.equal(afterWallets.totalBalanceMinor, 7_500);
+    assert.ok(
+      after.transactions.some(
+        (transaction) => transaction.id === result.transactionId,
+      ),
+    );
+    await assertBalanced(harness.service, '2026-10-20');
+  } finally {
+    unsubscribe();
+    harness.database.close();
+  }
+});
+
 test('assistant execution reuses the transaction ID on retry without duplicating the expense', async () => {
   const harness = await startSession();
   try {
