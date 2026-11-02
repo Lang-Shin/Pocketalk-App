@@ -8,7 +8,10 @@ import type {
   AssistantContext,
   AssistantProposal,
 } from '../src/ai/localAssistant';
-import { createAssistantProvider } from '../src/ai/providers';
+import {
+  createAssistantProvider,
+  type AssistantProvider,
+} from '../src/ai/providers';
 import { executeConfirmedAssistantProposal } from '../src/application/assistantExecution';
 import {
   claimExecution,
@@ -155,6 +158,60 @@ function toAssistantContext(
         month.summary.unallocatedEndingBalanceMinor,
     },
   };
+}
+
+async function runConfirmedAssistantText(
+  harness: IntegrationHarness,
+  provider: AssistantProvider,
+  text: string,
+): Promise<{ proposal: AssistantProposal; transactionId: string }> {
+  const month = await harness.service.getMonthView(
+    harness.session.getState().activeMonthKey,
+  );
+  const wallets = await harness.service.getWalletView();
+  const context = toAssistantContext(
+    month,
+    wallets,
+    harness.session.getState().todayDateKey,
+  );
+  const interpretation = await provider.interpret(text, context);
+  if (interpretation.kind !== 'proposal') {
+    throw new Error(
+      `Expected a proposal, received ${interpretation.kind}: ${interpretation.message}`,
+    );
+  }
+
+  const pending = createPendingConfirmation({
+    id: `assistant-e2e-${interpretation.proposal.id}`,
+    proposal: interpretation.proposal,
+  });
+  if (!pending) throw new Error('Expected a pending confirmation.');
+
+  const activeExecutions = new Set<string>();
+  assert.equal(
+    claimExecution(activeExecutions, pending.proposal.id),
+    true,
+  );
+  try {
+    const execution = await executeConfirmedAssistantProposal(
+      {
+        proposal: pending.proposal,
+        context,
+        confirmed: true,
+      },
+      {
+        executeMoneyEntry: (input: MoneyEntryInput) =>
+          harness.session.executeMoneyEntry(input),
+      },
+    );
+    if (!execution.ok) throw new Error(execution.message);
+    return {
+      proposal: pending.proposal,
+      transactionId: execution.transactionId,
+    };
+  } finally {
+    releaseExecution(activeExecutions, pending.proposal.id);
+  }
 }
 
 async function createContainer(
@@ -843,6 +900,153 @@ test('end-to-end confirmed assistant expense posts one transaction and updates H
     assert.equal(expense.amountMinor, 30_000);
     assert.equal(expense.id, execution.transactionId);
     assert.equal(history.summary.expenseMinor, 30_000);
+    await assertBalanced(harness.service, '2026-10-20');
+  } finally {
+    harness.database.close();
+  }
+});
+
+test('assistant execution supports income, transfers, and Savings without inflating net savings', async () => {
+  const harness = await startSession();
+  try {
+    const foodId = await createContainer(harness, 'Food & drinks', 100_000);
+    const transportId = await createContainer(harness, 'Transport', 100_000);
+    const provider = createAssistantProvider();
+
+    const foodSeed = await harness.session.executeMoneyEntry({
+      mode: 'income',
+      amountMinor: 100_000,
+      title: 'Food funding',
+      effectiveDate: '2026-10-20',
+      walletId: 'wallet-cash',
+      containerId: foodId,
+      idempotencyKey: 'e2e-multi-food',
+    });
+    assert.ok(foodSeed.ok);
+    const transportSeed = await harness.session.executeMoneyEntry({
+      mode: 'income',
+      amountMinor: 100_000,
+      title: 'Transport funding',
+      effectiveDate: '2026-10-20',
+      walletId: 'wallet-gcash',
+      containerId: transportId,
+      idempotencyKey: 'e2e-multi-transport',
+    });
+    assert.ok(transportSeed.ok);
+
+    const income = await runConfirmedAssistantText(
+      harness,
+      provider,
+      'Received \u20B1500 allowance',
+    );
+    assert.equal(income.proposal.action, 'income');
+    assert.equal(income.proposal.amountMinor, 50_000);
+    assert.equal(
+      income.proposal.destinationContainerId,
+      UNALLOCATED_CONTAINER_ID,
+    );
+    const afterIncome = await harness.service.getMonthView('2026-10');
+    assert.equal(afterIncome.summary.incomeMinor, 250_000);
+    assert.equal(afterIncome.summary.expenseMinor, 0);
+    assert.equal(afterIncome.summary.netSavingsMinor, 250_000);
+
+    const assertInternalTransferIsNeutral = async (
+      text: string,
+      expectedAction: AssistantProposal['action'],
+    ): Promise<{ transactionId: string }> => {
+      const before = await harness.service.getMonthView('2026-10');
+      const result = await runConfirmedAssistantText(harness, provider, text);
+      const after = await harness.service.getMonthView('2026-10');
+
+      assert.equal(result.proposal.action, expectedAction);
+      assert.equal(after.summary.incomeMinor, before.summary.incomeMinor);
+      assert.equal(after.summary.expenseMinor, before.summary.expenseMinor);
+      assert.equal(
+        after.summary.netSavingsMinor,
+        before.summary.netSavingsMinor,
+      );
+      assert.ok(
+        after.transactions.some(
+          (transaction) => transaction.id === result.transactionId,
+        ),
+      );
+      return { transactionId: result.transactionId };
+    };
+
+    const walletTransfer = await assertInternalTransferIsNeutral(
+      'Transfer \u20B1100 from Cash to GCash',
+      'wallet_transfer',
+    );
+    const containerTransfer = await assertInternalTransferIsNeutral(
+      'Move \u20B1100 from Food & drinks to Transport',
+      'container_transfer',
+    );
+    const savingsContribution = await assertInternalTransferIsNeutral(
+      'Move \u20B1300 from Food & drinks to savings',
+      'savings_contribution',
+    );
+    const savingsWithdrawal = await assertInternalTransferIsNeutral(
+      'Withdraw \u20B1100 from savings to Transport',
+      'savings_withdrawal',
+    );
+
+    const finalMonth = await harness.service.getMonthView('2026-10');
+    const finalWallets = await harness.service.getWalletView();
+    const history = await harness.service.getHistoryView('2026-10');
+    assert.equal(finalMonth.summary.incomeMinor, 250_000);
+    assert.equal(finalMonth.summary.expenseMinor, 0);
+    assert.equal(finalMonth.summary.netSavingsMinor, 250_000);
+    assert.equal(finalMonth.summary.savingsContributionsMinor, 30_000);
+    assert.equal(finalMonth.summary.savingsWithdrawalsMinor, 10_000);
+    assert.equal(finalMonth.summary.savingsEndingBalanceMinor, 20_000);
+    assert.equal(money(finalMonth.containers, foodId), 60_000);
+    assert.equal(money(finalMonth.containers, transportId), 120_000);
+    assert.equal(money(finalMonth.containers, SAVINGS_CONTAINER_ID), 20_000);
+    assert.equal(
+      money(finalMonth.containers, UNALLOCATED_CONTAINER_ID),
+      50_000,
+    );
+    assert.equal(
+      finalWallets.wallets.find((wallet) => wallet.id === 'wallet-cash')
+        ?.balanceMinor,
+      90_000,
+    );
+    assert.equal(
+      finalWallets.wallets.find((wallet) => wallet.id === 'wallet-gcash')
+        ?.balanceMinor,
+      160_000,
+    );
+    assert.equal(finalWallets.totalBalanceMinor, 250_000);
+
+    assert.equal(
+      history.transactions.find(
+        (transaction) => transaction.id === walletTransfer.transactionId,
+      )?.kind,
+      'wallet_transfer',
+    );
+    assert.equal(
+      history.transactions.find(
+        (transaction) => transaction.id === containerTransfer.transactionId,
+      )?.kind,
+      'container_transfer',
+    );
+    assert.equal(
+      history.transactions.find(
+        (transaction) => transaction.id === savingsContribution.transactionId,
+      )?.kind,
+      'savings',
+    );
+    assert.equal(
+      history.transactions.find(
+        (transaction) => transaction.id === savingsWithdrawal.transactionId,
+      )?.kind,
+      'savings',
+    );
+    assert.equal(
+      history.transactions.filter((transaction) => transaction.kind === 'expense')
+        .length,
+      0,
+    );
     await assertBalanced(harness.service, '2026-10-20');
   } finally {
     harness.database.close();
