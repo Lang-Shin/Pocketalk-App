@@ -361,6 +361,50 @@ test('expense submission through the session reduces wallets and containers toge
   }
 });
 
+test('session execution returns transaction IDs and refreshes the revision', async () => {
+  const harness = await startSession();
+  try {
+    const foodId = await createContainer(harness, 'Food & drinks', 100_000);
+    const revision = harness.session.getState().revision;
+
+    const income = await harness.session.executeMoneyEntry({
+      mode: 'income',
+      amountMinor: 10_000,
+      title: 'Allowance',
+      effectiveDate: '2026-10-20',
+      walletId: 'wallet-cash',
+      containerId: foodId,
+      idempotencyKey: 'assistant:income-1',
+    });
+    assert.ok(income.ok, income.ok ? '' : income.message);
+    if (!income.ok) return;
+    assert.ok(income.transactionId);
+    assert.equal(harness.session.getState().revision, revision + 1);
+
+    const expense = await harness.session.executeMoneyEntry({
+      mode: 'expense',
+      amountMinor: 2_500,
+      title: 'Lunch',
+      effectiveDate: '2026-10-20',
+      walletId: 'wallet-cash',
+      containerId: foodId,
+      idempotencyKey: 'assistant:expense-1',
+    });
+    assert.ok(expense.ok, expense.ok ? '' : expense.message);
+    if (!expense.ok) return;
+    assert.ok(expense.transactionId);
+    assert.notEqual(expense.transactionId, income.transactionId);
+    assert.equal(harness.session.getState().revision, revision + 2);
+
+    const month = await harness.service.getMonthView('2026-10');
+    assert.equal(month.summary.incomeMinor, 10_000);
+    assert.equal(month.summary.expenseMinor, 2_500);
+    await assertBalanced(harness.service, '2026-10-20');
+  } finally {
+    harness.database.close();
+  }
+});
+
 test('wallet and container transfers preserve totals without creating income', async () => {
   const harness = await startSession();
   try {

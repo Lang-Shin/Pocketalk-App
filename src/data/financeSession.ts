@@ -1,5 +1,8 @@
 import { FinanceError } from '@/db/errors';
-import { FinanceEngine } from '@/db/financeEngine';
+import {
+  FinanceEngine,
+  type TransactionMutationResult,
+} from '@/db/financeEngine';
 import type { SqlDatabase } from '@/db/sqlDatabase';
 import { monthKeyForDateKey, toLocalDateKey } from '@/lib/period';
 
@@ -7,6 +10,7 @@ import {
   FinanceService,
   type ActionResult,
   type ContainerInput,
+  type MoneyEntryExecutionResult,
   type MoneyEntryInput,
   type UpdateContainerInput,
 } from './financeService';
@@ -97,6 +101,11 @@ export class FinanceSession {
   ): Promise<ActionResult> =>
     this.perform((service) => service.recordMoneyEntry(input));
 
+  readonly executeMoneyEntry = (
+    input: MoneyEntryInput,
+  ): Promise<MoneyEntryExecutionResult> =>
+    this.performTransaction((service) => service.recordMoneyEntry(input));
+
   readonly createContainer = (input: ContainerInput): Promise<ActionResult> =>
     this.perform((service) => service.createContainer(input));
 
@@ -167,6 +176,26 @@ export class FinanceSession {
       await operation(current);
       this.update({ revision: this.state.revision + 1 });
       return { ok: true };
+    } catch (operationError) {
+      return { ok: false, message: toMessage(operationError) };
+    }
+  }
+
+  private async performTransaction(
+    operation: (service: FinanceService) => Promise<TransactionMutationResult>,
+  ): Promise<MoneyEntryExecutionResult> {
+    const current = this.state.service;
+    if (!current) {
+      return {
+        ok: false,
+        message: 'The local ledger is still opening. Try again in a moment.',
+      };
+    }
+
+    try {
+      const { transactionId } = await operation(current);
+      this.update({ revision: this.state.revision + 1 });
+      return { ok: true, transactionId };
     } catch (operationError) {
       return { ok: false, message: toMessage(operationError) };
     }

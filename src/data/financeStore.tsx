@@ -23,6 +23,7 @@ import type {
   ActionResult,
   ContainerInput,
   HistoryView,
+  MoneyEntryExecutionResult,
   MoneyEntryInput,
   MonthView,
   UpdateContainerInput,
@@ -36,6 +37,9 @@ interface FinanceStoreValue extends FinanceSessionState {
   retry: () => void;
   refresh: () => void;
   recordMoneyEntry: (input: MoneyEntryInput) => Promise<ActionResult>;
+  executeMoneyEntry: (
+    input: MoneyEntryInput,
+  ) => Promise<MoneyEntryExecutionResult>;
   createContainer: (input: ContainerInput) => Promise<ActionResult>;
   updateContainer: (input: UpdateContainerInput) => Promise<ActionResult>;
   archiveContainer: (
@@ -95,6 +99,7 @@ export function FinanceProvider({ children }: PropsWithChildren) {
       retry: session.retry,
       refresh: session.refresh,
       recordMoneyEntry: session.recordMoneyEntry,
+      executeMoneyEntry: session.executeMoneyEntry,
       createContainer: session.createContainer,
       updateContainer: session.updateContainer,
       archiveContainer: session.archiveContainer,

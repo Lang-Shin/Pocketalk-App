@@ -65,6 +65,10 @@ export interface ActionResult {
   message?: string;
 }
 
+export type MoneyEntryExecutionResult =
+  | { ok: true; transactionId: string }
+  | { ok: false; message: string };
+
 export interface MonthView {
   monthKey: string;
   containers: ContainerSnapshot[];
