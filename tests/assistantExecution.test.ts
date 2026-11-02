@@ -1,10 +1,15 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import type { AssistantProposal } from '../src/ai/localAssistant';
+import type {
+  AssistantContainerOption,
+  AssistantContext,
+  AssistantProposal,
+} from '../src/ai/localAssistant';
 import {
   AssistantProposalMappingError,
   assistantProposalToMoneyEntry,
+  createAssistantExecutionCoordinator,
   executeConfirmedAssistantProposal,
   type AssistantFinanceExecutor,
 } from '../src/application/assistantExecution';
@@ -25,6 +30,66 @@ function proposal(
     monthKey: '2026-11',
     walletId: 'wallet-cash',
     containerId: 'container-food',
+    ...overrides,
+  };
+}
+
+function container(
+  id: string,
+  systemKey: AssistantContainerOption['systemKey'] = null,
+): AssistantContainerOption {
+  return {
+    id,
+    name: id,
+    status: 'active',
+    systemKey,
+    balanceMinor: 100_000,
+    limitMinor: 0,
+    spentMinor: 0,
+    remainingMinor: 0,
+  };
+}
+
+function createContext(
+  overrides: Partial<AssistantContext> = {},
+): AssistantContext {
+  return {
+    todayDateKey: '2026-11-02',
+    activeMonthKey: '2026-11',
+    wallets: [
+      {
+        id: 'wallet-cash',
+        name: 'Cash',
+        kind: 'cash',
+        balanceMinor: 100_000,
+      },
+      {
+        id: 'wallet-bank',
+        name: 'Bank',
+        kind: 'virtual_gcash',
+        balanceMinor: 100_000,
+      },
+    ],
+    containers: [
+      container('container-food'),
+      container('container-transport'),
+      container('container-income'),
+      container('system-unallocated', 'unallocated'),
+      container('system-savings', 'savings'),
+    ],
+    summary: {
+      monthKey: '2026-11',
+      incomeMinor: 0,
+      expenseMinor: 0,
+      netSavingsMinor: 0,
+      totalLimitMinor: 0,
+      totalSpentMinor: 0,
+      totalRemainingMinor: 0,
+      savingsContributionsMinor: 0,
+      savingsWithdrawalsMinor: 0,
+      savingsEndingBalanceMinor: 100_000,
+      unallocatedEndingBalanceMinor: 0,
+    },
     ...overrides,
   };
 }
@@ -180,7 +245,7 @@ test('does not call the executor without explicit confirmation', async () => {
   const executor = executorReturning({ ok: true, transactionId: 'tx-1' });
 
   const result = await executeConfirmedAssistantProposal(
-    { proposal: proposal(), confirmed: false },
+    { proposal: proposal(), context: createContext(), confirmed: false },
     executor,
   );
 
@@ -192,7 +257,7 @@ test('executes a confirmed proposal and preserves the transaction ID', async () 
   const executor = executorReturning({ ok: true, transactionId: 'tx-1' });
 
   const result = await executeConfirmedAssistantProposal(
-    { proposal: proposal(), confirmed: true },
+    { proposal: proposal(), context: createContext(), confirmed: true },
     executor,
   );
 
@@ -207,7 +272,11 @@ test('does not call the executor when mapping fails', async () => {
   const executor = executorReturning({ ok: true, transactionId: 'tx-1' });
 
   const result = await executeConfirmedAssistantProposal(
-    { proposal: proposal({ amountMinor: -1 }), confirmed: true },
+    {
+      proposal: proposal({ amountMinor: -1 }),
+      context: createContext(),
+      confirmed: true,
+    },
     executor,
   );
 
@@ -222,9 +291,174 @@ test('returns execution failures to the caller', async () => {
   });
 
   const result = await executeConfirmedAssistantProposal(
-    { proposal: proposal(), confirmed: true },
+    { proposal: proposal(), context: createContext(), confirmed: true },
     executor,
   );
 
   assert.deepEqual(result, { ok: false, message: 'Insufficient funds.' });
+});
+
+test('revalidates the active period and current references before execution', async () => {
+  const executor = executorReturning({ ok: true, transactionId: 'tx-1' });
+  const context = createContext();
+  const archived = createContext({
+    containers: context.containers.map((item) =>
+      item.id === 'container-food'
+        ? { ...item, status: 'archived' as const }
+        : item,
+    ),
+  });
+
+  const cases = [
+    {
+      context,
+      proposal: proposal({ effectiveDate: '2026-11-03' }),
+      message: /future/i,
+    },
+    {
+      context,
+      proposal: proposal({
+        effectiveDate: '2026-10-31',
+        monthKey: '2026-10',
+      }),
+      message: /active month/i,
+    },
+    {
+      context,
+      proposal: proposal({ containerId: 'system-savings' }),
+      message: /system container/i,
+    },
+    {
+      context,
+      proposal: proposal({ walletId: 'wallet-missing' }),
+      message: /wallet/i,
+    },
+    {
+      context,
+      proposal: proposal({ containerId: 'container-missing' }),
+      message: /container/i,
+    },
+    {
+      context: archived,
+      proposal: proposal({ containerId: 'container-food' }),
+      message: /archived/i,
+    },
+    {
+      context,
+      proposal: proposal({
+        action: 'income',
+        destinationContainerId: 'system-savings',
+      }),
+      message: /Savings/i,
+    },
+    {
+      context,
+      proposal: proposal({
+        action: 'wallet_transfer',
+        sourceWalletId: 'wallet-cash',
+        destinationWalletId: 'wallet-missing',
+      }),
+      message: /wallet/i,
+    },
+    {
+      context,
+      proposal: proposal({
+        action: 'container_transfer',
+        containerId: 'system-unallocated',
+        destinationContainerId: 'container-food',
+      }),
+      message: /system container/i,
+    },
+    {
+      context,
+      proposal: proposal({
+        action: 'savings_contribution',
+        containerId: 'system-savings',
+        destinationContainerId: 'container-food',
+      }),
+      message: /source/i,
+    },
+    {
+      context,
+      proposal: proposal({
+        action: 'savings_contribution',
+        containerId: 'container-food',
+        destinationContainerId: 'container-transport',
+      }),
+      message: /Savings container/i,
+    },
+    {
+      context,
+      proposal: proposal({
+        action: 'savings_withdrawal',
+        containerId: 'container-food',
+        destinationContainerId: 'container-transport',
+      }),
+      message: /Savings container/i,
+    },
+  ];
+
+  for (const testCase of cases) {
+    const result = await executeConfirmedAssistantProposal(
+      {
+        proposal: testCase.proposal,
+        context: testCase.context,
+        confirmed: true,
+      },
+      executor,
+    );
+
+    assert.equal(result.ok, false);
+    if (result.ok) continue;
+    assert.match(result.message, testCase.message);
+  }
+
+  assert.equal(executor.calls.length, 0);
+});
+
+test('suppresses concurrent execution of the same proposal', async () => {
+  let resolveExecution:
+    | ((result: MoneyEntryExecutionResult) => void)
+    | undefined;
+  const calls: MoneyEntryInput[] = [];
+  const executor: AssistantFinanceExecutor = {
+    executeMoneyEntry: (input) => {
+      calls.push(input);
+      return new Promise((resolve) => {
+        resolveExecution = resolve;
+      });
+    },
+  };
+  const coordinator = createAssistantExecutionCoordinator(executor);
+  const request = {
+    proposal: proposal(),
+    context: createContext(),
+    confirmed: true,
+  };
+
+  const first = coordinator.execute(request);
+  const second = coordinator.execute(request);
+
+  assert.equal(calls.length, 1);
+  resolveExecution?.({ ok: true, transactionId: 'tx-1' });
+  assert.deepEqual(await first, { ok: true, transactionId: 'tx-1' });
+  assert.deepEqual(await second, { ok: true, transactionId: 'tx-1' });
+  assert.equal(calls.length, 1);
+});
+
+test('reuses the proposal idempotency key when a retry reaches the executor', async () => {
+  const executor = executorReturning({ ok: true, transactionId: 'tx-1' });
+  const coordinator = createAssistantExecutionCoordinator(executor);
+  const request = {
+    proposal: proposal(),
+    context: createContext(),
+    confirmed: true,
+  };
+
+  await coordinator.execute(request);
+  await coordinator.execute(request);
+
+  assert.equal(executor.calls.length, 2);
+  assert.equal(executor.calls[0]?.idempotencyKey, 'assistant:proposal-1');
+  assert.equal(executor.calls[1]?.idempotencyKey, 'assistant:proposal-1');
 });

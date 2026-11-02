@@ -4,6 +4,11 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 
+import type {
+  AssistantContext,
+  AssistantProposal,
+} from '../src/ai/localAssistant';
+import { executeConfirmedAssistantProposal } from '../src/application/assistantExecution';
 import { preparePocketaDatabase } from '../src/db/databaseSetup';
 import { FinanceEngine } from '../src/db/financeEngine';
 import {
@@ -14,7 +19,12 @@ import {
   FinanceSession,
   type FinanceStatus,
 } from '../src/data/financeSession';
-import { FinanceService, type MonthView } from '../src/data/financeService';
+import {
+  FinanceService,
+  type MoneyEntryInput,
+  type MonthView,
+  type WalletView,
+} from '../src/data/financeService';
 import { NodeSqlDatabase } from './helpers/nodeSqlDatabase';
 import { createTestIdFactory, TestClock } from './helpers/financeTestHarness';
 
@@ -98,6 +108,47 @@ function containerTotal(view: MonthView): number {
     (total, container) => total + container.balanceMinor,
     0,
   );
+}
+
+function toAssistantContext(
+  month: MonthView,
+  wallets: WalletView,
+  todayDateKey: string,
+): AssistantContext {
+  return {
+    todayDateKey,
+    activeMonthKey: month.monthKey,
+    wallets: wallets.wallets.map((wallet) => ({
+      id: wallet.id,
+      name: wallet.name,
+      kind: wallet.kind,
+      balanceMinor: wallet.balanceMinor,
+    })),
+    containers: month.containers.map((container) => ({
+      id: container.id,
+      name: container.name,
+      status: container.status,
+      systemKey: container.systemKey,
+      balanceMinor: container.balanceMinor,
+      limitMinor: container.limitMinor,
+      spentMinor: container.spentMinor,
+      remainingMinor: container.remainingMinor,
+    })),
+    summary: {
+      monthKey: month.summary.monthKey,
+      incomeMinor: month.summary.incomeMinor,
+      expenseMinor: month.summary.expenseMinor,
+      netSavingsMinor: month.summary.netSavingsMinor,
+      totalLimitMinor: month.summary.totalLimitMinor,
+      totalSpentMinor: month.summary.totalSpentMinor,
+      totalRemainingMinor: month.summary.totalRemainingMinor,
+      savingsContributionsMinor: month.summary.savingsContributionsMinor,
+      savingsWithdrawalsMinor: month.summary.savingsWithdrawalsMinor,
+      savingsEndingBalanceMinor: month.summary.savingsEndingBalanceMinor,
+      unallocatedEndingBalanceMinor:
+        month.summary.unallocatedEndingBalanceMinor,
+    },
+  };
 }
 
 async function createContainer(
@@ -399,6 +450,69 @@ test('session execution returns transaction IDs and refreshes the revision', asy
     const month = await harness.service.getMonthView('2026-10');
     assert.equal(month.summary.incomeMinor, 10_000);
     assert.equal(month.summary.expenseMinor, 2_500);
+    await assertBalanced(harness.service, '2026-10-20');
+  } finally {
+    harness.database.close();
+  }
+});
+
+test('assistant execution reuses the transaction ID on retry without duplicating the expense', async () => {
+  const harness = await startSession();
+  try {
+    const foodId = await createContainer(harness, 'Food & drinks', 100_000);
+    const income = await harness.session.executeMoneyEntry({
+      mode: 'income',
+      amountMinor: 10_000,
+      title: 'Allowance',
+      effectiveDate: '2026-10-20',
+      walletId: 'wallet-cash',
+      containerId: foodId,
+      idempotencyKey: 'assistant:fund-food',
+    });
+    assert.ok(income.ok);
+
+    const month = await harness.service.getMonthView('2026-10');
+    const wallets = await harness.service.getWalletView();
+    const context = toAssistantContext(
+      month,
+      wallets,
+      harness.session.getState().todayDateKey,
+    );
+    const proposal: AssistantProposal = {
+      id: 'assistant-integration-1',
+      action: 'expense',
+      title: 'Lunch',
+      amountMinor: 2_500,
+      effectiveDate: '2026-10-20',
+      monthKey: '2026-10',
+      walletId: 'wallet-cash',
+      containerId: foodId,
+    };
+    const executor = {
+      executeMoneyEntry: (input: MoneyEntryInput) =>
+        harness.session.executeMoneyEntry(input),
+    };
+
+    const first = await executeConfirmedAssistantProposal(
+      { proposal, context, confirmed: true },
+      executor,
+    );
+    const retry = await executeConfirmedAssistantProposal(
+      { proposal, context, confirmed: true },
+      executor,
+    );
+
+    assert.ok(first.ok, first.ok ? '' : first.message);
+    assert.ok(retry.ok, retry.ok ? '' : retry.message);
+    if (!first.ok || !retry.ok) return;
+    assert.equal(first.transactionId, retry.transactionId);
+
+    const afterRetry = await harness.service.getMonthView('2026-10');
+    const expenses = afterRetry.transactions.filter(
+      (transaction) => transaction.kind === 'expense',
+    );
+    assert.equal(expenses.length, 1);
+    assert.equal(afterRetry.summary.expenseMinor, 2_500);
     await assertBalanced(harness.service, '2026-10-20');
   } finally {
     harness.database.close();
