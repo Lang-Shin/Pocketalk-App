@@ -781,9 +781,10 @@ function DraftCard({
               label={
                 execution?.status === 'error'
                   ? 'Review and retry'
-                  : 'Confirm & save'
+                  : 'Review & Confirm'
               }
               icon={execution?.status === 'error' ? 'refresh' : 'checkmark'}
+              accessibilityHint="Opens the receipt for final review."
               onPress={onConfirm}
               fullWidth
             />
