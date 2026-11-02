@@ -45,10 +45,15 @@ import { formatPeso } from '@/lib/money';
 import { formatDateKey, formatMonthKey } from '@/lib/period';
 import { useAppTheme, radii, spacing } from '@/theme';
 
-type ProposalExecution =
-  | { status: 'executing' }
-  | { status: 'success'; transactionId: string }
-  | { status: 'error'; message: string };
+import {
+  claimExecution,
+  createPendingConfirmation,
+  executionFromError,
+  executionFromResult,
+  releaseExecution,
+  type PendingConfirmation,
+  type ProposalExecution,
+} from './confirmationState';
 
 interface ThreadMessage extends ChatMessage {
   proposal?: AssistantProposal;
@@ -57,11 +62,6 @@ interface ThreadMessage extends ChatMessage {
   interpretation?: AssistantInterpretation;
   retryText?: string;
   execution?: ProposalExecution;
-}
-
-interface PendingConfirmation {
-  messageId: string;
-  proposal: AssistantProposal;
 }
 
 const INTENT_LABELS: Record<AssistantIntent, string> = {
@@ -308,24 +308,19 @@ export function AssistantScreen() {
   };
 
   const requestConfirmation = (message: ThreadMessage) => {
-    if (
-      !message.proposal ||
-      message.execution?.status === 'executing' ||
-      message.execution?.status === 'success'
-    ) {
-      return;
-    }
-    setPendingConfirmation({
-      messageId: message.id,
-      proposal: message.proposal,
-    });
+    const pending = createPendingConfirmation(message);
+    if (pending) setPendingConfirmation(pending);
   };
 
   const handleConfirmExecution = async () => {
     const pending = pendingConfirmation;
-    if (!pending || executionLocks.current.has(pending.proposal.id)) return;
+    if (
+      !pending ||
+      !claimExecution(executionLocks.current, pending.proposal.id)
+    ) {
+      return;
+    }
 
-    executionLocks.current.add(pending.proposal.id);
     setPendingConfirmation(null);
     setMessages((current) =>
       current.map((message) =>
@@ -341,45 +336,31 @@ export function AssistantScreen() {
         context,
         confirmed: true,
       });
+      const execution = executionFromResult(result);
 
       setMessages((current) =>
         current.map((message) => {
           if (message.id !== pending.messageId) return message;
-          if (result.ok) {
-            return {
-              ...message,
-              text: 'Saved to your local ledger. This transaction now appears in History.',
-              execution: {
-                status: 'success',
-                transactionId: result.transactionId,
-              },
-            };
-          }
           return {
             ...message,
-            execution: { status: 'error', message: result.message },
+            text: result.ok
+              ? 'Saved to your local ledger. This transaction now appears in History.'
+              : message.text,
+            execution,
           };
         }),
       );
     } catch (error) {
+      const execution = executionFromError(error);
       setMessages((current) =>
         current.map((message) =>
           message.id === pending.messageId
-            ? {
-                ...message,
-                execution: {
-                  status: 'error',
-                  message:
-                    error instanceof Error
-                      ? error.message
-                      : 'The transaction could not be saved. Nothing was changed.',
-                },
-              }
+            ? { ...message, execution }
             : message,
         ),
       );
     } finally {
-      executionLocks.current.delete(pending.proposal.id);
+      releaseExecution(executionLocks.current, pending.proposal.id);
     }
   };
 
