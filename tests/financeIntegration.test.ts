@@ -1053,6 +1053,75 @@ test('assistant execution supports income, transfers, and Savings without inflat
   }
 });
 
+test('concurrent assistant confirmations post exactly one transaction', async () => {
+  const harness = await startSession();
+  try {
+    const foodId = await createContainer(harness, 'Food & drinks', 100_000);
+    const income = await harness.session.executeMoneyEntry({
+      mode: 'income',
+      amountMinor: 10_000,
+      title: 'Allowance',
+      effectiveDate: '2026-10-20',
+      walletId: 'wallet-cash',
+      containerId: foodId,
+      idempotencyKey: 'assistant:concurrent-fund',
+    });
+    assert.ok(income.ok);
+
+    const month = await harness.service.getMonthView('2026-10');
+    const wallets = await harness.service.getWalletView();
+    const context = toAssistantContext(
+      month,
+      wallets,
+      harness.session.getState().todayDateKey,
+    );
+    const proposal: AssistantProposal = {
+      id: 'assistant-concurrent-1',
+      action: 'expense',
+      title: 'Lunch',
+      amountMinor: 2_500,
+      effectiveDate: '2026-10-20',
+      monthKey: '2026-10',
+      walletId: 'wallet-cash',
+      containerId: foodId,
+    };
+    const executor = {
+      executeMoneyEntry: (input: MoneyEntryInput) =>
+        harness.session.executeMoneyEntry(input),
+    };
+    const revision = harness.session.getState().revision;
+
+    const [first, second] = await Promise.all([
+      executeConfirmedAssistantProposal(
+        { proposal, context, confirmed: true },
+        executor,
+      ),
+      executeConfirmedAssistantProposal(
+        { proposal, context, confirmed: true },
+        executor,
+      ),
+    ]);
+
+    assert.ok(first.ok, first.ok ? '' : first.message);
+    assert.ok(second.ok, second.ok ? '' : second.message);
+    if (!first.ok || !second.ok) return;
+    assert.equal(first.transactionId, second.transactionId);
+    assert.equal(harness.session.getState().revision, revision + 1);
+
+    const after = await harness.service.getMonthView('2026-10');
+    assert.equal(
+      after.transactions.filter((transaction) => transaction.kind === 'expense')
+        .length,
+      1,
+    );
+    assert.equal(after.summary.expenseMinor, 2_500);
+    assert.equal(money(after.containers, foodId), 7_500);
+    await assertBalanced(harness.service, '2026-10-20');
+  } finally {
+    harness.database.close();
+  }
+});
+
 test('assistant execution reuses the transaction ID on retry without duplicating the expense', async () => {
   const harness = await startSession();
   try {
@@ -1506,6 +1575,118 @@ test('historical reporting keeps closed-month results and comparison intact', as
     await assertBalanced(harness.service, '2026-11-01');
   } finally {
     harness.database.close();
+  }
+});
+
+test('assistant proposal idempotency survives coordinator reset and session restart', async () => {
+  const directory = mkdtempSync(join(tmpdir(), 'pocketa-assistant-idempotency-'));
+  const databasePath = join(directory, 'pocketa.db');
+  const clock = new TestClock(2026, 9, 20, 12);
+  let proposal: AssistantProposal | undefined;
+  let transactionId = '';
+
+  try {
+    const first = await startSession({ path: databasePath, clock });
+    try {
+      const foodId = await createContainer(first, 'Food & drinks', 100_000);
+      const income = await first.session.executeMoneyEntry({
+        mode: 'income',
+        amountMinor: 10_000,
+        title: 'Allowance',
+        effectiveDate: '2026-10-20',
+        walletId: 'wallet-cash',
+        containerId: foodId,
+        idempotencyKey: 'assistant:restart-fund',
+      });
+      assert.ok(income.ok);
+
+      const month = await first.service.getMonthView('2026-10');
+      const wallets = await first.service.getWalletView();
+      const context = toAssistantContext(
+        month,
+        wallets,
+        first.session.getState().todayDateKey,
+      );
+      proposal = {
+        id: 'assistant-restart-1',
+        action: 'expense',
+        title: 'Lunch',
+        amountMinor: 2_500,
+        effectiveDate: '2026-10-20',
+        monthKey: '2026-10',
+        walletId: 'wallet-cash',
+        containerId: foodId,
+      };
+
+      const firstExecution = await executeConfirmedAssistantProposal(
+        { proposal, context, confirmed: true },
+        {
+          executeMoneyEntry: (input: MoneyEntryInput) =>
+            first.session.executeMoneyEntry(input),
+        },
+      );
+      assert.ok(firstExecution.ok, firstExecution.ok ? '' : firstExecution.message);
+      if (!firstExecution.ok) return;
+      transactionId = firstExecution.transactionId;
+
+      const remountRetry = await executeConfirmedAssistantProposal(
+        { proposal, context, confirmed: true },
+        {
+          executeMoneyEntry: (input: MoneyEntryInput) =>
+            first.session.executeMoneyEntry(input),
+        },
+      );
+      assert.ok(remountRetry.ok, remountRetry.ok ? '' : remountRetry.message);
+      if (!remountRetry.ok) return;
+      assert.equal(remountRetry.transactionId, transactionId);
+
+      const afterRemount = await first.service.getMonthView('2026-10');
+      assert.equal(
+        afterRemount.transactions.filter(
+          (transaction) => transaction.kind === 'expense',
+        ).length,
+        1,
+      );
+    } finally {
+      first.database.close();
+    }
+
+    assert.ok(proposal);
+    if (!proposal) return;
+
+    const second = await startSession({ path: databasePath, clock });
+    try {
+      const month = await second.service.getMonthView('2026-10');
+      const wallets = await second.service.getWalletView();
+      const context = toAssistantContext(
+        month,
+        wallets,
+        second.session.getState().todayDateKey,
+      );
+      const restartRetry = await executeConfirmedAssistantProposal(
+        { proposal, context, confirmed: true },
+        {
+          executeMoneyEntry: (input: MoneyEntryInput) =>
+            second.session.executeMoneyEntry(input),
+        },
+      );
+      assert.ok(restartRetry.ok, restartRetry.ok ? '' : restartRetry.message);
+      if (!restartRetry.ok) return;
+      assert.equal(restartRetry.transactionId, transactionId);
+
+      const history = await second.service.getHistoryView('2026-10');
+      const expenses = history.transactions.filter(
+        (transaction) => transaction.kind === 'expense',
+      );
+      assert.equal(expenses.length, 1);
+      assert.equal(expenses[0]?.id, transactionId);
+      assert.equal(money(month.containers, proposal.containerId ?? ''), 7_500);
+      await assertBalanced(second.service, '2026-10-20');
+    } finally {
+      second.database.close();
+    }
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
   }
 });
 
