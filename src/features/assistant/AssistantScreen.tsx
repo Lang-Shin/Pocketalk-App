@@ -112,6 +112,7 @@ export function AssistantScreen() {
   const [pendingConfirmation, setPendingConfirmation] =
     useState<PendingConfirmation | null>(null);
   const scrollRef = useRef<ScrollView>(null);
+  const executionLocks = useRef(new Set<string>());
   const executionCoordinator = useMemo(
     () => createAssistantExecutionCoordinator({ executeMoneyEntry }),
     [executeMoneyEntry],
@@ -322,7 +323,9 @@ export function AssistantScreen() {
 
   const handleConfirmExecution = async () => {
     const pending = pendingConfirmation;
-    if (!pending) return;
+    if (!pending || executionLocks.current.has(pending.proposal.id)) return;
+
+    executionLocks.current.add(pending.proposal.id);
     setPendingConfirmation(null);
     setMessages((current) =>
       current.map((message) =>
@@ -375,6 +378,8 @@ export function AssistantScreen() {
             : message,
         ),
       );
+    } finally {
+      executionLocks.current.delete(pending.proposal.id);
     }
   };
 
@@ -588,6 +593,13 @@ function DraftCard({
 }) {
   const { theme } = useAppTheme();
   const saved = execution?.status === 'success';
+  const receiptColor = saved
+    ? theme.colors.success
+    : execution?.status === 'error'
+      ? theme.colors.warning
+      : execution?.status === 'executing'
+        ? theme.colors.primary
+        : theme.colors.textTertiary;
 
   return (
     <View
@@ -613,11 +625,8 @@ function DraftCard({
           />
         </View>
         <View style={styles.draftCopy}>
-          <AppText
-            variant="micro"
-            color={saved ? theme.colors.success : theme.colors.textTertiary}
-          >
-            {saved ? 'SAVED TRANSACTION' : actionLabel(proposal.action)}
+          <AppText variant="micro" color={receiptColor}>
+            {receiptStateLabel(proposal, execution)}
           </AppText>
           <AppText variant="h3">{proposal.title}</AppText>
         </View>
@@ -1052,15 +1061,13 @@ function nextMessageId(role: ChatMessage['role']): string {
   return `${role}-${Date.now().toString(36)}-${messageSequence}`;
 }
 
-function actionLabel(action: AssistantProposal['action']): string {
-  if (action === 'expense') return 'PROPOSED EXPENSE';
-  if (action === 'income') return 'PROPOSED INCOME';
-  if (action === 'wallet_transfer') return 'PROPOSED WALLET TRANSFER';
-  if (action === 'container_transfer') return 'PROPOSED CONTAINER TRANSFER';
-  if (action === 'savings_contribution') {
-    return 'PROPOSED SAVINGS CONTRIBUTION';
-  }
-  return 'PROPOSED SAVINGS WITHDRAWAL';
+function receiptStateLabel(
+  proposal: AssistantProposal,
+  execution?: ProposalExecution,
+): string {
+  if (execution?.status === 'success') return 'SAVED TRANSACTION';
+  if (execution?.status === 'executing') return 'SAVING TRANSACTION';
+  return `DRAFT · ${actionDisplayLabel(proposal.action).toUpperCase()}`;
 }
 
 function actionDisplayLabel(action: AssistantProposal['action']): string {
