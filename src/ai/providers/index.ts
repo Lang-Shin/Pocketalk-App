@@ -81,7 +81,7 @@ export function createConfiguredAssistantProvider(
       'The local assistant provider requires an explicit development runtime configuration.',
     );
   }
-  return options.createLocalProvider();
+  return createAssistantProvider(options.createLocalProvider());
 }
 
 export interface DevelopmentLocalAssistantConfig {

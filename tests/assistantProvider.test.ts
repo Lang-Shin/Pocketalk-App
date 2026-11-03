@@ -4,6 +4,7 @@ import test from 'node:test';
 import {
   interpretAssistantMessage,
   type AssistantContext,
+  type AssistantResult,
 } from '../src/ai/localAssistant';
 import {
   assistantProvider,
@@ -12,8 +13,10 @@ import {
   createDevelopmentLocalAssistantProvider,
   createLocalAssistantProvider,
   MockAssistantProvider,
+  type AssistantProvider,
 } from '../src/ai/providers';
 import { FakeLocalModelRuntime } from '../src/ai/runtime';
+import { AssistantValidationError } from '../src/ai/validation';
 import { createPendingConfirmation } from '../src/features/assistant/confirmationState';
 
 function createContext(): AssistantContext {
@@ -105,7 +108,6 @@ test('local provider selection requires development mode and explicit configurat
       return localProvider;
     },
   });
-  assert.equal(selectedLocal, localProvider);
   assert.equal(selectedLocal.info.kind, 'local_llm');
   assert.equal(localFactoryCalls, 1);
 
@@ -200,6 +202,49 @@ test('explicit local selection preserves the proposal confirmation flow', async 
   });
   assert.ok(pending);
   assert.equal(pending?.proposal.id, result.proposal.id);
+});
+
+test('selected local providers cannot bypass assistant result validation', async () => {
+  const context = createContext();
+  const invalid = interpretAssistantMessage(
+    'Spent 50 pesos from Food & drinks',
+    context,
+  );
+  assert.equal(invalid.kind, 'proposal');
+  if (invalid.kind !== 'proposal') return;
+  invalid.proposal.amountMinor = 1;
+
+  const rawProvider: AssistantProvider = {
+    info: {
+      id: 'raw-local-test',
+      displayName: 'Raw local test',
+      kind: 'local_llm',
+      isRealModel: true,
+      modelName: 'test-model',
+      needsModelDownload: true,
+      offline: true,
+      description: 'Unvalidated test provider.',
+    },
+    load: async () => undefined,
+    unload: async () => undefined,
+    interpret: async () => invalid as AssistantResult,
+    resolveContainerChoice: async () => invalid as AssistantResult,
+    resolveWalletChoice: async () => invalid as AssistantResult,
+  };
+  const selected = createConfiguredAssistantProvider({
+    isDevelopment: true,
+    requestedProvider: 'local',
+    createLocalProvider: () => rawProvider,
+  });
+
+  await assert.rejects(
+    () =>
+      selected.interpret(
+        'Spent 50 pesos from Food & drinks',
+        context,
+      ),
+    AssistantValidationError,
+  );
 });
 
 test('the mock provider exposes no-op model lifecycle hooks', async () => {
