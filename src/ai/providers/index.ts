@@ -11,6 +11,7 @@ import type {
 import { LocalLlmProvider } from './localLlmProvider';
 import { PocketaLocalPromptBuilder } from './localPromptBuilder';
 import { PocketaLocalResponseParser } from './localResponseParser';
+import type { LocalPromptTokenEstimator } from './promptBudget';
 import { ValidatedAssistantProvider } from './validatedAssistantProvider';
 
 export function createAssistantProvider(
@@ -23,6 +24,10 @@ export interface LocalAssistantProviderOptions {
   info: AssistantProviderInfo;
   promptBuilder?: LocalModelPromptBuilder;
   responseParser?: LocalModelResponseParser;
+  promptTokenEstimator?: LocalPromptTokenEstimator;
+  maxContextTokens?: number;
+  outputTokenAllowance?: number;
+  promptSafetyMarginTokens?: number;
 }
 
 export function createLocalAssistantProvider(
@@ -36,6 +41,10 @@ export function createLocalAssistantProvider(
         options.promptBuilder ?? new PocketaLocalPromptBuilder(),
       responseParser:
         options.responseParser ?? new PocketaLocalResponseParser(),
+      promptTokenEstimator: options.promptTokenEstimator,
+      maxContextTokens: options.maxContextTokens,
+      outputTokenAllowance: options.outputTokenAllowance,
+      promptSafetyMarginTokens: options.promptSafetyMarginTokens,
     }),
   );
 }
@@ -55,4 +64,12 @@ export {
   PocketaLocalPromptBuilder,
 } from './localPromptBuilder';
 export { PocketaLocalResponseParser } from './localResponseParser';
+export {
+  ApproximateCharacterPromptTokenEstimator,
+  DEFAULT_MAX_CONTEXT_TOKENS,
+  DEFAULT_OUTPUT_TOKEN_ALLOWANCE,
+  DEFAULT_PROMPT_SAFETY_MARGIN_TOKENS,
+  PromptBudgetExceededError,
+} from './promptBudget';
+export type { LocalPromptTokenEstimator } from './promptBudget';
 export { ValidatedAssistantProvider } from './validatedAssistantProvider';

@@ -10,9 +10,14 @@ import {
   type AssistantResult,
 } from '../src/ai/localAssistant';
 import {
+  ApproximateCharacterPromptTokenEstimator,
   createLocalAssistantProvider,
+  DEFAULT_MAX_CONTEXT_TOKENS,
+  DEFAULT_OUTPUT_TOKEN_ALLOWANCE,
+  DEFAULT_PROMPT_SAFETY_MARGIN_TOKENS,
   LocalLlmProvider,
   PocketaLocalResponseParser,
+  PromptBudgetExceededError,
   ValidatedAssistantProvider,
 } from '../src/ai/providers';
 import {
@@ -540,11 +545,172 @@ test('malformed local-model output cannot become a proposal or clarification', a
   assert.equal(runtime.generateCalls, 1);
 });
 
+test('prompt budget preserves the prompt and reserves output tokens', async () => {
+  const assembledPrompt = `PROMPT_START${'x'.repeat(400)}PROMPT_END`;
+  const seenPrompts: string[] = [];
+  const runtime = new FakeLocalModelRuntime({
+    responses: [{ text: JSON.stringify(localDraft()) }],
+  });
+  const provider = createLocalAssistantProvider(runtime, {
+    info,
+    promptBuilder: {
+      interpretationPrompt: () => assembledPrompt,
+      containerChoicePrompt: () => assembledPrompt,
+      walletChoicePrompt: () => assembledPrompt,
+    },
+    promptTokenEstimator: {
+      estimate(prompt) {
+        seenPrompts.push(prompt);
+        return 150;
+      },
+    },
+    maxContextTokens: 300,
+    outputTokenAllowance: 120,
+    promptSafetyMarginTokens: 20,
+  });
+
+  await provider.interpret(
+    'Spent 50 pesos from Food & drinks',
+    createContext(),
+  );
+
+  assert.deepEqual(seenPrompts, [assembledPrompt]);
+  assert.equal(runtime.requests[0]?.prompt, assembledPrompt);
+  assert.equal(runtime.requests[0]?.maxTokens, 120);
+  assert.match(assembledPrompt, /^PROMPT_START/);
+  assert.match(assembledPrompt, /PROMPT_END$/);
+});
+
+test('output allowance rejects an otherwise fitting prompt before loading', async () => {
+  const runtime = new FakeLocalModelRuntime({
+    responses: [{ text: JSON.stringify(localDraft()) }],
+  });
+  const provider = createLocalAssistantProvider(runtime, {
+    info,
+    promptTokenEstimator: {
+      estimate: () => 150,
+    },
+    maxContextTokens: 300,
+    outputTokenAllowance: 180,
+    promptSafetyMarginTokens: 20,
+  });
+
+  await assert.rejects(
+    () =>
+      provider.interpret(
+        'Spent 50 pesos from Food & drinks',
+        createContext(),
+      ),
+    (error: unknown) => {
+      assert.ok(error instanceof PromptBudgetExceededError);
+      assert.equal(error.estimatedPromptTokens, 150);
+      assert.equal(error.maxPromptTokens, 100);
+      assert.equal(error.maxContextTokens, 300);
+      assert.equal(error.outputTokenAllowance, 180);
+      assert.equal(error.safetyMarginTokens, 20);
+      return true;
+    },
+  );
+  assert.equal(runtime.loadCalls, 0);
+  assert.equal(runtime.generateCalls, 0);
+  assert.equal(runtime.requests.length, 0);
+});
+
+test('prompt budget rejects over-budget prompts before loading for all paths', async () => {
+  const runtime = new FakeLocalModelRuntime({
+    responses: [{ text: JSON.stringify(localDraft()) }],
+  });
+  const estimatorCalls: string[] = [];
+  const provider = createLocalAssistantProvider(runtime, {
+    info,
+    promptTokenEstimator: {
+      estimate(prompt) {
+        estimatorCalls.push(prompt);
+        return 131;
+      },
+    },
+    maxContextTokens: 200,
+    outputTokenAllowance: 50,
+    promptSafetyMarginTokens: 20,
+  });
+  const pending: AssistantPendingIntent = {
+    action: 'expense',
+    amountMinor: 5_000,
+    title: 'Lunch',
+    effectiveDate: '2026-10-20',
+    role: 'source',
+  };
+
+  for (const operation of [
+    () => provider.interpret('Spent 50 pesos', createContext()),
+    () =>
+      provider.resolveContainerChoice(
+        'container-food',
+        pending,
+        createContext(),
+      ),
+    () =>
+      provider.resolveWalletChoice(
+        'wallet-cash',
+        pending,
+        createContext(),
+      ),
+  ]) {
+    await assert.rejects(operation, (error: unknown) => {
+      assert.ok(error instanceof PromptBudgetExceededError);
+      assert.equal(error.estimatedPromptTokens, 131);
+      assert.equal(error.maxPromptTokens, 130);
+      assert.equal(error.maxContextTokens, 200);
+      assert.equal(error.outputTokenAllowance, 50);
+      assert.equal(error.safetyMarginTokens, 20);
+      return true;
+    });
+  }
+
+  assert.equal(estimatorCalls.length, 3);
+  assert.equal(runtime.loadCalls, 0);
+  assert.equal(runtime.generateCalls, 0);
+  assert.equal(runtime.requests.length, 0);
+});
+
+test('prompt estimator limitations are explicit and budget must be valid', () => {
+  const estimator = new ApproximateCharacterPromptTokenEstimator();
+
+  assert.equal(estimator.estimate('abcdefgh'), 2);
+  assert.equal(estimator.estimate(''), 0);
+  assert.equal(DEFAULT_MAX_CONTEXT_TOKENS, 2_048);
+  assert.equal(DEFAULT_OUTPUT_TOKEN_ALLOWANCE, 512);
+  assert.equal(DEFAULT_PROMPT_SAFETY_MARGIN_TOKENS, 128);
+
+  for (const options of [
+    { maxContextTokens: 0 },
+    { outputTokenAllowance: 0 },
+    { promptSafetyMarginTokens: -1 },
+    {
+      maxContextTokens: 600,
+      outputTokenAllowance: 500,
+      promptSafetyMarginTokens: 100,
+    },
+  ]) {
+    assert.throws(
+      () =>
+        new LocalLlmProvider(new FakeLocalModelRuntime(), {
+          info,
+          promptBuilder,
+          responseParser,
+          ...options,
+        }),
+      RangeError,
+    );
+  }
+});
+
 test('provider and native-free runtime files have no native or finance imports', () => {
   const sources = [
     '../src/ai/providers/index.ts',
     '../src/ai/providers/localLlmProvider.ts',
     '../src/ai/providers/localPromptBuilder.ts',
+    '../src/ai/providers/promptBudget.ts',
     '../src/ai/providers/validatedAssistantProvider.ts',
     '../src/ai/runtime/types.ts',
     '../src/ai/runtime/fakeLocalModelRuntime.ts',
