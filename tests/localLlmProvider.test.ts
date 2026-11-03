@@ -375,6 +375,65 @@ test('local factory propagates load, generation, and parser errors', async () =>
   );
 });
 
+test('local factory keeps using the local runtime after parser or runtime failures', async () => {
+  const parserRuntime = new FakeLocalModelRuntime({
+    responses: [
+      { text: '{"kind":"proposal"}' },
+      { text: JSON.stringify(localDraft()) },
+    ],
+  });
+  const parserProvider = createLocalAssistantProvider(parserRuntime, { info });
+
+  await assert.rejects(
+    () =>
+      parserProvider.interpret(
+        'Spent 50 pesos from Food & drinks',
+        createContext(),
+      ),
+    AssistantValidationError,
+  );
+  assert.equal(parserProvider.info.kind, 'local_llm');
+
+  const afterParserFailure = await parserProvider.interpret(
+    'Spent 50 pesos from Food & drinks',
+    createContext(),
+  );
+  assert.equal(afterParserFailure.kind, 'proposal');
+  assert.equal(parserRuntime.loadCalls, 1);
+  assert.equal(parserRuntime.generateCalls, 2);
+  assert.equal(parserRuntime.requests.length, 2);
+
+  const runtimeError = new Error('local generation failed');
+  const runtimeFailure = new FakeLocalModelRuntime({
+    responses: [
+      runtimeError,
+      { text: JSON.stringify(localDraft()) },
+    ],
+  });
+  const runtimeProvider = createLocalAssistantProvider(runtimeFailure, {
+    info,
+  });
+
+  await assert.rejects(
+    () =>
+      runtimeProvider.interpret(
+        'Spent 50 pesos from Food & drinks',
+        createContext(),
+      ),
+    runtimeError,
+  );
+  assert.equal(runtimeProvider.info.kind, 'local_llm');
+
+  const afterRuntimeFailure = await runtimeProvider.interpret(
+    'Spent 50 pesos from Food & drinks',
+    createContext(),
+  );
+  assert.equal(afterRuntimeFailure.kind, 'proposal');
+  assert.equal(runtimeFailure.loadCalls, 1);
+  assert.equal(runtimeFailure.generateCalls, 2);
+  assert.equal(runtimeFailure.requests.length, 2);
+});
+
 test('local provider delegates lifecycle operations', async () => {
   const runtime = new FakeLocalModelRuntime();
   const provider = createProvider(runtime);
