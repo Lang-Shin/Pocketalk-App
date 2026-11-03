@@ -569,11 +569,12 @@ test('prompt budget preserves the prompt and reserves output tokens', async () =
     promptSafetyMarginTokens: 20,
   });
 
-  await provider.interpret(
+  const result = await provider.interpret(
     'Spent 50 pesos from Food & drinks',
     createContext(),
   );
 
+  assert.equal(result.kind, 'proposal');
   assert.deepEqual(seenPrompts, [assembledPrompt]);
   assert.equal(runtime.requests[0]?.prompt, assembledPrompt);
   assert.equal(runtime.requests[0]?.maxTokens, 120);
@@ -719,21 +720,77 @@ test('prompt budget rejects over-budget prompts before loading for all paths', a
         createContext(),
       ),
   ]) {
-    await assert.rejects(operation, (error: unknown) => {
-      assert.ok(error instanceof PromptBudgetExceededError);
-      assert.equal(error.estimatedPromptTokens, 131);
-      assert.equal(error.maxPromptTokens, 130);
-      assert.equal(error.maxContextTokens, 200);
-      assert.equal(error.outputTokenAllowance, 50);
-      assert.equal(error.safetyMarginTokens, 20);
-      return true;
-    });
+    let result: AssistantResult | undefined;
+    await assert.rejects(
+      async () => {
+        result = await operation();
+      },
+      (error: unknown) => {
+        assert.ok(error instanceof PromptBudgetExceededError);
+        assert.equal(error.estimatedPromptTokens, 131);
+        assert.equal(error.maxPromptTokens, 130);
+        assert.equal(error.maxContextTokens, 200);
+        assert.equal(error.outputTokenAllowance, 50);
+        assert.equal(error.safetyMarginTokens, 20);
+        return true;
+      },
+    );
+    assert.equal(result, undefined);
   }
 
   assert.equal(estimatorCalls.length, 3);
   assert.equal(runtime.loadCalls, 0);
   assert.equal(runtime.generateCalls, 0);
   assert.equal(runtime.requests.length, 0);
+});
+
+test('runtime and parser errors remain distinct from budget errors', async () => {
+  const runtimeError = new Error('runtime generation failed');
+  const runtimeProvider = createLocalAssistantProvider(
+    new FakeLocalModelRuntime({ responses: [runtimeError] }),
+    {
+      info,
+      maxContextTokens: 10_000,
+      outputTokenAllowance: 100,
+      promptSafetyMarginTokens: 0,
+    },
+  );
+
+  await assert.rejects(
+    () =>
+      runtimeProvider.interpret(
+        'Spent 50 pesos from Food & drinks',
+        createContext(),
+      ),
+    (error: unknown) => {
+      assert.equal(error, runtimeError);
+      assert.equal(error instanceof PromptBudgetExceededError, false);
+      return true;
+    },
+  );
+
+  const parserProvider = createLocalAssistantProvider(
+    new FakeLocalModelRuntime({ responses: [{ text: 'not json' }] }),
+    {
+      info,
+      maxContextTokens: 10_000,
+      outputTokenAllowance: 100,
+      promptSafetyMarginTokens: 0,
+    },
+  );
+
+  await assert.rejects(
+    () =>
+      parserProvider.interpret(
+        'Spent 50 pesos from Food & drinks',
+        createContext(),
+      ),
+    (error: unknown) => {
+      assert.ok(error instanceof AssistantValidationError);
+      assert.equal(error instanceof PromptBudgetExceededError, false);
+      return true;
+    },
+  );
 });
 
 test('prompt estimator limitations are explicit and budget must be valid', () => {
