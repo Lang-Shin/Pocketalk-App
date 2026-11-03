@@ -32,6 +32,7 @@ export class FakeLocalModelRuntime implements LocalModelRuntime {
   unloadCalls = 0;
   cancelCalls = 0;
   generateCalls = 0;
+  readonly requests: LocalModelRequest[] = [];
 
   constructor(options: FakeLocalModelRuntimeOptions = {}) {
     this.responses = [...(options.responses ?? [])];
@@ -63,6 +64,7 @@ export class FakeLocalModelRuntime implements LocalModelRuntime {
     }
 
     this.generateCalls += 1;
+    this.requests.push(request);
     this.currentStatus = 'generating';
     this.currentMetrics = {
       totalMs: 0,
