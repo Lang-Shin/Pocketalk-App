@@ -1,11 +1,20 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import type { AssistantContext } from '../src/ai/localAssistant';
 import {
+  interpretAssistantMessage,
+  type AssistantContext,
+} from '../src/ai/localAssistant';
+import {
+  assistantProvider,
   createAssistantProvider,
+  createConfiguredAssistantProvider,
+  createDevelopmentLocalAssistantProvider,
+  createLocalAssistantProvider,
   MockAssistantProvider,
 } from '../src/ai/providers';
+import { FakeLocalModelRuntime } from '../src/ai/runtime';
+import { createPendingConfirmation } from '../src/features/assistant/confirmationState';
 
 function createContext(): AssistantContext {
   return {
@@ -71,6 +80,126 @@ test('the default provider is an explicitly labeled mock', () => {
   assert.equal(provider.info.needsModelDownload, false);
   assert.equal(provider.info.offline, true);
   assert.match(provider.info.description, /not a language model/i);
+});
+
+test('the app singleton remains mock-backed by default', () => {
+  assert.equal(assistantProvider.info.kind, 'mock');
+  assert.equal(assistantProvider.info.isRealModel, false);
+});
+
+test('local provider selection requires development mode and explicit configuration', () => {
+  const localProvider = createDevelopmentLocalAssistantProvider({
+    modelPath: 'file:///data/user/0/com.pocketa.app/files/model.pte',
+    tokenizerPath:
+      'file:///data/user/0/com.pocketa.app/files/tokenizer.json',
+    tokenizerConfigPath:
+      'file:///data/user/0/com.pocketa.app/files/tokenizer_config.json',
+  });
+  let localFactoryCalls = 0;
+
+  const selectedLocal = createConfiguredAssistantProvider({
+    isDevelopment: true,
+    requestedProvider: 'local',
+    createLocalProvider: () => {
+      localFactoryCalls += 1;
+      return localProvider;
+    },
+  });
+  assert.equal(selectedLocal, localProvider);
+  assert.equal(selectedLocal.info.kind, 'local_llm');
+  assert.equal(localFactoryCalls, 1);
+
+  const production = createConfiguredAssistantProvider({
+    isDevelopment: false,
+    requestedProvider: 'local',
+    createLocalProvider: () => {
+      localFactoryCalls += 1;
+      return localProvider;
+    },
+  });
+  assert.equal(production.info.kind, 'mock');
+  assert.equal(localFactoryCalls, 1);
+
+  const notRequested = createConfiguredAssistantProvider({
+    isDevelopment: true,
+    requestedProvider: undefined,
+    createLocalProvider: () => {
+      localFactoryCalls += 1;
+      return localProvider;
+    },
+  });
+  assert.equal(notRequested.info.kind, 'mock');
+  assert.equal(localFactoryCalls, 1);
+});
+
+test('local selection fails explicitly without a development runtime configuration', () => {
+  assert.throws(
+    () =>
+      createConfiguredAssistantProvider({
+        isDevelopment: true,
+        requestedProvider: 'local',
+      }),
+    /explicit development runtime configuration/i,
+  );
+  assert.throws(
+    () =>
+      createDevelopmentLocalAssistantProvider({
+        modelPath: ' ',
+        tokenizerPath: 'file:///tokenizer.json',
+        tokenizerConfigPath: 'file:///tokenizer_config.json',
+      }),
+    /EXPO_PUBLIC_POCKETA_LOCAL_MODEL_PATH/,
+  );
+});
+
+test('explicit local selection preserves the proposal confirmation flow', async () => {
+  const context = createContext();
+  const draft = interpretAssistantMessage(
+    'Spent 50 pesos from Food & drinks',
+    context,
+  );
+  assert.equal(draft.kind, 'proposal');
+  if (draft.kind !== 'proposal') return;
+  draft.proposal.id = 'local-draft';
+
+  const localProvider = createLocalAssistantProvider(
+    new FakeLocalModelRuntime({
+      responses: [{ text: JSON.stringify(draft) }],
+    }),
+    {
+      info: {
+        id: 'selected-local-test',
+        displayName: 'Selected local test',
+        kind: 'local_llm',
+        isRealModel: true,
+        modelName: 'test-model',
+        needsModelDownload: true,
+        offline: true,
+        description: 'Test-only local selection.',
+      },
+    },
+  );
+  const selected = createConfiguredAssistantProvider({
+    isDevelopment: true,
+    requestedProvider: 'local',
+    createLocalProvider: () => localProvider,
+  });
+
+  const result = await selected.interpret(
+    'Spent 50 pesos from Food & drinks',
+    context,
+  );
+  assert.equal(result.kind, 'proposal');
+  if (result.kind !== 'proposal') return;
+  assert.match(result.proposal.id, /^assistant-local-/);
+  assert.notEqual(result.proposal.id, 'local-draft');
+
+  const pending = createPendingConfirmation({
+    id: 'message-selected-local',
+    proposal: result.proposal,
+  });
+  assert.ok(pending);
+  assert.equal(pending?.proposal.id, result.proposal.id);
 });
 
 test('the mock provider exposes no-op model lifecycle hooks', async () => {

@@ -20,7 +20,10 @@ import type {
   AssistantProposal,
   AssistantResult,
 } from '@/ai/localAssistant';
-import { assistantProvider } from '@/ai/providers';
+import {
+  assistantProvider,
+  type AssistantProviderInfo,
+} from '@/ai/providers';
 import { createAssistantExecutionCoordinator } from '@/application/assistantExecution';
 import { AppText } from '@/components/AppText';
 import { ChatBubble } from '@/components/chat/ChatBubble';
@@ -105,7 +108,7 @@ export function AssistantScreen() {
   const monthQuery = useFinanceMonth(activeMonthKey);
   const walletQuery = useFinanceWallets();
   const [messages, setMessages] = useState<ThreadMessage[]>(() => [
-    createWelcomeMessage(),
+    createWelcomeMessage(assistantProvider),
   ]);
   const [input, setInput] = useState('');
   const [isResponding, setIsResponding] = useState(false);
@@ -378,7 +381,11 @@ export function AssistantScreen() {
       >
         <NoticeBanner
           title={assistantProvider.info.displayName}
-          message={`${assistantProvider.info.description} No model is installed or downloaded. Drafts stay on this device and are written only after you confirm them.`}
+          message={`${assistantProvider.info.description} ${
+            assistantProvider.info.isRealModel
+              ? 'This development build uses the explicitly configured on-device model.'
+              : 'No model is installed or downloaded.'
+          } Drafts stay on this device and are written only after you confirm them.`}
           icon="hardware-chip-outline"
         />
 
@@ -1014,11 +1021,17 @@ function DraftLine({ label, value }: { label: string; value: string }) {
   );
 }
 
-function createWelcomeMessage(): ThreadMessage {
+function createWelcomeMessage(
+  provider: { info: AssistantProviderInfo },
+): ThreadMessage {
   return {
     id: nextMessageId('assistant'),
     role: 'assistant',
-    text: 'Hi! I interpret expenses, income, wallet transfers, container transfers, Savings transfers, and simple local finance questions. I use deterministic rules rather than a language model. I can prepare a draft, and you can review and confirm it before anything is saved to your local ledger.',
+    text: `Hi! I interpret expenses, income, wallet transfers, container transfers, Savings transfers, and simple local finance questions. ${
+      provider.info.isRealModel
+        ? 'This development build uses the configured on-device language model.'
+        : 'I use deterministic rules rather than a language model.'
+    } I can prepare a draft, and you can review and confirm it before anything is saved to your local ledger.`,
     createdAt: new Date().toISOString(),
   };
 }
