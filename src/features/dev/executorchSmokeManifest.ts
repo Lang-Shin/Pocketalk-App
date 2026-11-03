@@ -4,6 +4,8 @@ export const EXECUTORCH_SMOKE_MANIFEST = {
   revision: 'ddc28846631f7ab1d3ffcae0e076cd7ef0061f39',
   directory: 'executorch-smoke/qwen2.5-0.5b',
   prompt: 'Reply with exactly: POCKETA_SMOKE_OK',
+  cancelPrompt:
+    'Write a long, detailed paragraph about saving money. Continue for several sentences.',
   model: {
     fileName: 'qwen_2_5_0_5b_xnnpack_8da4w.pte',
     bytes: 432_176_000,

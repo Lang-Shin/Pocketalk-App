@@ -18,6 +18,12 @@ import { EXECUTORCH_SMOKE_MANIFEST } from '@/features/dev/executorchSmokeManifes
 import { useAppTheme, radii, spacing } from '@/theme';
 
 type BusyState = 'verify' | 'run' | 'cancel' | null;
+type CancelPhase =
+  | 'idle'
+  | 'starting'
+  | 'running'
+  | 'cancelling'
+  | 'cleaning';
 
 interface ArtifactSpec {
   label: string;
@@ -50,7 +56,10 @@ const ARTIFACTS: ArtifactSpec[] = [
 export default function ExecutorchSmokeScreen() {
   const { theme } = useAppTheme();
   const runtimeRef = useRef<ExecuTorchLocalModelRuntime | null>(null);
+  const cancelRuntimeRef = useRef<ExecuTorchLocalModelRuntime | null>(null);
+  const cancelRequestedRef = useRef(false);
   const [busy, setBusy] = useState<BusyState>(null);
+  const [cancelPhase, setCancelPhase] = useState<CancelPhase>('idle');
   const [logs, setLogs] = useState<string[]>([]);
   const [directory, setDirectory] = useState('');
   const [modelPath, setModelPath] = useState('');
@@ -223,8 +232,10 @@ export default function ExecutorchSmokeScreen() {
     }
   }
 
-  async function handleCancelTest() {
+  async function handleStartCancelTest() {
+    if (cancelPhase !== 'idle') return;
     setBusy('cancel');
+    cancelRequestedRef.current = false;
     appendLog('Starting cancellation smoke test…');
     let runtime: ExecuTorchLocalModelRuntime | null = null;
 
@@ -234,42 +245,88 @@ export default function ExecutorchSmokeScreen() {
         modelPath,
         tokenizerPath,
         tokenizerConfigPath,
-        maxNewTokens: 256,
+        maxNewTokens: 512,
         temperature: 0.2,
       });
       runtimeRef.current = runtime;
+      cancelRuntimeRef.current = runtime;
       await runtime.load();
+      appendLog(`Load completed. Runtime status: ${runtime.status()}`);
+      appendLog(
+        'Long generation started. Tap "Cancel generation" while it is running.',
+      );
+
       const generation = runtime.generate({
-        prompt: EXECUTORCH_SMOKE_MANIFEST.prompt,
-        maxTokens: 256,
+        prompt: EXECUTORCH_SMOKE_MANIFEST.cancelPrompt,
+        maxTokens: 512,
       });
-      await new Promise((resolve) => setTimeout(resolve, 250));
-      if (runtime.status() === 'generating') {
-        await runtime.cancel();
-        appendLog('Cancel requested while generation was active.');
-      } else {
-        appendLog('Generation completed before cancellation was requested.');
-      }
+      setCancelPhase('running');
+      setBusy(null);
+
       try {
         const response = await generation;
-        appendLog(`Generation settled: ${JSON.stringify(response.text)}`);
+        appendLog(
+          `Generation completed before cancellation: ${JSON.stringify(
+            response.text,
+          )}`,
+        );
       } catch (error) {
-        appendLog(`Generation settled with: ${errorMessage(error)}`);
+        if (cancelRequestedRef.current) {
+          appendLog(`Cancellation result: ${errorMessage(error)}`);
+        } else {
+          appendLog(`Generation failed: ${errorMessage(error)}`);
+        }
       }
-      appendLog(`Runtime status after cancellation test: ${runtime.status()}`);
+
+      appendLog(`Runtime status after generation: ${runtime.status()}`);
+      setCancelPhase('cleaning');
+
+      try {
+        await runtime.unload();
+        appendLog('Unload after cancellation completed.');
+      } catch (error) {
+        appendLog(`Unload after cancellation failed: ${errorMessage(error)}`);
+      }
+
+      try {
+        await runtime.load();
+        appendLog(
+          `Reload after cancellation succeeded. Runtime status: ${runtime.status()}`,
+        );
+        await runtime.unload();
+        appendLog('Second unload after reload completed.');
+      } catch (error) {
+        appendLog(`Reload after cancellation failed: ${errorMessage(error)}`);
+      }
     } catch (error) {
       appendLog(`Cancellation test failed: ${errorMessage(error)}`);
     } finally {
       if (runtime) {
         try {
           await runtime.unload();
-          appendLog('Unload completed after cancellation test.');
-        } catch (error) {
-          appendLog(`Unload failed: ${errorMessage(error)}`);
+        } catch {
+          // Preserve the primary cancellation result above.
         }
       }
       runtimeRef.current = null;
+      cancelRuntimeRef.current = null;
+      cancelRequestedRef.current = false;
+      setCancelPhase('idle');
       setBusy(null);
+    }
+  }
+
+  async function handleCancelGeneration() {
+    const runtime = cancelRuntimeRef.current;
+    if (!runtime || cancelPhase !== 'running') return;
+    cancelRequestedRef.current = true;
+    setCancelPhase('cancelling');
+    appendLog('Cancel requested.');
+    try {
+      await runtime.cancel();
+      appendLog(`Runtime status after cancel request: ${runtime.status()}`);
+    } catch (error) {
+      appendLog(`Cancel request failed: ${errorMessage(error)}`);
     }
   }
 
@@ -318,7 +375,7 @@ export default function ExecutorchSmokeScreen() {
             <TextInput
               value={value as string}
               onChangeText={setter as (value: string) => void}
-              editable={busy === null}
+              editable={busy === null && cancelPhase === 'idle'}
               autoCapitalize="none"
               autoCorrect={false}
               style={[
@@ -338,25 +395,33 @@ export default function ExecutorchSmokeScreen() {
             label="Verify artifacts"
             variant="outline"
             onPress={() => void handleVerify()}
-            disabled={busy !== null}
+            disabled={busy !== null || cancelPhase !== 'idle'}
             icon="shield-checkmark-outline"
           />
           <AppButton
             label="Run smoke test"
             onPress={() => void handleRun()}
-            disabled={busy !== null}
+            disabled={busy !== null || cancelPhase !== 'idle'}
             icon="play"
           />
           <AppButton
-            label="Test cancellation"
+            label="Start cancellation test"
             variant="outline"
-            onPress={() => void handleCancelTest()}
-            disabled={busy !== null}
+            onPress={() => void handleStartCancelTest()}
+            disabled={busy !== null || cancelPhase !== 'idle'}
             icon="stop"
           />
+          {cancelPhase === 'running' ? (
+            <AppButton
+              label="Cancel generation"
+              variant="danger"
+              onPress={() => void handleCancelGeneration()}
+              icon="close"
+            />
+          ) : null}
         </View>
 
-        {busy ? (
+        {busy || cancelPhase !== 'idle' ? (
           <View style={styles.progress}>
             <ActivityIndicator size="small" color={theme.colors.primary} />
             <AppText variant="caption" color={theme.colors.textSecondary}>
@@ -364,7 +429,13 @@ export default function ExecutorchSmokeScreen() {
                 ? 'Verifying…'
                 : busy === 'run'
                   ? 'Loading and generating…'
-                  : 'Testing cancellation…'}
+                  : busy === 'cancel' || cancelPhase === 'starting'
+                    ? 'Loading cancellation test…'
+                    : cancelPhase === 'running'
+                      ? 'Generating. Tap Cancel generation while it is running.'
+                      : cancelPhase === 'cancelling'
+                        ? 'Cancelling generation…'
+                        : 'Cleaning up and reloading…'}
             </AppText>
           </View>
         ) : null}
@@ -386,7 +457,7 @@ export default function ExecutorchSmokeScreen() {
             size="small"
             variant="ghost"
             onPress={() => setLogs([])}
-            disabled={busy !== null}
+            disabled={busy !== null || cancelPhase !== 'idle'}
           />
         </View>
         <ScrollView style={styles.logScroll} nestedScrollEnabled>
