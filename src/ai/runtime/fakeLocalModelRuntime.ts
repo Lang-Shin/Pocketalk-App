@@ -120,6 +120,14 @@ export class FakeLocalModelRuntime implements LocalModelRuntime {
     pending.resolve(response);
   }
 
+  rejectGeneration(error: Error): void {
+    const pending = this.pending;
+    if (!pending) {
+      throw new Error('No held generation is pending.');
+    }
+    pending.reject(error);
+  }
+
   async generate(request: LocalModelRequest): Promise<LocalModelResponse> {
     if (this.currentStatus !== 'ready') {
       throw new Error('Fake local runtime is not ready.');

@@ -458,6 +458,33 @@ test('unload waits for cancellation confirmation and generation settlement', asy
   assert.equal(runtime.status(), 'unloaded');
 });
 
+test('unload still cleans up when generation fails after cancellation', async () => {
+  const generationError = new Error('generation failed during unload');
+  const runtime = new FakeLocalModelRuntime({
+    holdGeneration: true,
+    holdCancellation: true,
+  });
+  const provider = createLocalAssistantProvider(runtime, { info });
+
+  const interpretation = provider.interpret(
+    'Spent 50 pesos from Food & drinks',
+    createContext(),
+  );
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  const unloading = provider.unload();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  runtime.releaseCancellation();
+  runtime.rejectGeneration(generationError);
+
+  const rejection = assert.rejects(interpretation, generationError);
+  await unloading;
+  await rejection;
+
+  assert.equal(runtime.unloadCalls, 1);
+  assert.equal(runtime.status(), 'unloaded');
+});
+
 test('cancellation failure rejects unload and remains recoverable', async () => {
   const cancelError = new Error('cancel confirmation failed');
   const runtime = new FakeLocalModelRuntime({
