@@ -29,6 +29,11 @@ import {
   type LocalModelPromptBuilder,
   type LocalModelResponseParser,
 } from '../src/ai/runtime';
+import { ExecuTorchLocalModelRuntime } from '../src/ai/runtime/executorch';
+import type {
+  LLMChatSession,
+  LLMChatTurnResult,
+} from 'react-native-executorch';
 import { AssistantValidationError } from '../src/ai/validation';
 
 function createContext(): AssistantContext {
@@ -131,6 +136,46 @@ function localDraft(): AssistantResult {
   if (draft.kind !== 'proposal') return draft;
   draft.proposal.id = 'local-draft';
   return draft;
+}
+
+function nativeTurn(text: string): LLMChatTurnResult {
+  return {
+    messages: [{ role: 'assistant', content: text }],
+    stats: [
+      {
+        numPromptTokens: 100,
+        numGeneratedTokens: 10,
+        firstTokenMs: 10,
+        inferenceStartMs: 5,
+        inferenceEndMs: 20,
+        modelLoadStartMs: 0,
+        modelLoadEndMs: 5,
+      },
+    ],
+    finishReason: 'stop',
+  };
+}
+
+function nativeSession(
+  text: string,
+  events: string[],
+): LLMChatSession {
+  return {
+    sendMessage: async () => nativeTurn(text),
+    stop: () => {
+      events.push('stop');
+    },
+    dispose: () => {
+      events.push('dispose');
+    },
+    getHistory: () => [],
+    getKVCacheState: () => ({
+      pos: 0,
+      maxSeqLen: 4096,
+      remainingTokens: 4096,
+      usageRatio: 0,
+    }),
+  } as LLMChatSession;
 }
 
 test('local provider lazily loads and returns parser output', async () => {
@@ -642,6 +687,46 @@ test('unload failure leaves the provider recoverable', async () => {
   await provider.load();
   assert.equal(runtime.status(), 'ready');
   assert.equal(runtime.loadCalls, 2);
+});
+
+test('provider reloads fresh native sessions after each disposed generation', async () => {
+  const sessions: { events: string[] }[] = [];
+  const runtime = new ExecuTorchLocalModelRuntime(
+    {
+      modelPath: 'file:///data/user/0/com.pocketa.app/files/model.pte',
+      tokenizerPath:
+        'file:///data/user/0/com.pocketa.app/files/tokenizer.json',
+      tokenizerConfigPath:
+        'file:///data/user/0/com.pocketa.app/files/tokenizer_config.json',
+    },
+    {
+      createSession: async () => {
+        const record = { events: [] as string[] };
+        sessions.push(record);
+        return nativeSession(JSON.stringify(localDraft()), record.events);
+      },
+    },
+  );
+  const provider = createLocalAssistantProvider(runtime, { info });
+
+  const first = await provider.interpret(
+    'Spent 50 pesos from Food & drinks',
+    createContext(),
+  );
+  assert.equal(first.kind, 'proposal');
+  assert.equal(runtime.status(), 'unloaded');
+  assert.equal(sessions.length, 1);
+  assert.deepEqual(sessions[0]?.events, ['dispose']);
+
+  const second = await provider.interpret(
+    'Spent 50 pesos from Food & drinks',
+    createContext(),
+  );
+  assert.equal(second.kind, 'proposal');
+  assert.equal(runtime.status(), 'unloaded');
+  assert.equal(sessions.length, 2);
+  assert.deepEqual(sessions[0]?.events, ['dispose']);
+  assert.deepEqual(sessions[1]?.events, ['dispose']);
 });
 
 test('pending requests are bounded by the configured queue depth', async () => {

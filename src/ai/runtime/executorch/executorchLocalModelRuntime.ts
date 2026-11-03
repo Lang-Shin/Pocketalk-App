@@ -108,8 +108,13 @@ export class ExecuTorchLocalModelRuntime implements LocalModelRuntime {
       }
     }
 
-    this.disposeSession();
     this.currentMetrics = null;
+    try {
+      this.disposeSession();
+    } catch (error) {
+      this.currentStatus = 'error';
+      throw error;
+    }
     this.currentStatus = 'unloaded';
   }
 
@@ -139,7 +144,12 @@ export class ExecuTorchLocalModelRuntime implements LocalModelRuntime {
       this.currentStatus = 'error';
       throw error;
     } finally {
-      this.disposeSession();
+      try {
+        this.disposeSession();
+      } catch (error) {
+        this.currentStatus = 'error';
+        throw error;
+      }
       if (this.currentStatus === 'generating') {
         this.currentStatus = 'unloaded';
       }

@@ -51,6 +51,7 @@ function fakeSession(
     onToken: ((token: string) => void) | undefined,
     genConfig: unknown,
   ) => Promise<LLMChatTurnResult>,
+  onDispose?: () => void,
 ): FakeSessionRecord {
   const events: string[] = [];
   const record: FakeSessionRecord = {
@@ -71,6 +72,7 @@ function fakeSession(
     },
     dispose: () => {
       events.push('dispose');
+      onDispose?.();
     },
     getHistory: () => [],
     getKVCacheState: () => ({
@@ -185,6 +187,92 @@ test('generation failure disposes the session and can recover after reload', asy
   assert.equal(recovered.text, 'recovered');
   assert.equal(records.length, 2);
   assert.deepEqual(records[1]?.events, ['dispose']);
+});
+
+test('unload disposal failure leaves a recoverable error state', async () => {
+  const records: FakeSessionRecord[] = [];
+  let failDispose = true;
+  const runtime = new ExecuTorchLocalModelRuntime(config, {
+    createSession: async () => {
+      const record = fakeSession(
+        async () => turn('recovered'),
+        () => {
+          if (failDispose) {
+            failDispose = false;
+            throw new Error('native dispose failed');
+          }
+        },
+      );
+      records.push(record);
+      return record.session;
+    },
+  });
+
+  await runtime.load();
+  await assert.rejects(() => runtime.unload(), /native dispose failed/);
+  assert.equal(runtime.status(), 'error');
+  assert.equal(runtime.metrics(), null);
+
+  await runtime.load();
+  const recovered = await runtime.generate({ prompt: 'retry' });
+  assert.equal(recovered.text, 'recovered');
+  assert.equal(records.length, 2);
+  assert.equal(runtime.status(), 'unloaded');
+});
+
+test('generation disposal failure does not leave runtime stuck generating', async () => {
+  const records: FakeSessionRecord[] = [];
+  let failDispose = true;
+  const runtime = new ExecuTorchLocalModelRuntime(config, {
+    createSession: async () => {
+      const record = fakeSession(
+        async () => turn('first'),
+        () => {
+          if (failDispose) {
+            failDispose = false;
+            throw new Error('generation dispose failed');
+          }
+        },
+      );
+      records.push(record);
+      return record.session;
+    },
+  });
+
+  await runtime.load();
+  await assert.rejects(
+    () => runtime.generate({ prompt: 'first' }),
+    /generation dispose failed/,
+  );
+  assert.equal(runtime.status(), 'error');
+
+  await runtime.load();
+  const recovered = await runtime.generate({ prompt: 'second' });
+  assert.equal(recovered.text, 'first');
+  assert.equal(records.length, 2);
+  assert.equal(runtime.status(), 'unloaded');
+});
+
+test('repeated unload is safe after generation disposal', async () => {
+  const records: FakeSessionRecord[] = [];
+  const runtime = new ExecuTorchLocalModelRuntime(config, {
+    createSession: async () => {
+      const record = fakeSession(async () => turn());
+      records.push(record);
+      return record.session;
+    },
+  });
+
+  await runtime.load();
+  await runtime.generate({ prompt: 'first' });
+  assert.equal(runtime.status(), 'unloaded');
+
+  await runtime.unload();
+  await runtime.unload();
+
+  assert.equal(runtime.status(), 'unloaded');
+  assert.equal(records.length, 1);
+  assert.deepEqual(records[0]?.events, ['dispose']);
 });
 
 test('generation options are explicit and omit undefined defaults', async () => {
