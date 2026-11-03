@@ -356,17 +356,27 @@ test('requests during active generation wait for the active request', async () =
   assert.equal(runtime.generateCalls, 1);
 
   const second = provider.interpret(
-    'Spent 50 pesos from Food & drinks',
+    'Spent 75 pesos from Food & drinks',
     createContext(),
   );
   await new Promise((resolve) => setTimeout(resolve, 0));
   assert.equal(runtime.generateCalls, 1);
   assert.equal(runtime.status(), 'generating');
+  assert.ok(
+    runtime.requests[0]?.prompt.includes(
+      JSON.stringify('Spent 50 pesos from Food & drinks'),
+    ),
+  );
 
   runtime.releaseGeneration({ text: JSON.stringify(localDraft()) });
   const firstResult = await first;
   await new Promise((resolve) => setTimeout(resolve, 0));
   assert.equal(runtime.generateCalls, 2);
+  assert.ok(
+    runtime.requests[1]?.prompt.includes(
+      JSON.stringify('Spent 75 pesos from Food & drinks'),
+    ),
+  );
 
   runtime.releaseGeneration({ text: JSON.stringify(localDraft()) });
   const secondResult = await second;
