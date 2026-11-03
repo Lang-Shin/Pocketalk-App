@@ -22,4 +22,5 @@ export {
   LOCAL_PROMPT_VERSION,
   PocketaLocalPromptBuilder,
 } from './localPromptBuilder';
+export { PocketaLocalResponseParser } from './localResponseParser';
 export { ValidatedAssistantProvider } from './validatedAssistantProvider';
