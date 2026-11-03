@@ -39,3 +39,9 @@ yarn-error.*
 # generated native folders
 /ios
 /android
+
+# local ExecuTorch smoke-test artifacts
+*.pte
+*.gguf
+*.litertlm
+/artifacts/executorch-smoke/
