@@ -366,6 +366,82 @@ test('does not repair invalid amounts, dates, or entity references', () => {
   );
 });
 
+test('rejects non-finite, negative, and non-integer amounts without rounding', () => {
+  const context = createContext();
+  const parser = new PocketaLocalResponseParser();
+  const base = proposalResult();
+  assert.equal(base.kind, 'proposal');
+  if (base.kind !== 'proposal') return;
+
+  const negative = structuredClone(base);
+  negative.proposal.amountMinor = -5_000;
+  negative.interpretation.amountMinor = -5_000;
+  assert.throws(
+    () => parser.parse({ text: JSON.stringify(negative) }, context),
+    AssistantValidationError,
+  );
+
+  const nonInteger = structuredClone(base);
+  nonInteger.proposal.amountMinor = 4_999.5;
+  nonInteger.interpretation.amountMinor = 4_999.5;
+  assert.throws(
+    () => parser.parse({ text: JSON.stringify(nonInteger) }, context),
+    AssistantValidationError,
+  );
+
+  const numericString = structuredClone(base);
+  numericString.proposal.amountMinor = '5000' as unknown as number;
+  numericString.interpretation.amountMinor = '5000' as unknown as number;
+  assert.throws(
+    () => parser.parse({ text: JSON.stringify(numericString) }, context),
+    AssistantValidationError,
+  );
+
+  const nonFiniteText = JSON.stringify(base)
+    .split('"amountMinor":5000')
+    .join('"amountMinor":1e400');
+  assert.throws(
+    () => parser.parse({ text: nonFiniteText }, context),
+    AssistantValidationError,
+  );
+});
+
+test('enforces valid active-month dates without inventing a date', () => {
+  const context = createContext();
+  const parser = new PocketaLocalResponseParser();
+  const base = proposalResult();
+  assert.equal(base.kind, 'proposal');
+  if (base.kind !== 'proposal') return;
+
+  const future = structuredClone(base);
+  future.proposal.effectiveDate = '2026-10-21';
+  future.interpretation.effectiveDate = '2026-10-21';
+  assert.throws(
+    () => parser.parse({ text: JSON.stringify(future) }, context),
+    AssistantValidationError,
+  );
+
+  const previousMonth = structuredClone(base);
+  previousMonth.proposal.effectiveDate = '2026-09-30';
+  previousMonth.proposal.monthKey = '2026-09';
+  previousMonth.interpretation.effectiveDate = '2026-09-30';
+  assert.throws(
+    () => parser.parse({ text: JSON.stringify(previousMonth) }, context),
+    AssistantValidationError,
+  );
+
+  const missingDate = structuredClone(base);
+  delete (missingDate.proposal as Partial<typeof missingDate.proposal>)
+    .effectiveDate;
+  delete (
+    missingDate.interpretation as Partial<typeof missingDate.interpretation>
+  ).effectiveDate;
+  assert.throws(
+    () => parser.parse({ text: JSON.stringify(missingDate) }, context),
+    AssistantValidationError,
+  );
+});
+
 test('rejects results missing required proposal information', () => {
   const context = createContext();
   const parser = new PocketaLocalResponseParser();

@@ -3,6 +3,7 @@ import type {
   LocalModelResponse,
   LocalModelResponseParser,
 } from '../runtime';
+import { isValidDateKey, monthKeyForDateKey } from '@/lib/period';
 import {
   AssistantValidationError,
   validateAssistantResult,
@@ -15,6 +16,7 @@ export class PocketaLocalResponseParser implements LocalModelResponseParser {
     const parsed = parseJsonObject(response.text);
     const withId = withGeneratedProposalId(parsed);
     const candidate = normalizeEntityReferences(withId, context);
+    assertActiveMonth(candidate, context);
     return validateAssistantResult(candidate, context);
   }
 }
@@ -49,6 +51,41 @@ function withGeneratedProposalId(value: unknown): unknown {
       id,
     },
   };
+}
+
+function assertActiveMonth(
+  value: unknown,
+  context: AssistantContext,
+): void {
+  if (!isRecord(value)) return;
+
+  const dates: unknown[] = [];
+  const interpretation = isRecord(value.interpretation)
+    ? value.interpretation
+    : undefined;
+  dates.push(interpretation?.effectiveDate);
+
+  if (value.kind === 'proposal' && isRecord(value.proposal)) {
+    dates.push(value.proposal.effectiveDate);
+  }
+  if (value.kind === 'clarification' && isRecord(value.clarification)) {
+    const pending = isRecord(value.clarification.pending)
+      ? value.clarification.pending
+      : undefined;
+    dates.push(pending?.effectiveDate);
+  }
+
+  for (const date of dates) {
+    if (
+      typeof date === 'string' &&
+      isValidDateKey(date) &&
+      monthKeyForDateKey(date) !== context.activeMonthKey
+    ) {
+      throw new AssistantValidationError(
+        'Effective dates must stay within the active month.',
+      );
+    }
+  }
 }
 
 function normalizeEntityReferences(
