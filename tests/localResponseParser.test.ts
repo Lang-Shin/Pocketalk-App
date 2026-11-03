@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import test from 'node:test';
+import { fileURLToPath } from 'node:url';
 
 import {
   interpretAssistantMessage,
@@ -455,5 +457,36 @@ test('rejects results missing required proposal information', () => {
   assert.throws(
     () => parser.parse({ text: JSON.stringify(missingAmount) }, context),
     AssistantValidationError,
+  );
+});
+
+test('parser source has no finance, execution, or persistence access', () => {
+  const source = readFileSync(
+    fileURLToPath(
+      new URL(
+        '../src/ai/providers/localResponseParser.ts',
+        import.meta.url,
+      ),
+    ),
+    'utf8',
+  );
+
+  for (const forbidden of [
+    /\bFinanceService\b/,
+    /\bFinanceSession\b/,
+    /\bFinanceEngine\b/,
+    /\bFinanceRepository\b/,
+    /\bassistantExecution\b/,
+    /\bexecuteMoneyEntry\b/,
+    /\brecordMoneyEntry\b/,
+    /\brunRollover\b/,
+    /expo-sqlite/,
+  ]) {
+    assert.doesNotMatch(source, forbidden);
+  }
+
+  assert.doesNotMatch(
+    source,
+    /from\s+['"][^'"]*(finance|database|sqlite|assistantExecution)[^'"]*['"]/i,
   );
 });

@@ -290,8 +290,12 @@ test('AI source has no finance access and the Assistant UI writes only through t
 
   for (const forbidden of [
     /\bFinanceService\b/,
+    /\bFinanceSession\b/,
     /\bFinanceEngine\b/,
     /\bFinanceRepository\b/,
+    /\bassistantExecution\b/,
+    /\bexecuteMoneyEntry\b/,
+    /\bMoneyEntryInput\b/,
     /financeService/,
     /financeRepository/,
     /financeEngine/,
