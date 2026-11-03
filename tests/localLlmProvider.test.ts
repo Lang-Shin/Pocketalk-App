@@ -269,6 +269,54 @@ test('local factory unloads, clears metrics, and reloads lazily', async () => {
   assert.equal(runtime.generateCalls, 2);
 });
 
+test('local factory reuses one load across repeated interpretation calls', async () => {
+  const runtime = new FakeLocalModelRuntime({
+    responses: [
+      { text: JSON.stringify(localDraft()) },
+      { text: JSON.stringify(localDraft()) },
+    ],
+  });
+  const provider = createLocalAssistantProvider(runtime, { info });
+
+  const first = await provider.interpret(
+    'Spent 50 pesos from Food & drinks',
+    createContext(),
+  );
+  const second = await provider.interpret(
+    'Spent 50 pesos from Food & drinks',
+    createContext(),
+  );
+
+  assert.equal(first.kind, 'proposal');
+  assert.equal(second.kind, 'proposal');
+  if (first.kind !== 'proposal' || second.kind !== 'proposal') return;
+  assert.notEqual(first.proposal.id, second.proposal.id);
+  assert.equal(runtime.loadCalls, 1);
+  assert.equal(runtime.generateCalls, 2);
+  assert.equal(runtime.requests.length, 2);
+  assert.equal(runtime.status(), 'ready');
+});
+
+test('local factory unload during generation rejects and clears runtime state', async () => {
+  const runtime = new FakeLocalModelRuntime({ holdGeneration: true });
+  const provider = createLocalAssistantProvider(runtime, { info });
+
+  const generation = provider.interpret(
+    'Spent 50 pesos from Food & drinks',
+    createContext(),
+  );
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(runtime.status(), 'generating');
+
+  const cancelled = assert.rejects(generation, LocalModelCancelledError);
+  await provider.unload();
+  await cancelled;
+
+  assert.equal(runtime.unloadCalls, 1);
+  assert.equal(runtime.status(), 'unloaded');
+  assert.equal(runtime.metrics(), null);
+});
+
 test('local factory propagates cancellation and can unload afterward', async () => {
   const runtime = new FakeLocalModelRuntime({ holdGeneration: true });
   const provider = createLocalAssistantProvider(runtime, { info });
