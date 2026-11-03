@@ -2,9 +2,9 @@ export interface LocalPromptTokenEstimator {
   estimate(prompt: string): number;
 }
 
-export const DEFAULT_MAX_CONTEXT_TOKENS = 2048;
-export const DEFAULT_OUTPUT_TOKEN_ALLOWANCE = 512;
-export const DEFAULT_PROMPT_SAFETY_MARGIN_TOKENS = 128;
+export const DEFAULT_POLICY_MAX_CONTEXT_TOKENS = 2048;
+export const DEFAULT_POLICY_OUTPUT_TOKEN_ALLOWANCE = 512;
+export const DEFAULT_POLICY_PROMPT_SAFETY_MARGIN_TOKENS = 128;
 
 export class ApproximateCharacterPromptTokenEstimator
   implements LocalPromptTokenEstimator

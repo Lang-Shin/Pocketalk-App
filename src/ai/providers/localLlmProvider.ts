@@ -14,9 +14,9 @@ import type {
 } from './assistantProvider';
 import {
   ApproximateCharacterPromptTokenEstimator,
-  DEFAULT_MAX_CONTEXT_TOKENS,
-  DEFAULT_OUTPUT_TOKEN_ALLOWANCE,
-  DEFAULT_PROMPT_SAFETY_MARGIN_TOKENS,
+  DEFAULT_POLICY_MAX_CONTEXT_TOKENS,
+  DEFAULT_POLICY_OUTPUT_TOKEN_ALLOWANCE,
+  DEFAULT_POLICY_PROMPT_SAFETY_MARGIN_TOKENS,
   PromptBudgetExceededError,
   type LocalPromptTokenEstimator,
 } from './promptBudget';
@@ -45,12 +45,12 @@ export class LocalLlmProvider implements AssistantProvider {
       options.promptTokenEstimator ??
       new ApproximateCharacterPromptTokenEstimator();
     this.maxContextTokens =
-      options.maxContextTokens ?? DEFAULT_MAX_CONTEXT_TOKENS;
+      options.maxContextTokens ?? DEFAULT_POLICY_MAX_CONTEXT_TOKENS;
     this.outputTokenAllowance =
-      options.outputTokenAllowance ?? DEFAULT_OUTPUT_TOKEN_ALLOWANCE;
+      options.outputTokenAllowance ?? DEFAULT_POLICY_OUTPUT_TOKEN_ALLOWANCE;
     this.promptSafetyMarginTokens =
       options.promptSafetyMarginTokens ??
-      DEFAULT_PROMPT_SAFETY_MARGIN_TOKENS;
+      DEFAULT_POLICY_PROMPT_SAFETY_MARGIN_TOKENS;
 
     assertPositiveInteger(this.maxContextTokens, 'maxContextTokens');
     assertPositiveInteger(this.outputTokenAllowance, 'outputTokenAllowance');

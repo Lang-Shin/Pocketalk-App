@@ -66,9 +66,9 @@ export {
 export { PocketaLocalResponseParser } from './localResponseParser';
 export {
   ApproximateCharacterPromptTokenEstimator,
-  DEFAULT_MAX_CONTEXT_TOKENS,
-  DEFAULT_OUTPUT_TOKEN_ALLOWANCE,
-  DEFAULT_PROMPT_SAFETY_MARGIN_TOKENS,
+  DEFAULT_POLICY_MAX_CONTEXT_TOKENS,
+  DEFAULT_POLICY_OUTPUT_TOKEN_ALLOWANCE,
+  DEFAULT_POLICY_PROMPT_SAFETY_MARGIN_TOKENS,
   PromptBudgetExceededError,
 } from './promptBudget';
 export type { LocalPromptTokenEstimator } from './promptBudget';

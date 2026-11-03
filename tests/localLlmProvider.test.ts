@@ -12,9 +12,9 @@ import {
 import {
   ApproximateCharacterPromptTokenEstimator,
   createLocalAssistantProvider,
-  DEFAULT_MAX_CONTEXT_TOKENS,
-  DEFAULT_OUTPUT_TOKEN_ALLOWANCE,
-  DEFAULT_PROMPT_SAFETY_MARGIN_TOKENS,
+  DEFAULT_POLICY_MAX_CONTEXT_TOKENS,
+  DEFAULT_POLICY_OUTPUT_TOKEN_ALLOWANCE,
+  DEFAULT_POLICY_PROMPT_SAFETY_MARGIN_TOKENS,
   LocalLlmProvider,
   PocketaLocalResponseParser,
   PromptBudgetExceededError,
@@ -741,9 +741,9 @@ test('prompt estimator limitations are explicit and budget must be valid', () =>
 
   assert.equal(estimator.estimate('abcdefgh'), 2);
   assert.equal(estimator.estimate(''), 0);
-  assert.equal(DEFAULT_MAX_CONTEXT_TOKENS, 2_048);
-  assert.equal(DEFAULT_OUTPUT_TOKEN_ALLOWANCE, 512);
-  assert.equal(DEFAULT_PROMPT_SAFETY_MARGIN_TOKENS, 128);
+  assert.equal(DEFAULT_POLICY_MAX_CONTEXT_TOKENS, 2_048);
+  assert.equal(DEFAULT_POLICY_OUTPUT_TOKEN_ALLOWANCE, 512);
+  assert.equal(DEFAULT_POLICY_PROMPT_SAFETY_MARGIN_TOKENS, 128);
 
   for (const options of [
     { maxContextTokens: 0 },
