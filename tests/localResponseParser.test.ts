@@ -154,6 +154,89 @@ test('never returns the local-draft placeholder and preserves the generated ID',
   assert.equal(pending?.proposal.id, parsed.proposal.id);
 });
 
+test('normalizes proposal and interpretation labels from context', () => {
+  const base = proposalResult();
+  assert.equal(base.kind, 'proposal');
+  if (base.kind !== 'proposal') return;
+
+  const walletId = base.proposal.walletId;
+  assert.ok(walletId);
+  if (!walletId) return;
+
+  const tampered = structuredClone(base);
+  tampered.proposal.walletLabel = 'Untrusted wallet label';
+  tampered.proposal.sourceWalletLabel = 'Untrusted source wallet';
+  tampered.proposal.containerLabel = 'Untrusted container';
+  tampered.interpretation.sourceWallet = {
+    id: walletId,
+    name: 'Untrusted wallet name',
+  };
+  tampered.interpretation.sourceContainer = {
+    id: 'container-food',
+    name: 'Untrusted container name',
+  };
+
+  const parsed = parse(tampered);
+  assert.equal(parsed.kind, 'proposal');
+  if (parsed.kind !== 'proposal') return;
+
+  assert.equal(parsed.proposal.walletLabel, 'Virtual GCash');
+  assert.equal(parsed.proposal.sourceWalletLabel, 'Virtual GCash');
+  assert.equal(parsed.proposal.containerLabel, 'Food & drinks');
+  assert.deepEqual(parsed.interpretation.sourceWallet, {
+    id: walletId,
+    name: 'Virtual GCash',
+  });
+  assert.deepEqual(parsed.interpretation.sourceContainer, {
+    id: 'container-food',
+    name: 'Food & drinks',
+  });
+});
+
+test('normalizes clarification option names without choosing an option', () => {
+  const context = createContext();
+  const containerClarification = interpretAssistantMessage(
+    'I spent ₱50 on lunch.',
+    context,
+  );
+  assert.equal(containerClarification.kind, 'clarification');
+  if (containerClarification.kind !== 'clarification') return;
+
+  const tamperedContainer = structuredClone(containerClarification);
+  for (const option of tamperedContainer.clarification.options ?? []) {
+    option.name = 'Untrusted option';
+  }
+  const parsedContainer = parse(tamperedContainer);
+  assert.equal(parsedContainer.kind, 'clarification');
+  if (parsedContainer.kind !== 'clarification') return;
+  assert.equal(parsedContainer.clarification.options?.length, 2);
+  assert.ok(
+    parsedContainer.clarification.options?.every((option) =>
+      ['Food & drinks', 'Transport'].includes(option.name),
+    ),
+  );
+
+  const walletClarification = interpretAssistantMessage(
+    'Transfer ₱100 to Cash',
+    context,
+  );
+  assert.equal(walletClarification.kind, 'clarification');
+  if (walletClarification.kind !== 'clarification') return;
+
+  const tamperedWallet = structuredClone(walletClarification);
+  for (const option of tamperedWallet.clarification.walletOptions ?? []) {
+    option.name = 'Untrusted wallet option';
+  }
+  const parsedWallet = parse(tamperedWallet);
+  assert.equal(parsedWallet.kind, 'clarification');
+  if (parsedWallet.kind !== 'clarification') return;
+  assert.equal(parsedWallet.clarification.walletOptions?.length, 1);
+  assert.equal(
+    parsedWallet.clarification.walletOptions?.[0]?.name,
+    'Virtual GCash',
+  );
+});
+
 test('generates a fresh ID for each parse of the same model output', () => {
   const original = proposalResult();
   const text = JSON.stringify(original);
@@ -271,6 +354,14 @@ test('does not repair invalid amounts, dates, or entity references', () => {
   unknownContainer.proposal.containerLabel = 'Missing';
   assert.throws(
     () => parser.parse({ text: JSON.stringify(unknownContainer) }, context),
+    AssistantValidationError,
+  );
+
+  const unknownWallet = structuredClone(base);
+  unknownWallet.proposal.walletId = 'wallet-missing';
+  unknownWallet.proposal.walletLabel = 'Missing';
+  assert.throws(
+    () => parser.parse({ text: JSON.stringify(unknownWallet) }, context),
     AssistantValidationError,
   );
 });
