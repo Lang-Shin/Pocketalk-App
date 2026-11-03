@@ -18,4 +18,8 @@ export type {
 export { MockAssistantProvider } from './mockAssistantProvider';
 export { LocalLlmProvider } from './localLlmProvider';
 export type { LocalLlmProviderOptions } from './localLlmProvider';
+export {
+  LOCAL_PROMPT_VERSION,
+  PocketaLocalPromptBuilder,
+} from './localPromptBuilder';
 export { ValidatedAssistantProvider } from './validatedAssistantProvider';
