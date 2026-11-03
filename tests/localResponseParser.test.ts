@@ -8,7 +8,11 @@ import {
   type AssistantResult,
 } from '../src/ai/localAssistant';
 import { PocketaLocalResponseParser } from '../src/ai/providers/localResponseParser';
-import { AssistantValidationError } from '../src/ai/validation';
+import {
+  AssistantValidationError,
+  validateAssistantResult,
+} from '../src/ai/validation';
+import { createPendingConfirmation } from '../src/features/assistant/confirmationState';
 
 function createContext(): AssistantContext {
   return {
@@ -118,6 +122,36 @@ test('parses a valid proposal and replaces the model-provided ID', () => {
   assert.match(parsed.proposal.id, /^assistant-local-/);
   assert.equal(parsed.proposal.amountMinor, 5_000);
   assert.equal(parsed.proposal.containerId, 'container-food');
+});
+
+test('never returns the local-draft placeholder and preserves the generated ID', () => {
+  const original = proposalResult();
+  assert.equal(original.kind, 'proposal');
+  if (original.kind !== 'proposal') return;
+
+  const withPlaceholder = {
+    ...original,
+    proposal: { ...original.proposal, id: 'local-draft' },
+  };
+  const parsed = parse(withPlaceholder);
+
+  assert.equal(parsed.kind, 'proposal');
+  if (parsed.kind !== 'proposal') return;
+  assert.notEqual(parsed.proposal.id, 'local-draft');
+  assert.match(parsed.proposal.id, /^assistant-local-/);
+  assert.doesNotMatch(JSON.stringify(parsed), /local-draft/);
+
+  const validated = validateAssistantResult(parsed, createContext());
+  assert.equal(validated.kind, 'proposal');
+  if (validated.kind !== 'proposal') return;
+  assert.equal(validated.proposal.id, parsed.proposal.id);
+
+  const pending = createPendingConfirmation({
+    id: 'message-1',
+    proposal: parsed.proposal,
+  });
+  assert.ok(pending);
+  assert.equal(pending?.proposal.id, parsed.proposal.id);
 });
 
 test('generates a fresh ID for each parse of the same model output', () => {
