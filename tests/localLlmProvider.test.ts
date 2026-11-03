@@ -11,6 +11,7 @@ import {
 } from '../src/ai/localAssistant';
 import {
   LocalLlmProvider,
+  PocketaLocalResponseParser,
   ValidatedAssistantProvider,
 } from '../src/ai/providers';
 import {
@@ -214,6 +215,24 @@ test('local provider output still passes through deterministic validation', asyn
     () => validated.interpret('test', createContext()),
     AssistantValidationError,
   );
+});
+
+test('malformed local-model output cannot become a proposal or clarification', async () => {
+  const runtime = new FakeLocalModelRuntime({
+    responses: [{ text: '```json\n{"kind":"proposal"}\n```' }],
+  });
+  const provider = new LocalLlmProvider(runtime, {
+    info,
+    promptBuilder,
+    responseParser: new PocketaLocalResponseParser(),
+  });
+
+  await assert.rejects(
+    () => provider.interpret('test', createContext()),
+    AssistantValidationError,
+  );
+  assert.equal(runtime.loadCalls, 1);
+  assert.equal(runtime.generateCalls, 1);
 });
 
 test('provider and native-free runtime files have no native or finance imports', () => {
