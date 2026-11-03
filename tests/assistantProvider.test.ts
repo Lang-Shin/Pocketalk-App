@@ -17,7 +17,19 @@ import {
 } from '../src/ai/providers';
 import { FakeLocalModelRuntime } from '../src/ai/runtime';
 import { AssistantValidationError } from '../src/ai/validation';
+import { createAssistantExecutionCoordinator } from '../src/application/assistantExecution';
 import { createPendingConfirmation } from '../src/features/assistant/confirmationState';
+
+const localInfo = {
+  id: 'selected-local-test',
+  displayName: 'Selected local test',
+  kind: 'local_llm' as const,
+  isRealModel: true,
+  modelName: 'test-model',
+  needsModelDownload: true,
+  offline: true,
+  description: 'Test-only local selection.',
+};
 
 function createContext(): AssistantContext {
   return {
@@ -245,6 +257,126 @@ test('selected local providers cannot bypass assistant result validation', async
       ),
     AssistantValidationError,
   );
+});
+
+test('selected local clarification remains a clarification', async () => {
+  const context = createContext();
+  const clarification = interpretAssistantMessage(
+    'I spent 50 pesos',
+    context,
+  );
+  assert.equal(clarification.kind, 'clarification');
+  const runtime = new FakeLocalModelRuntime({
+    responses: [{ text: JSON.stringify(clarification) }],
+  });
+  const selected = createConfiguredAssistantProvider({
+    isDevelopment: true,
+    requestedProvider: 'local',
+    createLocalProvider: () =>
+      createLocalAssistantProvider(runtime, { info: localInfo }),
+  });
+
+  const result = await selected.interpret('I spent 50 pesos', context);
+
+  assert.equal(result.kind, 'clarification');
+});
+
+test('selected local invalid model output cannot become a proposal', async () => {
+  const runtime = new FakeLocalModelRuntime({
+    responses: [{ text: '```json\n{"kind":"proposal"}\n```' }],
+  });
+  const selected = createConfiguredAssistantProvider({
+    isDevelopment: true,
+    requestedProvider: 'local',
+    createLocalProvider: () =>
+      createLocalAssistantProvider(runtime, { info: localInfo }),
+  });
+
+  await assert.rejects(
+    () =>
+      selected.interpret(
+        'Spent 50 pesos from Food & drinks',
+        createContext(),
+      ),
+    AssistantValidationError,
+  );
+  assert.equal(runtime.generateCalls, 1);
+});
+
+test('selected local runtime errors do not fall back to mock or cloud', async () => {
+  const runtimeError = new Error('local runtime unavailable');
+  const runtime = new FakeLocalModelRuntime({
+    responses: [runtimeError],
+  });
+  const selected = createConfiguredAssistantProvider({
+    isDevelopment: true,
+    requestedProvider: 'local',
+    createLocalProvider: () =>
+      createLocalAssistantProvider(runtime, { info: localInfo }),
+  });
+
+  await assert.rejects(
+    () =>
+      selected.interpret(
+        'Spent 50 pesos from Food & drinks',
+        createContext(),
+      ),
+    runtimeError,
+  );
+  assert.equal(selected.info.kind, 'local_llm');
+  assert.equal(runtime.generateCalls, 1);
+});
+
+test('selected local proposals require confirmation before coordinator execution', async () => {
+  const context = createContext();
+  const draft = interpretAssistantMessage(
+    'Spent 50 pesos from Food & drinks',
+    context,
+  );
+  assert.equal(draft.kind, 'proposal');
+  if (draft.kind !== 'proposal') return;
+  draft.proposal.id = 'local-draft';
+
+  const runtime = new FakeLocalModelRuntime({
+    responses: [{ text: JSON.stringify(draft) }],
+  });
+  const selected = createConfiguredAssistantProvider({
+    isDevelopment: true,
+    requestedProvider: 'local',
+    createLocalProvider: () =>
+      createLocalAssistantProvider(runtime, { info: localInfo }),
+  });
+  let executions = 0;
+  const coordinator = createAssistantExecutionCoordinator({
+    executeMoneyEntry: async () => {
+      executions += 1;
+      return { ok: true, transactionId: 'transaction-1' };
+    },
+  });
+
+  const result = await selected.interpret(
+    'Spent 50 pesos from Food & drinks',
+    context,
+  );
+  assert.equal(result.kind, 'proposal');
+  if (result.kind !== 'proposal') return;
+  assert.equal(executions, 0);
+
+  const withoutConfirmation = await coordinator.execute({
+    proposal: result.proposal,
+    context,
+    confirmed: false,
+  });
+  assert.equal(withoutConfirmation.ok, false);
+  assert.equal(executions, 0);
+
+  const confirmed = await coordinator.execute({
+    proposal: result.proposal,
+    context,
+    confirmed: true,
+  });
+  assert.equal(confirmed.ok, true);
+  assert.equal(executions, 1);
 });
 
 test('the mock provider exposes no-op model lifecycle hooks', async () => {
