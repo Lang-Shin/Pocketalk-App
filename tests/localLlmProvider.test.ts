@@ -573,6 +573,35 @@ test('repeated load and unload calls are deterministic', async () => {
   assert.equal(runtime.status(), 'ready');
 });
 
+test('repeated completed unloads remain safe', async () => {
+  const runtime = new FakeLocalModelRuntime();
+  const provider = createLocalAssistantProvider(runtime, { info });
+
+  await provider.load();
+  await provider.unload();
+  await provider.unload();
+
+  assert.equal(runtime.unloadCalls, 2);
+  assert.equal(runtime.metrics(), null);
+  assert.equal(runtime.status(), 'unloaded');
+  assert.equal(provider.info.kind, 'local_llm');
+});
+
+test('load requested after unload starts runs after cleanup', async () => {
+  const runtime = new FakeLocalModelRuntime();
+  const provider = createLocalAssistantProvider(runtime, { info });
+
+  await provider.load();
+  const unloading = provider.unload();
+  const reloading = provider.load();
+
+  await Promise.all([unloading, reloading]);
+
+  assert.equal(runtime.unloadCalls, 1);
+  assert.equal(runtime.loadCalls, 2);
+  assert.equal(runtime.status(), 'ready');
+});
+
 test('load failure leaves the provider recoverable', async () => {
   const loadError = new Error('transient load failure');
   const runtime = new FakeLocalModelRuntime({
@@ -1210,6 +1239,20 @@ test('provider and native-free runtime files have no native or finance imports',
   ]) {
     assert.doesNotMatch(sources, forbidden);
   }
+
+  const localProviderSource = readFileSync(
+    fileURLToPath(
+      new URL(
+        '../src/ai/providers/localLlmProvider.ts',
+        import.meta.url,
+      ),
+    ),
+    'utf8',
+  );
+  assert.doesNotMatch(
+    localProviderSource,
+    /\bMockAssistantProvider\b|https?:\/\/|\bfetch\s*\(/i,
+  );
 });
 
 test('native runtime import is isolated to the ExecuTorch adapter', () => {
