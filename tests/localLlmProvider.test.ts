@@ -158,6 +158,8 @@ test('local factory composes prompt builder, fake runtime, parser, and validatio
   assert.equal(result.proposal.action, 'expense');
   assert.notEqual(result.proposal.id, 'local-draft');
   assert.match(result.proposal.id, /^assistant-local-/);
+  assert.equal('moneyEntry' in result, false);
+  assert.equal('confirmation' in result, false);
   assert.equal(runtime.loadCalls, 1);
   assert.equal(runtime.generateCalls, 1);
   assert.equal(runtime.status(), 'ready');
@@ -559,8 +561,13 @@ test('provider and native-free runtime files have no native or finance imports',
     /from ['"]react-native-executorch['"]/,
     /from ['"]expo-/,
     /\bFinanceService\b/,
+    /\bFinanceSession\b/,
     /\bFinanceEngine\b/,
     /\bFinanceRepository\b/,
+    /\bassistantExecution\b/,
+    /\bexecuteMoneyEntry\b/,
+    /\bMoneyEntryInput\b/,
+    /\bcreatePendingConfirmation\b/,
     /recordMoneyEntry/,
     /expo-sqlite/,
     /sqlite/i,
