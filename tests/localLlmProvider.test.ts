@@ -14,8 +14,11 @@ import {
   createLocalAssistantProvider,
   DEFAULT_POLICY_MAX_CONTEXT_TOKENS,
   DEFAULT_POLICY_OUTPUT_TOKEN_ALLOWANCE,
+  DEFAULT_MAX_PENDING_REQUESTS,
   DEFAULT_POLICY_PROMPT_SAFETY_MARGIN_TOKENS,
   LocalLlmProvider,
+  LocalModelQueueFullError,
+  LocalModelUnloadingError,
   PocketaLocalResponseParser,
   PromptBudgetExceededError,
   ValidatedAssistantProvider,
@@ -302,6 +305,316 @@ test('local factory reuses one load across repeated interpretation calls', async
   assert.equal(runtime.generateCalls, 2);
   assert.equal(runtime.requests.length, 2);
   assert.equal(runtime.status(), 'ready');
+});
+
+test('concurrent interpretations share one lazy load and run serially', async () => {
+  const runtime = new FakeLocalModelRuntime({
+    holdLoad: true,
+    responses: [
+      { text: JSON.stringify(localDraft()) },
+      { text: JSON.stringify(localDraft()) },
+    ],
+  });
+  const provider = createLocalAssistantProvider(runtime, { info });
+
+  const first = provider.interpret(
+    'Spent 50 pesos from Food & drinks',
+    createContext(),
+  );
+  const second = provider.interpret(
+    'Spent 50 pesos from Food & drinks',
+    createContext(),
+  );
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  assert.equal(runtime.status(), 'loading');
+  assert.equal(runtime.loadCalls, 1);
+  assert.equal(runtime.generateCalls, 0);
+
+  runtime.releaseLoad();
+  const [firstResult, secondResult] = await Promise.all([first, second]);
+
+  assert.equal(firstResult.kind, 'proposal');
+  assert.equal(secondResult.kind, 'proposal');
+  if (firstResult.kind !== 'proposal' || secondResult.kind !== 'proposal') {
+    return;
+  }
+  assert.notEqual(firstResult.proposal.id, secondResult.proposal.id);
+  assert.equal(runtime.loadCalls, 1);
+  assert.equal(runtime.generateCalls, 2);
+});
+
+test('requests during active generation wait for the active request', async () => {
+  const runtime = new FakeLocalModelRuntime({ holdGeneration: true });
+  const provider = createLocalAssistantProvider(runtime, { info });
+
+  const first = provider.interpret(
+    'Spent 50 pesos from Food & drinks',
+    createContext(),
+  );
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(runtime.generateCalls, 1);
+
+  const second = provider.interpret(
+    'Spent 50 pesos from Food & drinks',
+    createContext(),
+  );
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(runtime.generateCalls, 1);
+  assert.equal(runtime.status(), 'generating');
+
+  runtime.releaseGeneration({ text: JSON.stringify(localDraft()) });
+  const firstResult = await first;
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(runtime.generateCalls, 2);
+
+  runtime.releaseGeneration({ text: JSON.stringify(localDraft()) });
+  const secondResult = await second;
+
+  assert.equal(firstResult.kind, 'proposal');
+  assert.equal(secondResult.kind, 'proposal');
+  assert.equal(runtime.loadCalls, 1);
+});
+
+test('unload during generation cancels active work and rejects queued work', async () => {
+  const runtime = new FakeLocalModelRuntime({ holdGeneration: true });
+  const provider = createLocalAssistantProvider(runtime, { info });
+
+  const first = provider.interpret(
+    'Spent 50 pesos from Food & drinks',
+    createContext(),
+  );
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  const second = provider.interpret(
+    'Spent 50 pesos from Food & drinks',
+    createContext(),
+  );
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  const unloading = provider.unload();
+  const firstRejection = assert.rejects(first, LocalModelCancelledError);
+  const secondRejection = assert.rejects(
+    second,
+    LocalModelUnloadingError,
+  );
+
+  await unloading;
+  await Promise.all([firstRejection, secondRejection]);
+
+  assert.equal(runtime.cancelCalls, 1);
+  assert.equal(runtime.unloadCalls, 1);
+  assert.equal(runtime.generateCalls, 1);
+  assert.equal(runtime.status(), 'unloaded');
+});
+
+test('unload waits for cancellation confirmation and generation settlement', async () => {
+  const runtime = new FakeLocalModelRuntime({
+    holdGeneration: true,
+    holdCancellation: true,
+  });
+  const provider = createLocalAssistantProvider(runtime, { info });
+
+  const interpretation = provider.interpret(
+    'Spent 50 pesos from Food & drinks',
+    createContext(),
+  );
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(runtime.status(), 'generating');
+
+  let unloadSettled = false;
+  const unloading = provider.unload().finally(() => {
+    unloadSettled = true;
+  });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  assert.equal(runtime.cancelCalls, 1);
+  assert.equal(unloadSettled, false);
+
+  runtime.releaseCancellation();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(unloadSettled, false);
+  assert.equal(runtime.status(), 'generating');
+
+  runtime.releaseGeneration({ text: JSON.stringify(localDraft()) });
+  const rejection = assert.rejects(
+    interpretation,
+    LocalModelUnloadingError,
+  );
+  await unloading;
+  await rejection;
+
+  assert.equal(unloadSettled, true);
+  assert.equal(runtime.unloadCalls, 1);
+  assert.equal(runtime.status(), 'unloaded');
+});
+
+test('cancellation failure rejects unload and remains recoverable', async () => {
+  const cancelError = new Error('cancel confirmation failed');
+  const runtime = new FakeLocalModelRuntime({
+    holdGeneration: true,
+    cancelErrorOnce: cancelError,
+  });
+  const provider = createLocalAssistantProvider(runtime, { info });
+
+  const interpretation = provider.interpret(
+    'Spent 50 pesos from Food & drinks',
+    createContext(),
+  );
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  const rejection = assert.rejects(
+    interpretation,
+    LocalModelCancelledError,
+  );
+  await assert.rejects(() => provider.unload(), cancelError);
+  await rejection;
+  assert.equal(runtime.status(), 'unloaded');
+
+  const recovered = provider.interpret(
+    'Spent 50 pesos from Food & drinks',
+    createContext(),
+  );
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(runtime.generateCalls, 2);
+  runtime.releaseGeneration({ text: JSON.stringify(localDraft()) });
+  const result = await recovered;
+
+  assert.equal(result.kind, 'proposal');
+  assert.equal(runtime.status(), 'ready');
+});
+
+test('unload during loading prevents generation and settles as unloaded', async () => {
+  const runtime = new FakeLocalModelRuntime({ holdLoad: true });
+  const provider = createLocalAssistantProvider(runtime, { info });
+
+  const interpretation = provider.interpret(
+    'Spent 50 pesos from Food & drinks',
+    createContext(),
+  );
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(runtime.status(), 'loading');
+
+  let unloadSettled = false;
+  const unloading = provider.unload().finally(() => {
+    unloadSettled = true;
+  });
+  const rejection = assert.rejects(interpretation, LocalModelUnloadingError);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  assert.equal(runtime.unloadCalls, 0);
+  assert.equal(runtime.status(), 'loading');
+  assert.equal(unloadSettled, false);
+
+  runtime.releaseLoad();
+  await unloading;
+  await rejection;
+
+  assert.equal(runtime.generateCalls, 0);
+  assert.equal(runtime.unloadCalls, 1);
+  assert.equal(unloadSettled, true);
+  assert.equal(runtime.status(), 'unloaded');
+});
+
+test('repeated load and unload calls are deterministic', async () => {
+  const runtime = new FakeLocalModelRuntime();
+  const provider = createLocalAssistantProvider(runtime, { info });
+
+  await Promise.all([provider.load(), provider.load()]);
+  assert.equal(runtime.loadCalls, 1);
+  assert.equal(runtime.status(), 'ready');
+
+  const firstUnload = provider.unload();
+  const secondUnload = provider.unload();
+  assert.equal(firstUnload, secondUnload);
+  await firstUnload;
+
+  assert.equal(runtime.unloadCalls, 1);
+  assert.equal(runtime.status(), 'unloaded');
+
+  await provider.load();
+  assert.equal(runtime.loadCalls, 2);
+  assert.equal(runtime.status(), 'ready');
+});
+
+test('load failure leaves the provider recoverable', async () => {
+  const loadError = new Error('transient load failure');
+  const runtime = new FakeLocalModelRuntime({
+    loadErrorOnce: loadError,
+    responses: [{ text: JSON.stringify(localDraft()) }],
+  });
+  const provider = createLocalAssistantProvider(runtime, { info });
+
+  await assert.rejects(
+    () =>
+      provider.interpret(
+        'Spent 50 pesos from Food & drinks',
+        createContext(),
+      ),
+    loadError,
+  );
+  assert.equal(runtime.status(), 'error');
+
+  const result = await provider.interpret(
+    'Spent 50 pesos from Food & drinks',
+    createContext(),
+  );
+
+  assert.equal(result.kind, 'proposal');
+  assert.equal(runtime.loadCalls, 2);
+  assert.equal(runtime.status(), 'ready');
+});
+
+test('unload failure leaves the provider recoverable', async () => {
+  const unloadError = new Error('transient unload failure');
+  const runtime = new FakeLocalModelRuntime({ unloadErrorOnce: unloadError });
+  const provider = createLocalAssistantProvider(runtime, { info });
+
+  await provider.load();
+  await assert.rejects(() => provider.unload(), unloadError);
+  assert.equal(runtime.status(), 'error');
+
+  await provider.load();
+  assert.equal(runtime.status(), 'ready');
+  assert.equal(runtime.loadCalls, 2);
+});
+
+test('pending requests are bounded by the configured queue depth', async () => {
+  const runtime = new FakeLocalModelRuntime({ holdGeneration: true });
+  const provider = createLocalAssistantProvider(runtime, {
+    info,
+    maxPendingRequests: 1,
+  });
+  assert.equal(DEFAULT_MAX_PENDING_REQUESTS, 16);
+
+  const first = provider.interpret(
+    'Spent 50 pesos from Food & drinks',
+    createContext(),
+  );
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  await assert.rejects(
+    () =>
+      provider.interpret(
+        'Spent 50 pesos from Food & drinks',
+        createContext(),
+      ),
+    (error: unknown) => {
+      assert.ok(error instanceof LocalModelQueueFullError);
+      assert.equal(error.maxPendingRequests, 1);
+      return true;
+    },
+  );
+
+  const firstRejection = assert.rejects(
+    first,
+    LocalModelCancelledError,
+  );
+  await runtime.cancel();
+  await firstRejection;
+  await provider.unload();
+
+  assert.equal(runtime.generateCalls, 1);
+  assert.equal(runtime.status(), 'unloaded');
 });
 
 test('local factory unload during generation rejects and clears runtime state', async () => {

@@ -28,6 +28,7 @@ export interface LocalAssistantProviderOptions {
   maxContextTokens?: number;
   outputTokenAllowance?: number;
   promptSafetyMarginTokens?: number;
+  maxPendingRequests?: number;
 }
 
 export function createLocalAssistantProvider(
@@ -45,6 +46,7 @@ export function createLocalAssistantProvider(
       maxContextTokens: options.maxContextTokens,
       outputTokenAllowance: options.outputTokenAllowance,
       promptSafetyMarginTokens: options.promptSafetyMarginTokens,
+      maxPendingRequests: options.maxPendingRequests,
     }),
   );
 }
@@ -57,7 +59,12 @@ export type {
   AssistantProviderKind,
 } from './assistantProvider';
 export { MockAssistantProvider } from './mockAssistantProvider';
-export { LocalLlmProvider } from './localLlmProvider';
+export {
+  DEFAULT_MAX_PENDING_REQUESTS,
+  LocalLlmProvider,
+  LocalModelQueueFullError,
+  LocalModelUnloadingError,
+} from './localLlmProvider';
 export type { LocalLlmProviderOptions } from './localLlmProvider';
 export {
   LOCAL_PROMPT_VERSION,
