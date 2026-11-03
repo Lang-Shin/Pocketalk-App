@@ -106,6 +106,48 @@ function parse(result: AssistantResult): AssistantResult {
   );
 }
 
+test('parses valid proposals for every supported action', () => {
+  const cases = [
+    {
+      message: 'I spent 50 pesos on lunch from Food & drinks.',
+      action: 'expense',
+    },
+    {
+      message: 'My mom sent me 1,000 pesos.',
+      action: 'income',
+    },
+    {
+      message: 'Transfer 100 pesos from Cash to GCash.',
+      action: 'wallet_transfer',
+    },
+    {
+      message: 'Move 150 pesos from Food & drinks to Transport.',
+      action: 'container_transfer',
+    },
+    {
+      message: 'Move 100 pesos from Unallocated to savings.',
+      action: 'savings_contribution',
+    },
+    {
+      message: 'Withdraw 50 pesos from savings to Food & drinks.',
+      action: 'savings_withdrawal',
+    },
+  ] as const;
+
+  for (const { message, action } of cases) {
+    const fixture = interpretAssistantMessage(message, createContext());
+    assert.equal(fixture.kind, 'proposal', message);
+    if (fixture.kind !== 'proposal') continue;
+    assert.equal(fixture.proposal.action, action, message);
+
+    const parsed = parse(fixture);
+    assert.equal(parsed.kind, 'proposal', message);
+    if (parsed.kind !== 'proposal') continue;
+    assert.equal(parsed.proposal.action, action, message);
+    assert.match(parsed.proposal.id, /^assistant-local-/);
+  }
+});
+
 test('parses a valid proposal and replaces the model-provided ID', () => {
   const original = proposalResult();
   assert.equal(original.kind, 'proposal');
@@ -239,9 +281,16 @@ test('normalizes clarification option names without choosing an option', () => {
   );
 });
 
-test('generates a fresh ID for each parse of the same model output', () => {
+test('ignores duplicate or forged model IDs and generates a fresh ID per parse', () => {
   const original = proposalResult();
-  const text = JSON.stringify(original);
+  assert.equal(original.kind, 'proposal');
+  if (original.kind !== 'proposal') return;
+
+  const forgedId = 'assistant-local-forged-duplicate';
+  const text = JSON.stringify({
+    ...original,
+    proposal: { ...original.proposal, id: forgedId },
+  });
   const parser = new PocketaLocalResponseParser();
 
   const first = parser.parse({ text }, createContext());
@@ -250,7 +299,11 @@ test('generates a fresh ID for each parse of the same model output', () => {
   assert.equal(first.kind, 'proposal');
   assert.equal(second.kind, 'proposal');
   if (first.kind !== 'proposal' || second.kind !== 'proposal') return;
+  assert.notEqual(first.proposal.id, forgedId);
+  assert.notEqual(second.proposal.id, forgedId);
   assert.notEqual(first.proposal.id, second.proposal.id);
+  assert.match(first.proposal.id, /^assistant-local-/);
+  assert.match(second.proposal.id, /^assistant-local-/);
 });
 
 test('parses clarification, answer, and refusal results', () => {
@@ -289,6 +342,10 @@ test('rejects malformed JSON and markdown code fences', () => {
         },
         context,
       ),
+    AssistantValidationError,
+  );
+  assert.throws(
+    () => parser.parse({ text: '' }, context),
     AssistantValidationError,
   );
   assert.throws(
@@ -456,6 +513,105 @@ test('rejects results missing required proposal information', () => {
     .amountMinor;
   assert.throws(
     () => parser.parse({ text: JSON.stringify(missingAmount) }, context),
+    AssistantValidationError,
+  );
+
+  const missingWallet = structuredClone(base);
+  delete (missingWallet.proposal as Partial<typeof missingWallet.proposal>)
+    .walletId;
+  delete (missingWallet.proposal as Partial<typeof missingWallet.proposal>)
+    .walletLabel;
+  delete (
+    missingWallet.interpretation as Partial<
+      typeof missingWallet.interpretation
+    >
+  ).sourceWallet;
+  assert.throws(
+    () => parser.parse({ text: JSON.stringify(missingWallet) }, context),
+    AssistantValidationError,
+  );
+
+  const missingContainer = structuredClone(base);
+  delete (missingContainer.proposal as Partial<typeof missingContainer.proposal>)
+    .containerId;
+  delete (missingContainer.proposal as Partial<typeof missingContainer.proposal>)
+    .containerLabel;
+  delete (
+    missingContainer.interpretation as Partial<
+      typeof missingContainer.interpretation
+    >
+  ).sourceContainer;
+  assert.throws(
+    () => parser.parse({ text: JSON.stringify(missingContainer) }, context),
+    AssistantValidationError,
+  );
+
+  const walletTransfer = interpretAssistantMessage(
+    'Transfer 100 pesos from Cash to GCash.',
+    context,
+  );
+  assert.equal(walletTransfer.kind, 'proposal');
+  if (walletTransfer.kind !== 'proposal') return;
+  delete (
+    walletTransfer.proposal as Partial<typeof walletTransfer.proposal>
+  ).destinationWalletId;
+  delete (
+    walletTransfer.proposal as Partial<typeof walletTransfer.proposal>
+  ).destinationWalletLabel;
+  delete (
+    walletTransfer.interpretation as Partial<
+      typeof walletTransfer.interpretation
+    >
+  ).destinationWallet;
+  assert.throws(
+    () => parser.parse({ text: JSON.stringify(walletTransfer) }, context),
+    AssistantValidationError,
+  );
+});
+
+test('rejects ambiguous entity references instead of guessing by name', () => {
+  const context = createContext();
+  context.containers.push({
+    ...context.containers[2]!,
+    id: 'container-food-duplicate',
+  });
+
+  const base = proposalResult();
+  assert.equal(base.kind, 'proposal');
+  if (base.kind !== 'proposal') return;
+
+  const labelOnly = structuredClone(base);
+  delete (labelOnly.proposal as Partial<typeof labelOnly.proposal>).containerId;
+  delete (labelOnly.interpretation as Partial<typeof labelOnly.interpretation>)
+    .sourceContainer;
+  labelOnly.proposal.containerLabel = 'Food & drinks';
+  labelOnly.interpretation.description = labelOnly.proposal.title;
+
+  assert.throws(
+    () =>
+      new PocketaLocalResponseParser().parse(
+        { text: JSON.stringify(labelOnly) },
+        context,
+      ),
+    AssistantValidationError,
+  );
+});
+
+test('still runs assistant validation after parsing', () => {
+  const base = proposalResult();
+  assert.equal(base.kind, 'proposal');
+  if (base.kind !== 'proposal') return;
+
+  const mismatchedAmount = structuredClone(base);
+  mismatchedAmount.interpretation.amountMinor =
+    mismatchedAmount.proposal.amountMinor + 1;
+
+  assert.throws(
+    () =>
+      new PocketaLocalResponseParser().parse(
+        { text: JSON.stringify(mismatchedAmount) },
+        createContext(),
+      ),
     AssistantValidationError,
   );
 });
