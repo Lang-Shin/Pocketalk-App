@@ -581,6 +581,69 @@ test('prompt budget preserves the prompt and reserves output tokens', async () =
   assert.match(assembledPrompt, /PROMPT_END$/);
 });
 
+test('all prompt paths preserve full prompts and receive the output allowance', async () => {
+  const prompts = {
+    interpretation: 'INTERPRET_FULL_PROMPT',
+    container: 'CONTAINER_FULL_PROMPT',
+    wallet: 'WALLET_FULL_PROMPT',
+  };
+  const seenPrompts: string[] = [];
+  const runtime = new FakeLocalModelRuntime({
+    responses: [
+      { text: JSON.stringify(localDraft()) },
+      { text: JSON.stringify(localDraft()) },
+      { text: JSON.stringify(localDraft()) },
+    ],
+  });
+  const provider = createLocalAssistantProvider(runtime, {
+    info,
+    promptBuilder: {
+      interpretationPrompt: () => prompts.interpretation,
+      containerChoicePrompt: () => prompts.container,
+      walletChoicePrompt: () => prompts.wallet,
+    },
+    promptTokenEstimator: {
+      estimate(prompt) {
+        seenPrompts.push(prompt);
+        return 150;
+      },
+    },
+    maxContextTokens: 300,
+    outputTokenAllowance: 120,
+    promptSafetyMarginTokens: 20,
+  });
+  const pending: AssistantPendingIntent = {
+    action: 'expense',
+    amountMinor: 5_000,
+    title: 'Lunch',
+    effectiveDate: '2026-10-20',
+    role: 'source',
+  };
+
+  await provider.interpret('Spent 50 pesos', createContext());
+  await provider.resolveContainerChoice(
+    'container-food',
+    pending,
+    createContext(),
+  );
+  await provider.resolveWalletChoice('wallet-cash', pending, createContext());
+
+  assert.deepEqual(seenPrompts, [
+    prompts.interpretation,
+    prompts.container,
+    prompts.wallet,
+  ]);
+  assert.deepEqual(
+    runtime.requests.map((request) => request.prompt),
+    [prompts.interpretation, prompts.container, prompts.wallet],
+  );
+  assert.deepEqual(
+    runtime.requests.map((request) => request.maxTokens),
+    [120, 120, 120],
+  );
+  assert.equal(runtime.loadCalls, 1);
+});
+
 test('output allowance rejects an otherwise fitting prompt before loading', async () => {
   const runtime = new FakeLocalModelRuntime({
     responses: [{ text: JSON.stringify(localDraft()) }],
