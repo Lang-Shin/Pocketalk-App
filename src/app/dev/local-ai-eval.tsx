@@ -8,7 +8,10 @@ import {
 } from 'react-native';
 
 import type { AssistantResult } from '@/ai/localAssistant';
-import { PocketaLocalPromptBuilder } from '@/ai/providers/localPromptBuilder';
+import {
+  createLocalAssistantProvider,
+  type AssistantProvider,
+} from '@/ai/providers';
 import { PocketaLocalResponseParser } from '@/ai/providers/localResponseParser';
 import { ExecuTorchLocalModelRuntime } from '@/ai/runtime/executorch';
 import { AppText } from '@/components/AppText';
@@ -25,6 +28,12 @@ import {
   type EvaluationCase,
   type EvaluationOutcome,
 } from '@/features/dev/localAiEvaluation';
+import {
+  InstrumentedLocalModelRuntime,
+  InstrumentedPromptBuilder,
+  instrumentedCaseMetrics,
+  type InstrumentedCaseMetrics,
+} from '@/features/dev/localAiInstrumentation';
 import { useAppTheme, radii, spacing } from '@/theme';
 
 interface EvaluationRun {
@@ -32,8 +41,19 @@ interface EvaluationRun {
   parsed: AssistantResult | null;
   parseError: string | null;
   outcome: EvaluationOutcome;
-  durationMs: number;
+  metrics: InstrumentedCaseMetrics & { totalMs: number };
 }
+
+const LOCAL_EVALUATION_INFO = {
+  id: 'local-executorch-evaluation',
+  displayName: 'Local ExecuTorch evaluation',
+  kind: 'local_llm' as const,
+  isRealModel: true,
+  modelName: 'Qwen2.5-0.5B-Instruct',
+  needsModelDownload: true,
+  offline: true,
+  description: 'Development-only local structured-output evaluation.',
+};
 
 interface EvaluationPaths {
   model: string;
@@ -43,8 +63,9 @@ interface EvaluationPaths {
 
 export default function LocalAiEvaluationScreen() {
   const { theme } = useAppTheme();
-  const runtimeRef = useRef<ExecuTorchLocalModelRuntime | null>(null);
-  const promptBuilderRef = useRef(new PocketaLocalPromptBuilder());
+  const runtimeRef = useRef<InstrumentedLocalModelRuntime | null>(null);
+  const promptBuilderRef = useRef<InstrumentedPromptBuilder | null>(null);
+  const providerRef = useRef<AssistantProvider | null>(null);
   const parserRef = useRef(new PocketaLocalResponseParser());
   const [paths, setPaths] = useState<EvaluationPaths | null>(null);
   const [pathError, setPathError] = useState<string | null>(null);
@@ -79,6 +100,8 @@ export default function LocalAiEvaluationScreen() {
     () => () => {
       const runtime = runtimeRef.current;
       runtimeRef.current = null;
+      promptBuilderRef.current = null;
+      providerRef.current = null;
       if (runtime) void runtime.unload().catch(() => undefined);
     },
     [],
@@ -154,11 +177,44 @@ export default function LocalAiEvaluationScreen() {
     }
   }
 
+  function ensureProvider(currentPaths: EvaluationPaths): {
+    runtime: InstrumentedLocalModelRuntime;
+    promptBuilder: InstrumentedPromptBuilder;
+    provider: AssistantProvider;
+  } {
+    if (runtimeRef.current && promptBuilderRef.current && providerRef.current) {
+      return {
+        runtime: runtimeRef.current,
+        promptBuilder: promptBuilderRef.current,
+        provider: providerRef.current,
+      };
+    }
+
+    const runtime = new InstrumentedLocalModelRuntime(
+      new ExecuTorchLocalModelRuntime({
+        modelPath: currentPaths.model,
+        tokenizerPath: currentPaths.tokenizer,
+        tokenizerConfigPath: currentPaths.tokenizerConfig,
+        maxNewTokens: 512,
+        temperature: 0.1,
+      }),
+    );
+    const promptBuilder = new InstrumentedPromptBuilder();
+    const provider = createLocalAssistantProvider(runtime, {
+      info: LOCAL_EVALUATION_INFO,
+      promptBuilder,
+    });
+    runtimeRef.current = runtime;
+    promptBuilderRef.current = promptBuilder;
+    providerRef.current = provider;
+    return { runtime, promptBuilder, provider };
+  }
+
   async function executeCase(
     testCase: EvaluationCase,
     currentPaths: EvaluationPaths,
   ): Promise<EvaluationRun> {
-    const startedAt = currentTimeMs();
+    const caseStartedAt = currentTimeMs();
 
     if (testCase.syntheticRaw !== undefined) {
       try {
@@ -177,7 +233,7 @@ export default function LocalAiEvaluationScreen() {
             summary:
               'Expected parser rejection, but the parser accepted the output.',
           },
-          durationMs: currentTimeMs() - startedAt,
+          metrics: emptyCaseMetrics(currentTimeMs() - caseStartedAt),
         };
       } catch (error) {
         return {
@@ -185,74 +241,67 @@ export default function LocalAiEvaluationScreen() {
           parsed: null,
           parseError: errorMessage(error),
           outcome: evaluateParserRejection(error),
-          durationMs: currentTimeMs() - startedAt,
+          metrics: emptyCaseMetrics(currentTimeMs() - caseStartedAt),
         };
       }
     }
 
-    const runtime =
-      runtimeRef.current ??
-      new ExecuTorchLocalModelRuntime({
-        modelPath: currentPaths.model,
-        tokenizerPath: currentPaths.tokenizer,
-        tokenizerConfigPath: currentPaths.tokenizerConfig,
-        maxNewTokens: 512,
-        temperature: 0.1,
-      });
-    runtimeRef.current = runtime;
+    const { runtime, promptBuilder, provider } =
+      ensureProvider(currentPaths);
+    runtime.resetCase();
+    promptBuilder.resetCase();
 
-    await runtime.load();
-    const generationStartedAt = currentTimeMs();
-    let rawOutput: string;
-    try {
-      const response = await runtime.generate({
-        prompt: promptBuilderRef.current.interpretationPrompt(
-          testCase.message,
-          LOCAL_AI_EVALUATION_CONTEXT,
-        ),
-        maxTokens: 512,
-      });
-      rawOutput = response.text;
-    } finally {
-      await runtime.unload().catch(() => undefined);
-    }
-    const durationMs = currentTimeMs() - generationStartedAt;
+    let parsed: AssistantResult | null = null;
+    let parseError: string | null = null;
+    let outcome: EvaluationOutcome;
+    let rawOutput = '';
 
     try {
-      const parsed = parserRef.current.parse(
-        { text: rawOutput },
+      const result = await provider.interpret(
+        testCase.message,
         LOCAL_AI_EVALUATION_CONTEXT,
       );
-      return {
-        rawOutput,
-        parsed,
-        parseError: null,
-        outcome: evaluateParsedResult(testCase, parsed),
-        durationMs,
-      };
+      rawOutput = runtime.lastResponse?.text ?? '';
+      parsed = result;
+      outcome = evaluateParsedResult(testCase, result);
     } catch (error) {
-      return {
-        rawOutput,
-        parsed: null,
-        parseError: errorMessage(error),
-        outcome: {
-          passed: false,
-          checks: {
-            schemaValid: false,
-            kindCorrect: false,
-            intentCorrect: null,
-            amountCorrect: null,
-            entitiesCorrect: null,
-            dateCorrect: null,
-            missingFieldsCorrect: null,
-            unsupportedHandled: false,
-            semanticFaithful: false,
-          },
-          summary: `Parser rejected model output: ${errorMessage(error)}`,
+      rawOutput = runtime.lastResponse?.text ?? '';
+      parseError = errorMessage(error);
+      outcome = {
+        passed: false,
+        checks: {
+          schemaValid: false,
+          kindCorrect: false,
+          intentCorrect: null,
+          amountCorrect: null,
+          entitiesCorrect: null,
+          dateCorrect: null,
+          missingFieldsCorrect: null,
+          unsupportedHandled: false,
+          semanticFaithful: false,
         },
-        durationMs,
+        summary: `Provider or parser rejected model output: ${parseError}`,
       };
     }
+
+    try {
+      await provider.unload();
+    } catch (error) {
+      if (!parseError) {
+        parseError = `Unload failed after generation: ${errorMessage(error)}`;
+      }
+    }
+
+    return {
+      rawOutput,
+      parsed,
+      parseError,
+      outcome,
+      metrics: {
+        ...instrumentedCaseMetrics(runtime, promptBuilder),
+        totalMs: currentTimeMs() - caseStartedAt,
+      },
+    };
   }
 
   async function runOne(testCase: EvaluationCase): Promise<void> {
@@ -289,6 +338,8 @@ export default function LocalAiEvaluationScreen() {
     } finally {
       const runtime = runtimeRef.current;
       runtimeRef.current = null;
+      promptBuilderRef.current = null;
+      providerRef.current = null;
       if (runtime) await runtime.unload().catch(() => undefined);
       setRunning(null);
     }
@@ -403,8 +454,31 @@ export default function LocalAiEvaluationScreen() {
               />
               {run ? (
                 <View style={styles.result}>
-                  <AppText variant="caption" color={theme.colors.textSecondary}>
-                    Inference: {run.durationMs} ms
+                  <AppText variant="micro" color={theme.colors.textTertiary}>
+                    TIMING
+                  </AppText>
+                  <AppText variant="caption">
+                    load={formatMs(run.metrics.loadMs)} ·
+                    prompt={formatMs(run.metrics.promptPreparationMs)} ·
+                    generate={formatMs(run.metrics.generationMs)} ·
+                    ttft={formatMs(run.metrics.timeToFirstTokenMs)} ·
+                    unload={formatMs(run.metrics.unloadMs)} ·
+                    total={formatMs(run.metrics.totalMs)}
+                  </AppText>
+                  <AppText variant="micro" color={theme.colors.textTertiary}>
+                    RUNTIME METRICS
+                  </AppText>
+                  <AppText variant="caption">
+                    promptTokens={String(run.metrics.promptTokens)} ·
+                    outputTokens={String(run.metrics.outputTokens)} ·
+                    maxTokens={String(run.metrics.maxTokens)} ·
+                    outputLimit={run.metrics.outputLimitStatus} ·
+                    status={String(run.metrics.runtimeStatusAfterGeneration)}
+                  </AppText>
+                  <AppText variant="caption" selectable>
+                    {run.metrics.generationStats
+                      ? JSON.stringify(run.metrics.generationStats)
+                      : 'Runtime metrics unavailable.'}
                   </AppText>
                   <AppText variant="micro" color={theme.colors.textTertiary}>
                     RAW MODEL OUTPUT
@@ -457,6 +531,29 @@ export default function LocalAiEvaluationScreen() {
 
 function currentTimeMs(): number {
   return Date.now();
+}
+
+function emptyCaseMetrics(
+  totalMs: number,
+): InstrumentedCaseMetrics & { totalMs: number } {
+  return {
+    loadMs: null,
+    promptPreparationMs: null,
+    generationMs: null,
+    timeToFirstTokenMs: null,
+    unloadMs: null,
+    promptTokens: null,
+    outputTokens: null,
+    runtimeStatusAfterGeneration: null,
+    maxTokens: null,
+    outputLimitStatus: 'unknown',
+    generationStats: null,
+    totalMs,
+  };
+}
+
+function formatMs(value: number | null): string {
+  return value === null ? 'n/a' : `${value} ms`;
 }
 
 function errorMessage(error: unknown): string {
