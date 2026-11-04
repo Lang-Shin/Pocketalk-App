@@ -164,6 +164,13 @@ export class InstrumentedLocalModelRuntime implements LocalModelRuntime {
   }
 }
 
+export async function unloadRuntimeSafely(
+  runtime: LocalModelRuntime | null | undefined,
+): Promise<void> {
+  if (!runtime) return;
+  await runtime.unload().catch(() => undefined);
+}
+
 export function instrumentedCaseMetrics(
   runtime: InstrumentedLocalModelRuntime,
   promptBuilder: InstrumentedPromptBuilder,

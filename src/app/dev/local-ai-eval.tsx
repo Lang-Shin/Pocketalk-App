@@ -12,7 +12,6 @@ import {
   createLocalAssistantProvider,
   type AssistantProvider,
 } from '@/ai/providers';
-import { PocketaLocalResponseParser } from '@/ai/providers/localResponseParser';
 import { ExecuTorchLocalModelRuntime } from '@/ai/runtime/executorch';
 import { AppText } from '@/components/AppText';
 import { AppButton } from '@/components/ui/AppButton';
@@ -29,18 +28,18 @@ import {
   type EvaluationOutcome,
 } from '@/features/dev/localAiEvaluation';
 import {
+  createEvaluationStrategy,
+  STRATEGY_LABELS,
+  type EvaluationStrategy,
+} from '@/features/dev/evaluationStrategies';
+import {
   InstrumentedLocalModelRuntime,
   InstrumentedPromptBuilder,
   instrumentedCaseMetrics,
+  unloadRuntimeSafely,
   type InstrumentedCaseMetrics,
 } from '@/features/dev/localAiInstrumentation';
-import {
-  MinimalSchemaPromptBuilder,
-  MinimalSchemaResponseParser,
-} from '@/features/dev/minimalSchemaStrategy';
 import { useAppTheme, radii, spacing } from '@/theme';
-
-type EvaluationStrategy = 'production' | 'minimal';
 
 interface EvaluationRun {
   strategy: EvaluationStrategy;
@@ -50,11 +49,6 @@ interface EvaluationRun {
   outcome: EvaluationOutcome;
   metrics: InstrumentedCaseMetrics & { totalMs: number };
 }
-
-const STRATEGY_LABELS: Record<EvaluationStrategy, string> = {
-  production: 'Production prompt',
-  minimal: 'Minimal schema A',
-};
 
 const LOCAL_EVALUATION_INFO = {
   id: 'local-executorch-evaluation',
@@ -82,8 +76,6 @@ export default function LocalAiEvaluationScreen() {
   const providersRef = useRef<
     Partial<Record<EvaluationStrategy, AssistantProvider>>
   >({});
-  const parserRef = useRef(new PocketaLocalResponseParser());
-  const minimalParserRef = useRef(new MinimalSchemaResponseParser());
   const [strategy, setStrategy] =
     useState<EvaluationStrategy>('production');
   const [paths, setPaths] = useState<EvaluationPaths | null>(null);
@@ -122,7 +114,7 @@ export default function LocalAiEvaluationScreen() {
       runtimeRef.current = null;
       promptBuildersRef.current = {};
       providersRef.current = {};
-      if (runtime) void runtime.unload().catch(() => undefined);
+      void unloadRuntimeSafely(runtime);
     },
     [],
   );
@@ -228,18 +220,12 @@ export default function LocalAiEvaluationScreen() {
       };
     }
 
-    const promptBuilder = new InstrumentedPromptBuilder(
-      selectedStrategy === 'minimal'
-        ? { delegate: new MinimalSchemaPromptBuilder() }
-        : {},
-    );
+    const { promptBuilder, responseParser } =
+      createEvaluationStrategy(selectedStrategy);
     const provider = createLocalAssistantProvider(runtime, {
       info: LOCAL_EVALUATION_INFO,
       promptBuilder,
-      responseParser:
-        selectedStrategy === 'minimal'
-          ? new MinimalSchemaResponseParser()
-          : undefined,
+      responseParser,
     });
     promptBuildersRef.current[selectedStrategy] = promptBuilder;
     providersRef.current[selectedStrategy] = provider;
@@ -254,10 +240,8 @@ export default function LocalAiEvaluationScreen() {
     const caseStartedAt = currentTimeMs();
 
     if (testCase.syntheticRaw !== undefined) {
-      const parser =
-        selectedStrategy === 'minimal'
-          ? minimalParserRef.current
-          : parserRef.current;
+      const { responseParser: parser } =
+        createEvaluationStrategy(selectedStrategy);
       try {
         const parsed = parser.parse(
           { text: testCase.syntheticRaw },
@@ -396,7 +380,7 @@ export default function LocalAiEvaluationScreen() {
       runtimeRef.current = null;
       promptBuildersRef.current = {};
       providersRef.current = {};
-      if (runtime) await runtime.unload().catch(() => undefined);
+      await unloadRuntimeSafely(runtime);
       setRunning(null);
     }
   }
