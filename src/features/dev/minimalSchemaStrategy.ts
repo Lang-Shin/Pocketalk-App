@@ -18,7 +18,9 @@ export const MINIMAL_SCHEMA_PROMPT_VERSION = 'pocketa-minimal-v1';
 
 const INSTRUCTIONS = `Return exactly one JSON object and no markdown.
 Use only wallet and container IDs that appear in CONTEXT_JSON.
-Never invent amounts, dates, wallets, containers, or IDs.
+Never invent amounts, wallets, containers, or IDs.
+If no date is stated, use todayDateKey; never invent another date.
+Income without a named destination uses system-unallocated.
 If required information is missing, return a clarification.
 If the request is not a Pocketa finance message, return a refusal.
 Do not execute, confirm, or save anything.

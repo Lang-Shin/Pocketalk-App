@@ -103,6 +103,8 @@ export interface EvaluationExpectation {
   destinationContainerId?: string;
   missingFields?: readonly AssistantMissingField[];
   topic?: AssistantQuestionTopic;
+  answerScope?: 'topic-only' | 'full';
+  allowDateClarification?: boolean;
   description: string;
 }
 
@@ -126,8 +128,9 @@ export const LOCAL_AI_EVALUATION_CASES: readonly EvaluationCase[] = [
       amountMinor: 100_000,
       effectiveDate: '2026-10-20',
       destinationContainerId: 'system-unallocated',
+      allowDateClarification: true,
       description:
-        'Income proposal for PHP 1,000 on 2026-10-20 into Unallocated.',
+        'Income proposal for PHP 1,000 on 2026-10-20 into Unallocated, or clarification for the missing date.',
     },
   },
   {
@@ -141,8 +144,9 @@ export const LOCAL_AI_EVALUATION_CASES: readonly EvaluationCase[] = [
       amountMinor: 5_000,
       effectiveDate: '2026-10-20',
       containerId: 'container-food',
+      allowDateClarification: true,
       description:
-        'Expense proposal for PHP 50 from Food & drinks on 2026-10-20.',
+        'Expense proposal for PHP 50 from Food & drinks on 2026-10-20, or clarification for the missing date.',
     },
   },
   {
@@ -157,8 +161,9 @@ export const LOCAL_AI_EVALUATION_CASES: readonly EvaluationCase[] = [
       effectiveDate: '2026-10-20',
       sourceWalletId: 'wallet-cash',
       destinationWalletId: 'wallet-gcash',
+      allowDateClarification: true,
       description:
-        'Wallet transfer of PHP 100 from Cash to GCash on 2026-10-20.',
+        'Wallet transfer of PHP 100 from Cash to GCash on 2026-10-20, or clarification for the missing date.',
     },
   },
   {
@@ -173,8 +178,9 @@ export const LOCAL_AI_EVALUATION_CASES: readonly EvaluationCase[] = [
       effectiveDate: '2026-10-20',
       containerId: 'container-food',
       destinationContainerId: 'container-transport',
+      allowDateClarification: true,
       description:
-        'Container transfer of PHP 150 from Food & drinks to Transport.',
+        'Container transfer of PHP 150 from Food & drinks to Transport on 2026-10-20, or clarification for the missing date.',
     },
   },
   {
@@ -185,7 +191,9 @@ export const LOCAL_AI_EVALUATION_CASES: readonly EvaluationCase[] = [
       kind: 'answer',
       intent: 'balance_inquiry',
       topic: 'savings_balance',
-      description: 'Read-only Savings balance answer; no proposal.',
+      answerScope: 'topic-only',
+      description:
+        'Read-only Savings balance answer; topic recognition only, figures are not scored.',
     },
   },
   {
@@ -196,7 +204,9 @@ export const LOCAL_AI_EVALUATION_CASES: readonly EvaluationCase[] = [
       kind: 'answer',
       intent: 'spending_summary',
       topic: 'monthly_spending',
-      description: 'Read-only monthly spending summary; no proposal.',
+      answerScope: 'topic-only',
+      description:
+        'Read-only monthly spending summary; topic recognition only, figures are not scored.',
     },
   },
   {
@@ -207,7 +217,9 @@ export const LOCAL_AI_EVALUATION_CASES: readonly EvaluationCase[] = [
       kind: 'answer',
       intent: 'budget_inquiry',
       topic: 'budget_remaining',
-      description: 'Read-only remaining budget answer; no proposal.',
+      answerScope: 'topic-only',
+      description:
+        'Read-only remaining budget answer; topic recognition only, figures are not scored.',
     },
   },
   {
@@ -297,7 +309,12 @@ export function evaluateParsedResult(
     expected.kind === 'non-proposal'
       ? expected.allowedKinds ?? ['clarification', 'refusal']
       : [expected.kind];
-  const kindCorrect = allowedKinds.includes(result.kind);
+  const dateClarification =
+    expected.allowDateClarification === true &&
+    result.kind === 'clarification' &&
+    result.interpretation.missingFields.includes('effectiveDate');
+  const kindCorrect =
+    allowedKinds.includes(result.kind) || dateClarification;
   const intentCorrect = expected.intent
     ? result.intent === expected.intent
     : null;
@@ -313,9 +330,11 @@ export function evaluateParsedResult(
 
   if (expected.kind === 'proposal') {
     if (result.kind !== 'proposal') {
-      amountCorrect = false;
-      entitiesCorrect = false;
-      dateCorrect = false;
+      if (!dateClarification) {
+        amountCorrect = false;
+        entitiesCorrect = false;
+        dateCorrect = false;
+      }
     } else {
       amountCorrect =
         expected.amountMinor === undefined ||

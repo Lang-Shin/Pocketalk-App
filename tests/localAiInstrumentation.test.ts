@@ -79,9 +79,11 @@ test('prompt builder instrumentation records prompt preparation time', () => {
 
   assert.equal(builder.interpretationPrompt('message', {} as never), 'prompt');
   assert.equal(builder.promptPreparationMs, 3);
+  assert.equal(builder.promptCharacters, 6);
 
   builder.resetCase();
   assert.equal(builder.promptPreparationMs, null);
+  assert.equal(builder.promptCharacters, null);
 });
 
 test('metrics capture prompt tokens, output tokens, TTFT, and cap status', async () => {
@@ -127,6 +129,7 @@ test('metrics capture prompt tokens, output tokens, TTFT, and cap status', async
   assert.equal(result.loadMs, 2);
   assert.equal(result.generationMs, 40);
   assert.equal(result.promptPreparationMs, 0);
+  assert.equal(result.promptCharacters, 1);
   assert.equal(result.timeToFirstTokenMs, 12);
   assert.equal(result.promptTokens, 1_193);
   assert.equal(result.outputTokens, 512);

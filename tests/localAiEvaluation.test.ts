@@ -6,6 +6,7 @@ import {
   type AssistantResult,
 } from '../src/ai/localAssistant';
 import { PocketaLocalResponseParser } from '../src/ai/providers/localResponseParser';
+import { MinimalSchemaResponseParser } from '../src/features/dev/minimalSchemaStrategy';
 import {
   LOCAL_AI_EVALUATION_CASES,
   LOCAL_AI_EVALUATION_CONTEXT,
@@ -53,6 +54,77 @@ test('deterministic fixtures satisfy proposal, clarification, and answer cases',
     const evaluation = evaluateParsedResult(testCase, result);
     assert.equal(evaluation.passed, true, id);
   }
+});
+
+test('original model messages remain unchanged', () => {
+  assert.deepEqual(
+    LOCAL_AI_EVALUATION_CASES.slice(0, 11).map((testCase) => testCase.message),
+    [
+      'My mom sent me 1,000 pesos.',
+      'I spent 50 pesos on lunch from Food & drinks.',
+      'Transfer 100 pesos from Cash to GCash.',
+      'Move 150 pesos from Food & drinks to Transport.',
+      'How much is in Savings?',
+      'How much did I spend this month?',
+      'How much budget is left for Food & drinks?',
+      'I spent on lunch from Food & drinks.',
+      'Move 150 pesos from Food & drinks.',
+      'I spent 50 pesos on lunch last week.',
+      'What is the weather tomorrow?',
+    ],
+  );
+});
+
+test('missing-date clarification is accepted as a valid alternative', () => {
+  const testCase = modelCase('expense');
+  const parsed = new MinimalSchemaResponseParser().parse(
+    {
+      text: JSON.stringify({
+        type: 'clarification',
+        intent: 'expense',
+        message: 'What date should I use?',
+        missingFields: ['effectiveDate'],
+        clarificationReason: 'setup',
+        confidence: 0.5,
+      }),
+    },
+    LOCAL_AI_EVALUATION_CONTEXT,
+  );
+
+  const evaluation = evaluateParsedResult(testCase, parsed);
+  assert.equal(evaluation.passed, true);
+  assert.equal(evaluation.checks.schemaValid, true);
+  assert.equal(evaluation.checks.semanticFaithful, true);
+});
+
+test('read-only answer cases are explicitly topic-only', () => {
+  for (const id of [
+    'balance-inquiry',
+    'spending-summary',
+    'budget-inquiry',
+  ]) {
+    const testCase = modelCase(id);
+    assert.equal(testCase.expectation.answerScope, 'topic-only');
+  }
+
+  const testCase = modelCase('balance-inquiry');
+  const parsed = new MinimalSchemaResponseParser().parse(
+    {
+      text: JSON.stringify({
+        type: 'answer',
+        intent: 'balance_inquiry',
+        message: 'Savings balance question recognized.',
+        topic: 'savings_balance',
+        title: 'Savings balance',
+        figures: [],
+        confidence: 0.5,
+      }),
+    },
+    LOCAL_AI_EVALUATION_CONTEXT,
+  );
+  const evaluation = evaluateParsedResult(testCase, parsed);
+  assert.equal(evaluation.passed, true);
+  assert.equal(evaluation.checks.semanticFaithful, true);
 });
 
 test('valid JSON with wrong semantics fails semantic evaluation', () => {

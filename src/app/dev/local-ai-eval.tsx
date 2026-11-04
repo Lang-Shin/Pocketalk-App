@@ -356,22 +356,18 @@ export default function LocalAiEvaluationScreen() {
     }
   }
 
-  async function runAll(
-    selectedStrategies: readonly EvaluationStrategy[] = [strategy],
-  ): Promise<void> {
+  async function runAll(): Promise<void> {
     if (running || !paths) return;
     setRunning('all');
     setPathError(null);
     try {
       await verifyArtifacts(paths);
-      for (const selected of selectedStrategies) {
-        for (const testCase of LOCAL_AI_EVALUATION_CASES) {
-          const run = await executeCase(testCase, paths, selected);
-          setRuns((current) => ({
-            ...current,
-            [`${selected}:${testCase.id}`]: run,
-          }));
-        }
+      for (const testCase of LOCAL_AI_EVALUATION_CASES) {
+        const run = await executeCase(testCase, paths, strategy);
+        setRuns((current) => ({
+          ...current,
+          [`${strategy}:${testCase.id}`]: run,
+        }));
       }
     } catch (error) {
       setPathError(errorMessage(error));
@@ -477,6 +473,13 @@ export default function LocalAiEvaluationScreen() {
               onPress={() => setStrategy('minimal')}
               disabled={running !== null}
             />
+            <AppButton
+              label={STRATEGY_LABELS['minimal-b']}
+              size="small"
+              variant={strategy === 'minimal-b' ? 'primary' : 'outline'}
+              onPress={() => setStrategy('minimal-b')}
+              disabled={running !== null}
+            />
           </View>
           <AppText variant="caption" color={theme.colors.textSecondary}>
             Completed: {completed.length} / {LOCAL_AI_EVALUATION_CASES.length};
@@ -489,16 +492,9 @@ export default function LocalAiEvaluationScreen() {
                   ? 'Running'
                   : `Run ${STRATEGY_LABELS[strategy]}`
               }
-              onPress={() => void runAll([strategy])}
+              onPress={() => void runAll()}
               disabled={running !== null || !paths}
               icon="play"
-            />
-            <AppButton
-              label="Run comparison"
-              variant="outline"
-              onPress={() => void runAll(['production', 'minimal'])}
-              disabled={running !== null || !paths}
-              icon="analytics"
             />
             <AppButton
               label="Export results"
@@ -571,7 +567,8 @@ export default function LocalAiEvaluationScreen() {
                   </AppText>
                   <AppText variant="caption">
                     load={formatMs(run.metrics.loadMs)} ·
-                    prompt={formatMs(run.metrics.promptPreparationMs)} ·
+                    prompt={formatMs(run.metrics.promptPreparationMs)}
+                    chars={String(run.metrics.promptCharacters)} ·
                     generate={formatMs(run.metrics.generationMs)} ·
                     ttft={formatMs(run.metrics.timeToFirstTokenMs)} ·
                     unload={formatMs(run.metrics.unloadMs)} ·
@@ -655,6 +652,7 @@ function emptyCaseMetrics(
   return {
     loadMs: null,
     promptPreparationMs: null,
+    promptCharacters: null,
     generationMs: null,
     timeToFirstTokenMs: null,
     unloadMs: null,

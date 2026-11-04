@@ -20,6 +20,7 @@ export type OutputLimitStatus =
 export interface InstrumentedCaseMetrics {
   loadMs: number | null;
   promptPreparationMs: number | null;
+  promptCharacters: number | null;
   generationMs: number | null;
   timeToFirstTokenMs: number | null;
   unloadMs: number | null;
@@ -40,6 +41,7 @@ export class InstrumentedPromptBuilder implements LocalModelPromptBuilder {
   private readonly now: () => number;
   private readonly delegate: LocalModelPromptBuilder;
   promptPreparationMs: number | null = null;
+  promptCharacters: number | null = null;
 
   constructor(options: InstrumentedPromptBuilderOptions = {}) {
     this.now = options.now ?? (() => Date.now());
@@ -48,6 +50,7 @@ export class InstrumentedPromptBuilder implements LocalModelPromptBuilder {
 
   resetCase(): void {
     this.promptPreparationMs = null;
+    this.promptCharacters = null;
   }
 
   interpretationPrompt(text: string, context: AssistantContext): string {
@@ -78,10 +81,13 @@ export class InstrumentedPromptBuilder implements LocalModelPromptBuilder {
 
   private measure(operation: () => string): string {
     const startedAt = this.now();
+    let prompt = '';
     try {
-      return operation();
+      prompt = operation();
+      return prompt;
     } finally {
       this.promptPreparationMs = this.now() - startedAt;
+      this.promptCharacters = prompt.length;
     }
   }
 }
@@ -179,6 +185,7 @@ export function instrumentedCaseMetrics(
   return {
     loadMs: runtime.loadMs,
     promptPreparationMs: promptBuilder.promptPreparationMs,
+    promptCharacters: promptBuilder.promptCharacters,
     generationMs: runtime.generationMs,
     timeToFirstTokenMs: generationStats?.timeToFirstTokenMs ?? null,
     unloadMs: runtime.unloadMs,
