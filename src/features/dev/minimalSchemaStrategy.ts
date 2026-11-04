@@ -123,6 +123,8 @@ function toAssistantResult(
 
   if (type === 'proposal') {
     const action = asString(record.action, 'result.action');
+    assertProposalKeys(record, action);
+    assertActionIntent(action, intent);
     const title = asNonEmptyString(record.title, 'result.title');
     const amountMinor = asPositiveInteger(
       record.amountMinor,
@@ -173,6 +175,20 @@ function toAssistantResult(
   }
 
   if (type === 'clarification') {
+    assertOnlyKeys(
+      record,
+      [
+        'type',
+        'intent',
+        'message',
+        'missingFields',
+        'clarificationReason',
+        'confidence',
+        'title',
+        'fromContainerId',
+      ],
+      'clarification',
+    );
     const missingFields = asStringArray(
       record.missingFields,
       'result.missingFields',
@@ -186,6 +202,15 @@ function toAssistantResult(
         'A clarification must include missingFields.',
       );
     }
+    const title =
+      record.title === undefined
+        ? undefined
+        : asNonEmptyString(record.title, 'result.title');
+    const sourceContainer = containerRefOrThrow(
+      record.fromContainerId,
+      context,
+      'result.fromContainerId',
+    );
     return {
       kind: 'clarification',
       intent,
@@ -196,6 +221,8 @@ function toAssistantResult(
       interpretation: {
         intent,
         confidence,
+        description: title,
+        sourceContainer,
         missingFields,
         clarificationQuestion: message,
         reasoningSummary: message,
@@ -204,11 +231,29 @@ function toAssistantResult(
   }
 
   if (type === 'answer') {
+    assertOnlyKeys(
+      record,
+      [
+        'type',
+        'intent',
+        'message',
+        'topic',
+        'title',
+        'figures',
+        'confidence',
+      ],
+      'answer',
+    );
     const topic = asString(record.topic, 'result.topic');
     const title = asNonEmptyString(record.title, 'result.title');
     const figures = asArray(record.figures, 'result.figures').map(
       (figure, index) => {
         const item = asRecord(figure, `result.figures[${index}]`);
+        assertOnlyKeys(
+          item,
+          ['label', 'amountMinor'],
+          `result.figures[${index}]`,
+        );
         return {
           label: asNonEmptyString(item.label, 'figure.label'),
           amountMinor: asNonNegativeInteger(
@@ -233,6 +278,11 @@ function toAssistantResult(
   }
 
   if (type === 'refusal') {
+    assertOnlyKeys(
+      record,
+      ['type', 'intent', 'message', 'confidence'],
+      'refusal',
+    );
     return {
       kind: 'refusal',
       intent,
@@ -494,6 +544,91 @@ function serializeContext(context: AssistantContext): unknown {
     })),
     summary: context.summary,
   };
+}
+
+function assertProposalKeys(
+  record: Record<string, unknown>,
+  action: string,
+): void {
+  const common = [
+    'type',
+    'intent',
+    'action',
+    'message',
+    'title',
+    'amountMinor',
+    'effectiveDate',
+    'confidence',
+  ];
+  const specific =
+    action === 'expense'
+      ? ['walletId', 'fromContainerId']
+      : action === 'income'
+        ? ['walletId', 'toContainerId']
+        : action === 'wallet_transfer'
+          ? ['fromWalletId', 'toWalletId']
+          : action === 'container_transfer' ||
+              action === 'savings_contribution' ||
+              action === 'savings_withdrawal'
+            ? ['fromContainerId', 'toContainerId']
+            : [];
+  assertOnlyKeys(record, [...common, ...specific], 'proposal');
+}
+
+function assertActionIntent(action: string, intent: string): void {
+  const expected =
+    action === 'expense' ||
+    action === 'income' ||
+    action === 'wallet_transfer'
+      ? action
+      : action === 'container_transfer' ||
+          action === 'savings_contribution' ||
+          action === 'savings_withdrawal'
+        ? 'container_transfer'
+        : null;
+  if (!expected) {
+    throw new AssistantValidationError(
+      'result.action is not a supported proposal action.',
+    );
+  }
+  if (intent !== expected) {
+    throw new AssistantValidationError(
+      'result.intent does not match result.action.',
+    );
+  }
+}
+
+function assertOnlyKeys(
+  record: Record<string, unknown>,
+  allowed: readonly string[],
+  label: string,
+): void {
+  const allowedKeys = new Set(allowed);
+  for (const key of Object.keys(record)) {
+    if (!allowedKeys.has(key)) {
+      throw new AssistantValidationError(
+        `${label} contains unsupported field ${key}.`,
+      );
+    }
+  }
+}
+
+function containerRefOrThrow(
+  value: unknown,
+  context: AssistantContext,
+  label: string,
+): { id: string; name: string } | undefined {
+  if (value === undefined) return undefined;
+  const id = asString(value, label);
+  const container = context.containers.find(
+    (candidate) => candidate.id === id,
+  );
+  if (!container) {
+    throw new AssistantValidationError(
+      `${label} references an unknown container.`,
+    );
+  }
+  return { id, name: container.name };
 }
 
 function asRecord(

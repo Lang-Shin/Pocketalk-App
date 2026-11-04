@@ -156,3 +156,50 @@ test('minimal parser still rejects invalid or unknown entities', () => {
     AssistantValidationError,
   );
 });
+
+test('minimal parser rejects invented fields and intent/action mismatches', () => {
+  assert.throws(
+    () =>
+      parser.parse(
+        {
+          text: JSON.stringify({
+            type: 'proposal',
+            intent: 'expense',
+            action: 'expense',
+            message: 'Lunch',
+            title: 'Lunch',
+            amountMinor: 5000,
+            effectiveDate: '2026-10-20',
+            walletId: 'wallet-gcash',
+            fromContainerId: 'container-food',
+            confidence: 0.9,
+            inventedField: 'not allowed',
+          }),
+        },
+        LOCAL_AI_EVALUATION_CONTEXT,
+      ),
+    /unsupported field inventedField/,
+  );
+
+  assert.throws(
+    () =>
+      parser.parse(
+        {
+          text: JSON.stringify({
+            type: 'proposal',
+            intent: 'income',
+            action: 'expense',
+            message: 'Lunch',
+            title: 'Lunch',
+            amountMinor: 5000,
+            effectiveDate: '2026-10-20',
+            walletId: 'wallet-gcash',
+            fromContainerId: 'container-food',
+            confidence: 0.9,
+          }),
+        },
+        LOCAL_AI_EVALUATION_CONTEXT,
+      ),
+    /does not match result.action/,
+  );
+});
