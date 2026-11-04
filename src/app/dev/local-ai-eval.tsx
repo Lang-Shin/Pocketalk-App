@@ -89,6 +89,7 @@ export default function LocalAiEvaluationScreen() {
   const [paths, setPaths] = useState<EvaluationPaths | null>(null);
   const [pathError, setPathError] = useState<string | null>(null);
   const [runs, setRuns] = useState<Record<string, EvaluationRun>>({});
+  const [exportPath, setExportPath] = useState<string | null>(null);
   const [running, setRunning] = useState<string | null>(null);
 
   useEffect(() => {
@@ -400,6 +401,34 @@ export default function LocalAiEvaluationScreen() {
     }
   }
 
+  async function exportResults(): Promise<void> {
+    if (running || Object.keys(runs).length === 0) return;
+    try {
+      const { default: RNBlobUtil } = await import('react-native-blob-util');
+      const base =
+        RNBlobUtil.fs.dirs.SDCardDir || RNBlobUtil.fs.dirs.DocumentDir;
+      const path = `${base}/pocketa-local-ai-eval-${currentTimeMs()}.json`;
+      await RNBlobUtil.fs.writeFile(
+        path,
+        JSON.stringify(
+          {
+            exportedAt: currentIsoTime(),
+            model: EXECUTORCH_SMOKE_MANIFEST,
+            context: LOCAL_AI_EVALUATION_CONTEXT,
+            cases: LOCAL_AI_EVALUATION_CASES,
+            runs,
+          },
+          null,
+          2,
+        ),
+        'utf8',
+      );
+      setExportPath(path);
+    } catch (error) {
+      setPathError(errorMessage(error));
+    }
+  }
+
   const completed = Object.values(runs).filter(
     (run) => run.strategy === strategy,
   );
@@ -488,6 +517,13 @@ export default function LocalAiEvaluationScreen() {
               icon="analytics"
             />
             <AppButton
+              label="Export results"
+              variant="outline"
+              onPress={() => void exportResults()}
+              disabled={running !== null || Object.keys(runs).length === 0}
+              icon="download"
+            />
+            <AppButton
               label="Clear results"
               variant="outline"
               onPress={() => setRuns({})}
@@ -495,6 +531,11 @@ export default function LocalAiEvaluationScreen() {
               icon="trash"
             />
           </View>
+          {exportPath ? (
+            <AppText variant="caption" color={theme.colors.textSecondary}>
+              Exported: {exportPath}
+            </AppText>
+          ) : null}
         </View>
 
         {LOCAL_AI_EVALUATION_CASES.map((testCase) => {
@@ -618,6 +659,10 @@ export default function LocalAiEvaluationScreen() {
 
 function currentTimeMs(): number {
   return Date.now();
+}
+
+function currentIsoTime(): string {
+  return new Date(currentTimeMs()).toISOString();
 }
 
 function emptyCaseMetrics(
