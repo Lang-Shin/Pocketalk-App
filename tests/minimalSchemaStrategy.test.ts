@@ -33,6 +33,8 @@ test('minimal prompt uses concrete examples without union placeholders', () => {
   assert.equal(prompt.includes('"type":"clarification"'), true);
   assert.equal(prompt.includes('"type":"answer"'), true);
   assert.equal(prompt.includes('"type":"refusal"'), true);
+  assert.equal(prompt.includes('Output:'), false);
+  assert.equal(prompt.includes('Input:'), false);
 });
 
 test('minimal examples pair inputs with exact parseable outputs', () => {
@@ -40,15 +42,23 @@ test('minimal examples pair inputs with exact parseable outputs', () => {
     'I spent 50 pesos from Food & drinks.',
     LOCAL_AI_EVALUATION_CONTEXT,
   );
-  const outputs = [...prompt.matchAll(/^Output: (\{.*\})$/gm)].map(
-    (match) => match[1],
-  );
+  const outputs = prompt
+    .split('\n')
+    .filter((line) => line.startsWith('{'))
+    .filter((line) => {
+      try {
+        const value = JSON.parse(line) as Record<string, unknown>;
+        return typeof value.type === 'string';
+      } catch {
+        return false;
+      }
+    });
 
   assert.equal(outputs.length, 6);
   for (const output of outputs) {
     assert.doesNotThrow(() =>
       parser.parse(
-        { text: output ?? '' },
+        { text: output },
         LOCAL_AI_EVALUATION_CONTEXT,
       ),
     );
