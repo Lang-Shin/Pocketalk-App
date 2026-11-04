@@ -1,8 +1,14 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import test from 'node:test';
+import { fileURLToPath } from 'node:url';
 
 import { AssistantValidationError } from '../src/ai/validation';
-import { LOCAL_AI_EVALUATION_CONTEXT } from '../src/features/dev/localAiEvaluation';
+import {
+  LOCAL_AI_EVALUATION_CASES,
+  LOCAL_AI_EVALUATION_CONTEXT,
+  evaluateParsedResult,
+} from '../src/features/dev/localAiEvaluation';
 import {
   MINIMAL_SCHEMA_PROMPT_VERSION,
   MinimalSchemaPromptBuilder,
@@ -192,6 +198,286 @@ test('minimal parser still rejects invalid or unknown entities', () => {
       ),
     AssistantValidationError,
   );
+});
+
+test('minimal parser maps every supported proposal action', () => {
+  const proposals: Record<string, unknown>[] = [
+    {
+      type: 'proposal',
+      intent: 'expense',
+      action: 'expense',
+      message: 'Lunch',
+      title: 'Lunch',
+      amountMinor: 5000,
+      effectiveDate: '2026-10-20',
+      walletId: 'wallet-gcash',
+      fromContainerId: 'container-food',
+      confidence: 0.9,
+    },
+    {
+      type: 'proposal',
+      intent: 'income',
+      action: 'income',
+      message: 'Allowance',
+      title: 'Allowance',
+      amountMinor: 10000,
+      effectiveDate: '2026-10-20',
+      walletId: 'wallet-gcash',
+      toContainerId: 'system-unallocated',
+      confidence: 0.9,
+    },
+    {
+      type: 'proposal',
+      intent: 'wallet_transfer',
+      action: 'wallet_transfer',
+      message: 'Move to GCash',
+      title: 'Wallet transfer',
+      amountMinor: 10000,
+      effectiveDate: '2026-10-20',
+      fromWalletId: 'wallet-cash',
+      toWalletId: 'wallet-gcash',
+      confidence: 0.9,
+    },
+    {
+      type: 'proposal',
+      intent: 'container_transfer',
+      action: 'container_transfer',
+      message: 'Move to Transport',
+      title: 'Container transfer',
+      amountMinor: 15000,
+      effectiveDate: '2026-10-20',
+      fromContainerId: 'container-food',
+      toContainerId: 'container-transport',
+      confidence: 0.9,
+    },
+    {
+      type: 'proposal',
+      intent: 'container_transfer',
+      action: 'savings_contribution',
+      message: 'Save for later',
+      title: 'Savings contribution',
+      amountMinor: 1000,
+      effectiveDate: '2026-10-20',
+      fromContainerId: 'container-food',
+      toContainerId: 'system-savings',
+      confidence: 0.9,
+    },
+    {
+      type: 'proposal',
+      intent: 'container_transfer',
+      action: 'savings_withdrawal',
+      message: 'Use savings',
+      title: 'Savings withdrawal',
+      amountMinor: 1000,
+      effectiveDate: '2026-10-20',
+      fromContainerId: 'system-savings',
+      toContainerId: 'container-food',
+      confidence: 0.9,
+    },
+  ];
+
+  for (const proposal of proposals) {
+    const parsed = parser.parse(
+      { text: JSON.stringify(proposal) },
+      LOCAL_AI_EVALUATION_CONTEXT,
+    );
+    assert.equal(parsed.kind, 'proposal');
+    if (parsed.kind !== 'proposal') continue;
+    assert.equal(parsed.proposal.action, proposal.action);
+    assert.match(parsed.proposal.id, /^assistant-minimal-/);
+  }
+});
+
+test('minimal parser rejects missing required fields and invalid financial values', () => {
+  const base = {
+    type: 'proposal',
+    intent: 'expense',
+    action: 'expense',
+    message: 'Lunch',
+    title: 'Lunch',
+    amountMinor: 5000,
+    effectiveDate: '2026-10-20',
+    walletId: 'wallet-gcash',
+    fromContainerId: 'container-food',
+    confidence: 0.9,
+  };
+
+  for (const field of [
+    'amountMinor',
+    'effectiveDate',
+    'walletId',
+    'fromContainerId',
+    'confidence',
+  ]) {
+    const missing = structuredClone(base) as Record<string, unknown>;
+    delete missing[field];
+    assert.throws(
+      () =>
+        parser.parse(
+          { text: JSON.stringify(missing) },
+          LOCAL_AI_EVALUATION_CONTEXT,
+        ),
+      AssistantValidationError,
+      field,
+    );
+  }
+
+  const future = { ...base, effectiveDate: '2026-10-21' };
+  assert.throws(
+    () =>
+      parser.parse(
+        { text: JSON.stringify(future) },
+        LOCAL_AI_EVALUATION_CONTEXT,
+      ),
+    AssistantValidationError,
+  );
+
+  const invented = { ...base, amountMinor: 999_999 };
+  assert.throws(
+    () =>
+      parser.parse(
+        { text: JSON.stringify(invented) },
+        LOCAL_AI_EVALUATION_CONTEXT,
+      ),
+    AssistantValidationError,
+  );
+});
+
+test('minimal parser rejects unknown proposal intents but allows unknown refusal intent', () => {
+  assert.throws(
+    () =>
+      parser.parse(
+        {
+          text: JSON.stringify({
+            type: 'proposal',
+            intent: 'unknown',
+            action: 'expense',
+            message: 'Lunch',
+            title: 'Lunch',
+            amountMinor: 5000,
+            effectiveDate: '2026-10-20',
+            walletId: 'wallet-gcash',
+            fromContainerId: 'container-food',
+            confidence: 0.9,
+          }),
+        },
+        LOCAL_AI_EVALUATION_CONTEXT,
+      ),
+    AssistantValidationError,
+  );
+
+  const refusal = parser.parse(
+    {
+      text: JSON.stringify({
+        type: 'refusal',
+        intent: 'unknown',
+        message: 'I can only interpret Pocketa finance messages.',
+        confidence: 0.9,
+      }),
+    },
+    LOCAL_AI_EVALUATION_CONTEXT,
+  );
+  assert.equal(refusal.kind, 'refusal');
+});
+
+test('minimal unsupported handling remains a safe non-proposal', () => {
+  const testCase = LOCAL_AI_EVALUATION_CASES.find(
+    (candidate) => candidate.id === 'unsupported-request',
+  );
+  assert.ok(testCase);
+  const refusal = parser.parse(
+    {
+      text: JSON.stringify({
+        type: 'refusal',
+        intent: 'unknown',
+        message: 'I can only interpret Pocketa finance messages.',
+        confidence: 0.9,
+      }),
+    },
+    LOCAL_AI_EVALUATION_CONTEXT,
+  );
+  assert.equal(evaluateParsedResult(testCase, refusal).passed, true);
+});
+
+test('schema-valid but financially incorrect output fails semantic evaluation', () => {
+  const testCase = LOCAL_AI_EVALUATION_CASES.find(
+    (candidate) => candidate.id === 'expense',
+  );
+  assert.ok(testCase);
+
+  const wrongAmount = parser.parse(
+    {
+      text: JSON.stringify({
+        type: 'proposal',
+        intent: 'expense',
+        action: 'expense',
+        message: 'Lunch',
+        title: 'Lunch',
+        amountMinor: 5001,
+        effectiveDate: '2026-10-20',
+        walletId: 'wallet-gcash',
+        fromContainerId: 'container-food',
+        confidence: 0.9,
+      }),
+    },
+    LOCAL_AI_EVALUATION_CONTEXT,
+  );
+  const amountEvaluation = evaluateParsedResult(testCase, wrongAmount);
+  assert.equal(amountEvaluation.checks.schemaValid, true);
+  assert.equal(amountEvaluation.checks.semanticFaithful, false);
+  assert.equal(amountEvaluation.passed, false);
+
+  const wrongContainer = parser.parse(
+    {
+      text: JSON.stringify({
+        type: 'proposal',
+        intent: 'expense',
+        action: 'expense',
+        message: 'Lunch',
+        title: 'Lunch',
+        amountMinor: 5000,
+        effectiveDate: '2026-10-20',
+        walletId: 'wallet-gcash',
+        fromContainerId: 'container-transport',
+        confidence: 0.9,
+      }),
+    },
+    LOCAL_AI_EVALUATION_CONTEXT,
+  );
+  const containerEvaluation = evaluateParsedResult(
+    testCase,
+    wrongContainer,
+  );
+  assert.equal(containerEvaluation.checks.schemaValid, true);
+  assert.equal(containerEvaluation.checks.semanticFaithful, false);
+  assert.equal(containerEvaluation.passed, false);
+});
+
+test('minimal strategy has no finance execution or confirmation access', () => {
+  const source = readFileSync(
+    fileURLToPath(
+      new URL(
+        '../src/features/dev/minimalSchemaStrategy.ts',
+        import.meta.url,
+      ),
+    ),
+    'utf8',
+  );
+
+  for (const forbidden of [
+    /\bFinanceService\b/,
+    /\bFinanceSession\b/,
+    /\bFinanceEngine\b/,
+    /\bFinanceRepository\b/,
+    /\bassistantExecution\b/,
+    /\bexecuteMoneyEntry\b/,
+    /\brecordMoneyEntry\b/,
+    /\bcreatePendingConfirmation\b/,
+    /expo-sqlite/,
+    /sqlite/i,
+  ]) {
+    assert.doesNotMatch(source, forbidden);
+  }
 });
 
 test('minimal parser rejects invented fields and intent/action mismatches', () => {
