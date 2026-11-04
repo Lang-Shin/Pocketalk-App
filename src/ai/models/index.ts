@@ -5,11 +5,16 @@ export {
 } from './policy';
 export type {
   ArtifactSizeStatus,
+  DevicePerformanceStatus,
+  GeneralDeviceCompatibility,
+  ModelArtifact,
   ModelDistributionPolicy,
   ModelFormat,
   ModelManifest,
   ModelManifestEvaluation,
   ModelRuntimeId,
   ModelSelectionStatus,
+  ModelVerification,
   StructuredOutputSupport,
+  StructuredOutputValidationStatus,
 } from './types';

@@ -64,6 +64,18 @@ export function evaluateModelManifest(
   }
   if (!manifest.license.trim()) issues.push('License is required.');
   if (!manifest.source.trim()) issues.push('Model source is required.');
+  if (
+    manifest.sourceRevision !== undefined &&
+    !manifest.sourceRevision.trim()
+  ) {
+    issues.push('Source revision cannot be empty when provided.');
+  }
+  validateOptionalArtifact(manifest.tokenizer, 'Tokenizer', issues);
+  validateOptionalArtifact(
+    manifest.tokenizerConfig,
+    'Tokenizer config',
+    issues,
+  );
   if (manifest.distribution.bundled) {
     issues.push('Models must not be bundled in the app binary.');
   }
@@ -94,8 +106,24 @@ export function evaluateModelManifest(
   if (manifest.selectionStatus === 'candidate') {
     issues.push('Candidate model is not approved for production.');
   }
+  if (manifest.selectionStatus === 'experimental') {
+    issues.push(
+      'Experimental model is not approved for production or general device use.',
+    );
+  }
   if (manifest.selectionStatus === 'rejected') {
     issues.push('Rejected model cannot be installed.');
+  }
+  if (manifest.structuredOutputValidationStatus === 'unvalidated') {
+    issues.push('Structured-output intent quality is unvalidated.');
+  }
+  if (
+    manifest.verification &&
+    manifest.verification.generalDeviceCompatibility !== 'verified'
+  ) {
+    issues.push(
+      'General device compatibility is unverified; only the recorded test device is evidenced.',
+    );
   }
   if (manifest.devicePerformanceStatus !== 'measured') {
     issues.push('Device performance is unverified; the model is not production-ready.');
@@ -103,6 +131,7 @@ export function evaluateModelManifest(
 
   const installable =
     compatible &&
+    manifest.selectionStatus !== 'experimental' &&
     manifest.selectionStatus !== 'rejected' &&
     manifest.distribution.checksum !== null;
 
@@ -115,4 +144,24 @@ export function evaluateModelManifest(
       manifest.devicePerformanceStatus === 'measured',
     issues,
   };
+}
+
+function validateOptionalArtifact(
+  artifact: ModelManifest['tokenizer'],
+  label: string,
+  issues: string[],
+): void {
+  if (!artifact) return;
+  if (!artifact.fileName.trim()) {
+    issues.push(`${label} filename is required.`);
+  }
+  if (
+    !Number.isSafeInteger(artifact.sizeBytes) ||
+    artifact.sizeBytes <= 0
+  ) {
+    issues.push(`${label} size must be a positive safe integer.`);
+  }
+  if (!SHA256_PATTERN.test(artifact.sha256)) {
+    issues.push(`${label} checksum must be a SHA-256 hex digest.`);
+  }
 }

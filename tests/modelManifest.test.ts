@@ -14,12 +14,14 @@ function candidate(): ModelManifest {
   return structuredClone(manifest);
 }
 
-test('candidate models are data-driven, unbundled, and not installable yet', () => {
-  assert.equal(MODEL_CANDIDATES.length >= 2, true);
+test('candidate models remain data-driven, unbundled, and not installable yet', () => {
+  const candidates = MODEL_CANDIDATES.filter(
+    (manifest) => manifest.selectionStatus === 'candidate',
+  );
+  assert.equal(candidates.length >= 2, true);
 
-  for (const manifest of MODEL_CANDIDATES) {
+  for (const manifest of candidates) {
     const evaluation = evaluateModelManifest(manifest);
-    assert.equal(manifest.selectionStatus, 'candidate');
     assert.equal(manifest.distribution.bundled, false);
     assert.equal(manifest.distribution.requiresUserConsent, true);
     assert.equal(manifest.distribution.requiresChecksum, true);
@@ -30,6 +32,74 @@ test('candidate models are data-driven, unbundled, and not installable yet', () 
     assert.equal(evaluation.installable, false);
     assert.equal(evaluation.productionReady, false);
   }
+});
+
+test('tested Qwen2.5-0.5B artifact is experimental and device-specific', () => {
+  const manifest = MODEL_CANDIDATES.find(
+    (candidate) => candidate.id === 'qwen2.5-0.5b-executorch-xnnpack-8da4w',
+  );
+  assert.ok(manifest);
+
+  assert.equal(manifest.selectionStatus, 'experimental');
+  assert.equal(manifest.runtime, 'executorch');
+  assert.equal(manifest.format, 'pte');
+  assert.equal(manifest.backend, 'xnnpack');
+  assert.equal(manifest.artifactSizeBytes, 432_176_000);
+  assert.equal(manifest.artifactSizeStatus, 'verified');
+  assert.equal(
+    manifest.distribution.checksum,
+    '8dc973a97af3f8551b47790b743ade2cd18d1102e619f67105435646821bc4ea',
+  );
+  assert.equal(manifest.tokenizer?.fileName, 'tokenizer.json');
+  assert.equal(manifest.tokenizer?.sizeBytes, 7_031_645);
+  assert.equal(
+    manifest.tokenizer?.sha256,
+    'c0382117ea329cdf097041132f6d735924b697924d6f6fc3945713e96ce87539',
+  );
+  assert.equal(
+    manifest.tokenizerConfig?.fileName,
+    'tokenizer_config.json',
+  );
+  assert.equal(manifest.tokenizerConfig?.sizeBytes, 7_305);
+  assert.equal(
+    manifest.tokenizerConfig?.sha256,
+    '5b5d4f65d0acd3b2d56a35b56d374a36cbc1c8fa5cf3b3febbbfabf22f359583',
+  );
+  assert.equal(
+    manifest.sourceRevision,
+    'ddc28846631f7ab1d3ffcae0e076cd7ef0061f39',
+  );
+  assert.equal(manifest.structuredOutputValidationStatus, 'unvalidated');
+  assert.equal(manifest.verification?.device, 'OPPO CPH2359');
+  assert.equal(manifest.verification?.androidVersion, '14');
+  assert.equal(manifest.verification?.abi, 'arm64');
+  assert.equal(manifest.verification?.physicalRamBytes, 8 * 1024 ** 3);
+  assert.equal(
+    manifest.verification?.generalDeviceCompatibility,
+    'device-specific',
+  );
+
+  const evaluation = evaluateModelManifest(manifest);
+  assert.equal(evaluation.installable, false);
+  assert.equal(evaluation.productionReady, false);
+  assert.equal(
+    evaluation.issues.some((issue) =>
+      issue.includes('Experimental model is not approved'),
+    ),
+    true,
+  );
+  assert.equal(
+    evaluation.issues.some((issue) =>
+      issue.includes('Structured-output intent quality is unvalidated'),
+    ),
+    true,
+  );
+  assert.equal(
+    evaluation.issues.some((issue) =>
+      issue.includes('only the recorded test device is evidenced'),
+    ),
+    true,
+  );
 });
 
 test('unsupported runtime and format combinations are rejected', () => {

@@ -32,6 +32,65 @@ export const MODEL_CANDIDATES = [
     },
   },
   {
+    id: 'qwen2.5-0.5b-executorch-xnnpack-8da4w',
+    displayName:
+      'Qwen2.5-0.5B-Instruct - ExecuTorch XNNPACK 8da4w (Experimental)',
+    family: 'Qwen2.5',
+    parametersBillions: 0.5,
+    runtime: 'executorch',
+    format: 'pte',
+    backend: 'xnnpack',
+    quantization: '8da4w',
+    structuredOutputSupport: 'prompt-and-parse',
+    structuredOutputValidationStatus: 'unvalidated',
+    artifactSizeBytes: 432_176_000,
+    artifactSizeStatus: 'verified',
+    devicePerformanceStatus: 'unverified',
+    recommendedContextLength: 2048,
+    maxContextLength: 2048,
+    minimumPhysicalRamBytes: 8 * GIB,
+    minimumFreeStorageBytes: 1 * GIB,
+    license: 'Apache-2.0',
+    source:
+      'https://huggingface.co/software-mansion/Qwen2.5-ExecuTorch',
+    sourceRevision: 'ddc28846631f7ab1d3ffcae0e076cd7ef0061f39',
+    tokenizer: {
+      fileName: 'tokenizer.json',
+      sizeBytes: 7_031_645,
+      sha256:
+        'c0382117ea329cdf097041132f6d735924b697924d6f6fc3945713e96ce87539',
+    },
+    tokenizerConfig: {
+      fileName: 'tokenizer_config.json',
+      sizeBytes: 7_305,
+      sha256:
+        '5b5d4f65d0acd3b2d56a35b56d374a36cbc1c8fa5cf3b3febbbfabf22f359583',
+    },
+    verification: {
+      status: 'smoke-tested',
+      device: 'OPPO CPH2359',
+      androidVersion: '14',
+      abi: 'arm64',
+      physicalRamBytes: 8 * GIB,
+      generalDeviceCompatibility: 'device-specific',
+      scope: [
+        'Artifact hashes, model loading, short text generation, cancellation, unload, reload, and cleanup were exercised.',
+        'Structured-output intent quality is not validated.',
+        'Long-run performance, memory pressure, thermal behavior, other Android devices, and iOS are not validated.',
+        'The configured 2,048-token application envelope is not a verified full artifact context limit.',
+      ],
+    },
+    selectionStatus: 'experimental',
+    distribution: {
+      bundled: false,
+      requiresUserConsent: true,
+      requiresChecksum: true,
+      checksum:
+        '8dc973a97af3f8551b47790b743ade2cd18d1102e619f67105435646821bc4ea',
+      removable: true,
+    },
+  },
+  {
     id: 'qwen2.5-1.5b-llama-rn-q4-k-m',
     displayName: 'Qwen2.5-1.5B-Instruct · llama.rn Q4_K_M',
     family: 'Qwen2.5',
