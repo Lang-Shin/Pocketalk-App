@@ -34,15 +34,27 @@ import {
   instrumentedCaseMetrics,
   type InstrumentedCaseMetrics,
 } from '@/features/dev/localAiInstrumentation';
+import {
+  MinimalSchemaPromptBuilder,
+  MinimalSchemaResponseParser,
+} from '@/features/dev/minimalSchemaStrategy';
 import { useAppTheme, radii, spacing } from '@/theme';
 
+type EvaluationStrategy = 'production' | 'minimal';
+
 interface EvaluationRun {
+  strategy: EvaluationStrategy;
   rawOutput: string;
   parsed: AssistantResult | null;
   parseError: string | null;
   outcome: EvaluationOutcome;
   metrics: InstrumentedCaseMetrics & { totalMs: number };
 }
+
+const STRATEGY_LABELS: Record<EvaluationStrategy, string> = {
+  production: 'Production prompt',
+  minimal: 'Minimal schema A',
+};
 
 const LOCAL_EVALUATION_INFO = {
   id: 'local-executorch-evaluation',
@@ -64,9 +76,16 @@ interface EvaluationPaths {
 export default function LocalAiEvaluationScreen() {
   const { theme } = useAppTheme();
   const runtimeRef = useRef<InstrumentedLocalModelRuntime | null>(null);
-  const promptBuilderRef = useRef<InstrumentedPromptBuilder | null>(null);
-  const providerRef = useRef<AssistantProvider | null>(null);
+  const promptBuildersRef = useRef<
+    Partial<Record<EvaluationStrategy, InstrumentedPromptBuilder>>
+  >({});
+  const providersRef = useRef<
+    Partial<Record<EvaluationStrategy, AssistantProvider>>
+  >({});
   const parserRef = useRef(new PocketaLocalResponseParser());
+  const minimalParserRef = useRef(new MinimalSchemaResponseParser());
+  const [strategy, setStrategy] =
+    useState<EvaluationStrategy>('production');
   const [paths, setPaths] = useState<EvaluationPaths | null>(null);
   const [pathError, setPathError] = useState<string | null>(null);
   const [runs, setRuns] = useState<Record<string, EvaluationRun>>({});
@@ -100,8 +119,8 @@ export default function LocalAiEvaluationScreen() {
     () => () => {
       const runtime = runtimeRef.current;
       runtimeRef.current = null;
-      promptBuilderRef.current = null;
-      providerRef.current = null;
+      promptBuildersRef.current = {};
+      providersRef.current = {};
       if (runtime) void runtime.unload().catch(() => undefined);
     },
     [],
@@ -177,53 +196,75 @@ export default function LocalAiEvaluationScreen() {
     }
   }
 
-  function ensureProvider(currentPaths: EvaluationPaths): {
+  function ensureProvider(
+    currentPaths: EvaluationPaths,
+    selectedStrategy: EvaluationStrategy,
+  ): {
     runtime: InstrumentedLocalModelRuntime;
     promptBuilder: InstrumentedPromptBuilder;
     provider: AssistantProvider;
   } {
-    if (runtimeRef.current && promptBuilderRef.current && providerRef.current) {
+    const runtime =
+      runtimeRef.current ??
+      new InstrumentedLocalModelRuntime(
+        new ExecuTorchLocalModelRuntime({
+          modelPath: currentPaths.model,
+          tokenizerPath: currentPaths.tokenizer,
+          tokenizerConfigPath: currentPaths.tokenizerConfig,
+          maxNewTokens: 512,
+          temperature: 0.1,
+        }),
+      );
+    runtimeRef.current = runtime;
+
+    const existingProvider = providersRef.current[selectedStrategy];
+    const existingBuilder = promptBuildersRef.current[selectedStrategy];
+    if (existingProvider && existingBuilder) {
       return {
-        runtime: runtimeRef.current,
-        promptBuilder: promptBuilderRef.current,
-        provider: providerRef.current,
+        runtime,
+        promptBuilder: existingBuilder,
+        provider: existingProvider,
       };
     }
 
-    const runtime = new InstrumentedLocalModelRuntime(
-      new ExecuTorchLocalModelRuntime({
-        modelPath: currentPaths.model,
-        tokenizerPath: currentPaths.tokenizer,
-        tokenizerConfigPath: currentPaths.tokenizerConfig,
-        maxNewTokens: 512,
-        temperature: 0.1,
-      }),
+    const promptBuilder = new InstrumentedPromptBuilder(
+      selectedStrategy === 'minimal'
+        ? { delegate: new MinimalSchemaPromptBuilder() }
+        : {},
     );
-    const promptBuilder = new InstrumentedPromptBuilder();
     const provider = createLocalAssistantProvider(runtime, {
       info: LOCAL_EVALUATION_INFO,
       promptBuilder,
+      responseParser:
+        selectedStrategy === 'minimal'
+          ? new MinimalSchemaResponseParser()
+          : undefined,
     });
-    runtimeRef.current = runtime;
-    promptBuilderRef.current = promptBuilder;
-    providerRef.current = provider;
+    promptBuildersRef.current[selectedStrategy] = promptBuilder;
+    providersRef.current[selectedStrategy] = provider;
     return { runtime, promptBuilder, provider };
   }
 
   async function executeCase(
     testCase: EvaluationCase,
     currentPaths: EvaluationPaths,
+    selectedStrategy: EvaluationStrategy,
   ): Promise<EvaluationRun> {
     const caseStartedAt = currentTimeMs();
 
     if (testCase.syntheticRaw !== undefined) {
+      const parser =
+        selectedStrategy === 'minimal'
+          ? minimalParserRef.current
+          : parserRef.current;
       try {
-        const parsed = parserRef.current.parse(
+        const parsed = parser.parse(
           { text: testCase.syntheticRaw },
           LOCAL_AI_EVALUATION_CONTEXT,
         );
         const outcome = evaluateParsedResult(testCase, parsed);
         return {
+          strategy: selectedStrategy,
           rawOutput: testCase.syntheticRaw,
           parsed,
           parseError: null,
@@ -237,6 +278,7 @@ export default function LocalAiEvaluationScreen() {
         };
       } catch (error) {
         return {
+          strategy: selectedStrategy,
           rawOutput: testCase.syntheticRaw,
           parsed: null,
           parseError: errorMessage(error),
@@ -246,8 +288,10 @@ export default function LocalAiEvaluationScreen() {
       }
     }
 
-    const { runtime, promptBuilder, provider } =
-      ensureProvider(currentPaths);
+    const { runtime, promptBuilder, provider } = ensureProvider(
+      currentPaths,
+      selectedStrategy,
+    );
     runtime.resetCase();
     promptBuilder.resetCase();
 
@@ -293,6 +337,7 @@ export default function LocalAiEvaluationScreen() {
     }
 
     return {
+      strategy: selectedStrategy,
       rawOutput,
       parsed,
       parseError,
@@ -314,8 +359,11 @@ export default function LocalAiEvaluationScreen() {
     setPathError(null);
     try {
       await verifyArtifacts(paths);
-      const run = await executeCase(testCase, paths);
-      setRuns((current) => ({ ...current, [testCase.id]: run }));
+      const run = await executeCase(testCase, paths, strategy);
+      setRuns((current) => ({
+        ...current,
+        [`${strategy}:${testCase.id}`]: run,
+      }));
     } catch (error) {
       setPathError(errorMessage(error));
     } finally {
@@ -323,29 +371,38 @@ export default function LocalAiEvaluationScreen() {
     }
   }
 
-  async function runAll(): Promise<void> {
+  async function runAll(
+    selectedStrategies: readonly EvaluationStrategy[] = [strategy],
+  ): Promise<void> {
     if (running || !paths) return;
     setRunning('all');
     setPathError(null);
     try {
       await verifyArtifacts(paths);
-      for (const testCase of LOCAL_AI_EVALUATION_CASES) {
-        const run = await executeCase(testCase, paths);
-        setRuns((current) => ({ ...current, [testCase.id]: run }));
+      for (const selected of selectedStrategies) {
+        for (const testCase of LOCAL_AI_EVALUATION_CASES) {
+          const run = await executeCase(testCase, paths, selected);
+          setRuns((current) => ({
+            ...current,
+            [`${selected}:${testCase.id}`]: run,
+          }));
+        }
       }
     } catch (error) {
       setPathError(errorMessage(error));
     } finally {
       const runtime = runtimeRef.current;
       runtimeRef.current = null;
-      promptBuilderRef.current = null;
-      providerRef.current = null;
+      promptBuildersRef.current = {};
+      providersRef.current = {};
       if (runtime) await runtime.unload().catch(() => undefined);
       setRunning(null);
     }
   }
 
-  const completed = Object.values(runs);
+  const completed = Object.values(runs).filter(
+    (run) => run.strategy === strategy,
+  );
   const passed = completed.filter((run) => run.outcome.passed).length;
 
   return (
@@ -389,29 +446,59 @@ export default function LocalAiEvaluationScreen() {
               {pathError}
             </AppText>
           ) : null}
+          <AppText variant="micro" color={theme.colors.textTertiary}>
+            STRATEGY
+          </AppText>
+          <View style={styles.actions}>
+            <AppButton
+              label={STRATEGY_LABELS.production}
+              size="small"
+              variant={strategy === 'production' ? 'primary' : 'outline'}
+              onPress={() => setStrategy('production')}
+              disabled={running !== null}
+            />
+            <AppButton
+              label={STRATEGY_LABELS.minimal}
+              size="small"
+              variant={strategy === 'minimal' ? 'primary' : 'outline'}
+              onPress={() => setStrategy('minimal')}
+              disabled={running !== null}
+            />
+          </View>
           <AppText variant="caption" color={theme.colors.textSecondary}>
             Completed: {completed.length} / {LOCAL_AI_EVALUATION_CASES.length};
             passed: {passed}
           </AppText>
           <View style={styles.actions}>
             <AppButton
-              label={running === 'all' ? 'Running all' : 'Run complete suite'}
-              onPress={() => void runAll()}
+              label={
+                running === 'all'
+                  ? 'Running'
+                  : `Run ${STRATEGY_LABELS[strategy]}`
+              }
+              onPress={() => void runAll([strategy])}
               disabled={running !== null || !paths}
               icon="play"
+            />
+            <AppButton
+              label="Run comparison"
+              variant="outline"
+              onPress={() => void runAll(['production', 'minimal'])}
+              disabled={running !== null || !paths}
+              icon="analytics"
             />
             <AppButton
               label="Clear results"
               variant="outline"
               onPress={() => setRuns({})}
-              disabled={running !== null || completed.length === 0}
+              disabled={running !== null || Object.keys(runs).length === 0}
               icon="trash"
             />
           </View>
         </View>
 
         {LOCAL_AI_EVALUATION_CASES.map((testCase) => {
-          const run = runs[testCase.id];
+          const run = runs[`${strategy}:${testCase.id}`];
           return (
             <View
               key={testCase.id}
