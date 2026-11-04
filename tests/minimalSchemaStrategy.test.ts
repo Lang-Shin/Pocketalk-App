@@ -29,6 +29,43 @@ test('minimal prompt uses concrete examples without union placeholders', () => {
   assert.equal(prompt.includes('"type":"refusal"'), true);
 });
 
+test('minimal examples pair inputs with exact parseable outputs', () => {
+  const prompt = builder.interpretationPrompt(
+    'I spent 50 pesos from Food & drinks.',
+    LOCAL_AI_EVALUATION_CONTEXT,
+  );
+  const outputs = [...prompt.matchAll(/^Output: (\{.*\})$/gm)].map(
+    (match) => match[1],
+  );
+
+  assert.equal(outputs.length, 6);
+  for (const output of outputs) {
+    assert.doesNotThrow(() =>
+      parser.parse(
+        { text: output ?? '' },
+        LOCAL_AI_EVALUATION_CONTEXT,
+      ),
+    );
+  }
+
+  for (const input of [
+    'I spent 50 pesos on lunch',
+    'my mom sent me 2,000 pesos',
+    'transfer 100 pesos from Cash to GCash',
+    'I spent on lunch',
+    'How much is in Savings?',
+    'What is the weather tomorrow?',
+  ]) {
+    assert.equal(prompt.includes(input), true, input);
+  }
+
+  const clarificationOutput =
+    outputs.find((output) => output?.includes('"type":"clarification"')) ??
+    '';
+  assert.equal(clarificationOutput.includes('"amountMinor"'), false);
+  assert.equal(clarificationOutput.includes('"effectiveDate"'), false);
+});
+
 test('minimal parser maps proposal fields into the existing validated domain', () => {
   const parsed = parser.parse(
     {

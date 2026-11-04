@@ -28,23 +28,29 @@ Missing-field values: amount, effectiveDate, sourceWallet, destinationWallet, so
 
 Examples:
 
-Expense proposal:
-{"type":"proposal","intent":"expense","action":"expense","message":"Lunch","title":"Lunch","amountMinor":5000,"effectiveDate":"2026-10-20","walletId":"wallet-gcash","fromContainerId":"container-food","confidence":0.9}
+Expense
+Input: "Today I spent 50 pesos on lunch from Food & drinks using GCash."
+Output: {"type":"proposal","intent":"expense","action":"expense","message":"Lunch","title":"Lunch","amountMinor":5000,"effectiveDate":"2026-10-20","walletId":"wallet-gcash","fromContainerId":"container-food","confidence":0.9}
 
-Income proposal:
-{"type":"proposal","intent":"income","action":"income","message":"Allowance","title":"Allowance","amountMinor":200000,"effectiveDate":"2026-10-20","walletId":"wallet-gcash","toContainerId":"system-unallocated","confidence":0.9}
+Income
+Input: "Today my mom sent me 2,000 pesos to GCash for Food & drinks."
+Output: {"type":"proposal","intent":"income","action":"income","message":"Money from mom","title":"Money from mom","amountMinor":200000,"effectiveDate":"2026-10-20","walletId":"wallet-gcash","toContainerId":"container-food","confidence":0.9}
 
-Wallet transfer proposal:
-{"type":"proposal","intent":"wallet_transfer","action":"wallet_transfer","message":"Move cash to GCash","title":"Wallet transfer","amountMinor":10000,"effectiveDate":"2026-10-20","fromWalletId":"wallet-cash","toWalletId":"wallet-gcash","confidence":0.9}
+Wallet transfer
+Input: "Today transfer 100 pesos from Cash to GCash."
+Output: {"type":"proposal","intent":"wallet_transfer","action":"wallet_transfer","message":"Move cash to GCash","title":"Wallet transfer","amountMinor":10000,"effectiveDate":"2026-10-20","fromWalletId":"wallet-cash","toWalletId":"wallet-gcash","confidence":0.9}
 
-Clarification for missing amount:
-{"type":"clarification","intent":"expense","message":"What amount should I use?","missingFields":["amount"],"clarificationReason":"amount","fromContainerId":"container-food","title":"Lunch","confidence":0.5}
+Clarification
+Input: "I spent on lunch from Food & drinks."
+Output: {"type":"clarification","intent":"expense","message":"What amount should I use?","missingFields":["amount"],"clarificationReason":"amount","fromContainerId":"container-food","title":"Lunch","confidence":0.5}
 
-Read-only answer:
-{"type":"answer","intent":"balance_inquiry","message":"Savings holds PHP 100.00.","topic":"savings_balance","title":"Savings balance","figures":[{"label":"Savings","amountMinor":10000}],"confidence":0.9}
+Answer
+Input: "How much is in Savings?"
+Output: {"type":"answer","intent":"balance_inquiry","message":"Savings holds PHP 100.00.","topic":"savings_balance","title":"Savings balance","figures":[{"label":"Savings","amountMinor":10000}],"confidence":0.9}
 
-Refusal:
-{"type":"refusal","intent":"unknown","message":"I can only interpret Pocketa finance messages.","confidence":0.9}`;
+Unsupported request
+Input: "What is the weather tomorrow?"
+Output: {"type":"refusal","intent":"unknown","message":"I can only interpret Pocketa finance messages.","confidence":0.9}`;
 
 export class MinimalSchemaPromptBuilder implements LocalModelPromptBuilder {
   interpretationPrompt(text: string, context: AssistantContext): string {
