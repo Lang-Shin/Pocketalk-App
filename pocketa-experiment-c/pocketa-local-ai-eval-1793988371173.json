@@ -1,0 +1,1259 @@
+{
+  "exportedAt": "2026-11-06T18:06:11.173Z",
+  "model": {
+    "source": "https://huggingface.co/software-mansion/Qwen2.5-ExecuTorch",
+    "revision": "ddc28846631f7ab1d3ffcae0e076cd7ef0061f39",
+    "directory": "executorch-smoke/qwen2.5-0.5b",
+    "prompt": "Reply with exactly: POCKETA_SMOKE_OK",
+    "cancelPrompt": "Write a long, detailed paragraph about saving money. Continue for several sentences.",
+    "model": {
+      "fileName": "qwen_2_5_0_5b_xnnpack_8da4w.pte",
+      "bytes": 432176000,
+      "sha256": "8dc973a97af3f8551b47790b743ade2cd18d1102e619f67105435646821bc4ea"
+    },
+    "tokenizer": {
+      "fileName": "tokenizer.json",
+      "bytes": 7031645,
+      "sha256": "c0382117ea329cdf097041132f6d735924b697924d6f6fc3945713e96ce87539"
+    },
+    "tokenizerConfig": {
+      "fileName": "tokenizer_config.json",
+      "bytes": 7305,
+      "sha256": "5b5d4f65d0acd3b2d56a35b56d374a36cbc1c8fa5cf3b3febbbfabf22f359583"
+    }
+  },
+  "context": {
+    "todayDateKey": "2026-10-20",
+    "activeMonthKey": "2026-10",
+    "wallets": [
+      {
+        "id": "wallet-cash",
+        "name": "Cash on hand",
+        "kind": "cash",
+        "balanceMinor": 100000
+      },
+      {
+        "id": "wallet-gcash",
+        "name": "Virtual GCash",
+        "kind": "virtual_gcash",
+        "balanceMinor": 100000
+      }
+    ],
+    "containers": [
+      {
+        "id": "system-unallocated",
+        "name": "Unallocated",
+        "status": "active",
+        "systemKey": "unallocated",
+        "balanceMinor": 20000,
+        "limitMinor": 0,
+        "spentMinor": 0,
+        "remainingMinor": 0
+      },
+      {
+        "id": "system-savings",
+        "name": "Savings",
+        "status": "active",
+        "systemKey": "savings",
+        "balanceMinor": 10000,
+        "limitMinor": 0,
+        "spentMinor": 0,
+        "remainingMinor": 0
+      },
+      {
+        "id": "container-food",
+        "name": "Food & drinks",
+        "status": "active",
+        "systemKey": null,
+        "balanceMinor": 20000,
+        "limitMinor": 100000,
+        "spentMinor": 80000,
+        "remainingMinor": 20000
+      },
+      {
+        "id": "container-transport",
+        "name": "Transport",
+        "status": "active",
+        "systemKey": null,
+        "balanceMinor": 10000,
+        "limitMinor": 50000,
+        "spentMinor": 40000,
+        "remainingMinor": 10000
+      }
+    ],
+    "summary": {
+      "monthKey": "2026-10",
+      "incomeMinor": 200000,
+      "expenseMinor": 120000,
+      "netSavingsMinor": 80000,
+      "totalLimitMinor": 150000,
+      "totalSpentMinor": 120000,
+      "totalRemainingMinor": 30000,
+      "savingsContributionsMinor": 30000,
+      "savingsWithdrawalsMinor": 0,
+      "savingsEndingBalanceMinor": 10000,
+      "unallocatedEndingBalanceMinor": 20000
+    }
+  },
+  "cases": [
+    {
+      "id": "income",
+      "title": "Income",
+      "message": "My mom sent me 1,000 pesos.",
+      "expectation": {
+        "kind": "proposal",
+        "intent": "income",
+        "action": "income",
+        "amountMinor": 100000,
+        "effectiveDate": "2026-10-20",
+        "destinationContainerId": "system-unallocated",
+        "allowDateClarification": true,
+        "description": "Income proposal for PHP 1,000 on 2026-10-20 into Unallocated, or clarification for the missing date."
+      }
+    },
+    {
+      "id": "expense",
+      "title": "Expense",
+      "message": "I spent 50 pesos on lunch from Food & drinks.",
+      "expectation": {
+        "kind": "proposal",
+        "intent": "expense",
+        "action": "expense",
+        "amountMinor": 5000,
+        "effectiveDate": "2026-10-20",
+        "containerId": "container-food",
+        "allowDateClarification": true,
+        "description": "Expense proposal for PHP 50 from Food & drinks on 2026-10-20, or clarification for the missing date."
+      }
+    },
+    {
+      "id": "wallet-transfer",
+      "title": "Wallet transfer",
+      "message": "Transfer 100 pesos from Cash to GCash.",
+      "expectation": {
+        "kind": "proposal",
+        "intent": "wallet_transfer",
+        "action": "wallet_transfer",
+        "amountMinor": 10000,
+        "effectiveDate": "2026-10-20",
+        "sourceWalletId": "wallet-cash",
+        "destinationWalletId": "wallet-gcash",
+        "allowDateClarification": true,
+        "description": "Wallet transfer of PHP 100 from Cash to GCash on 2026-10-20, or clarification for the missing date."
+      }
+    },
+    {
+      "id": "container-transfer",
+      "title": "Container transfer",
+      "message": "Move 150 pesos from Food & drinks to Transport.",
+      "expectation": {
+        "kind": "proposal",
+        "intent": "container_transfer",
+        "action": "container_transfer",
+        "amountMinor": 15000,
+        "effectiveDate": "2026-10-20",
+        "containerId": "container-food",
+        "destinationContainerId": "container-transport",
+        "allowDateClarification": true,
+        "description": "Container transfer of PHP 150 from Food & drinks to Transport on 2026-10-20, or clarification for the missing date."
+      }
+    },
+    {
+      "id": "balance-inquiry",
+      "title": "Balance inquiry",
+      "message": "How much is in Savings?",
+      "expectation": {
+        "kind": "answer",
+        "intent": "balance_inquiry",
+        "topic": "savings_balance",
+        "answerScope": "topic-only",
+        "description": "Read-only Savings balance answer; topic recognition only, figures are not scored."
+      }
+    },
+    {
+      "id": "spending-summary",
+      "title": "Spending summary",
+      "message": "How much did I spend this month?",
+      "expectation": {
+        "kind": "answer",
+        "intent": "spending_summary",
+        "topic": "monthly_spending",
+        "answerScope": "topic-only",
+        "description": "Read-only monthly spending summary; topic recognition only, figures are not scored."
+      }
+    },
+    {
+      "id": "budget-inquiry",
+      "title": "Budget inquiry",
+      "message": "How much budget is left for Food & drinks?",
+      "expectation": {
+        "kind": "answer",
+        "intent": "budget_inquiry",
+        "topic": "budget_remaining",
+        "answerScope": "topic-only",
+        "description": "Read-only remaining budget answer; topic recognition only, figures are not scored."
+      }
+    },
+    {
+      "id": "missing-amount",
+      "title": "Missing amount",
+      "message": "I spent on lunch from Food & drinks.",
+      "expectation": {
+        "kind": "clarification",
+        "intent": "expense",
+        "missingFields": [
+          "amount"
+        ],
+        "description": "Clarification for the missing expense amount; no proposal."
+      }
+    },
+    {
+      "id": "missing-destination",
+      "title": "Missing destination",
+      "message": "Move 150 pesos from Food & drinks.",
+      "expectation": {
+        "kind": "clarification",
+        "intent": "container_transfer",
+        "missingFields": [
+          "destinationContainer"
+        ],
+        "description": "Clarification for the missing transfer destination; no proposal."
+      }
+    },
+    {
+      "id": "ambiguous-date",
+      "title": "Ambiguous date",
+      "message": "I spent 50 pesos on lunch last week.",
+      "expectation": {
+        "kind": "non-proposal",
+        "allowedKinds": [
+          "clarification",
+          "refusal"
+        ],
+        "description": "Clarification or refusal for an unsupported relative date; no proposal."
+      }
+    },
+    {
+      "id": "unsupported-request",
+      "title": "Unsupported request",
+      "message": "What is the weather tomorrow?",
+      "expectation": {
+        "kind": "non-proposal",
+        "allowedKinds": [
+          "refusal",
+          "answer"
+        ],
+        "intent": "unknown",
+        "description": "Unsupported handling with no executable proposal; refusal or help answer is acceptable."
+      }
+    },
+    {
+      "id": "malformed-output",
+      "title": "Malformed output",
+      "message": "Synthetic malformed model output control.",
+      "expectation": {
+        "kind": "parser-rejection",
+        "description": "The real response parser must reject malformed JSON; no proposal."
+      },
+      "syntheticRaw": "{\"kind\":\"proposal\",\"intent\":\"expense\""
+    }
+  ],
+  "runs": {
+    "production:income": {
+      "strategy": "production",
+      "rawOutput": "{\n  \"kind\": \"proposal\",\n  \"intent\": \"income\",\n  \"message\": \"My mom sent me 1,000 pesos.\",\n  \"interpretation\": {\n    \"intent\": \"income\",\n    \"amountMinor\": 1000,\n    \"currency\": \"PHP\",\n    \"effectiveDate\": \"2026-10-20\",\n    \"sourceWalletId\": \"wallet-cash\",\n    \"sourceWallet\": {\n      \"id\": \"wallet-cash\",\n      \"name\": \"Cash on hand\",\n      \"kind\": \"cash\",\n      \"balanceMinor\": 100000\n    },\n    \"sourceContainerId\": \"container-food\",\n    \"sourceContainer\": {\n      \"id\": \"container-food\",\n      \"name\": \"Food & drinks\",\n      \"status\": \"active\",\n      \"systemKey\": null,\n      \"balanceMinor\": 20000,\n      \"limitMinor\": 10000,\n      \"spentMinor\": 80000,\n      \"remainingMinor\": 20000,\n      \"containerLabel\": \"Food & drinks\",\n      \"containerId\": \"container-food\"\n    },\n    \"destinationWalletId\": \"wallet-gcash\",\n    \"destinationWallet\": {\n      \"id\": \"wallet-gcash\",\n      \"name\": \"Virtual GCash\",\n      \"kind\": \"virtual_gcash\",\n      \"balanceMinor\": 100000\n    },\n    \"destinationContainerId\": \"container-food\",\n    \"destinationContainer\": {\n      \"id\": \"container-food\",\n      \"name\": \"Food & drinks\",\n      \"status\": \"active\",\n      \"systemKey\": null,\n      \"balanceMinor\": 20000,\n      \"limitMinor\": 50000,\n      \"spentMinor\": 40000,\n      \"remainingMinor\": 10000,\n      \"containerLabel\": \"Food & drinks\",\n      \"containerId\": \"container-food\"\n    },\n    \"destinationBalanceMinor\": 20000,\n    \"transferKind\": \"transfer\",\n    \"transferDetails\": {\n      \"amount\": 1000,\n      \"currency\": \"PHP\",\n      \"sourceWalletId\": \"wallet-gcash\",\n      \"sourceWallet\": {\n        \"id\": \"wallet-gcash\",\n        \"name\": \"Virtual GCash\",\n        \"kind\": \"",
+      "parsed": null,
+      "parseError": "Local model response is not valid JSON; markdown and code fences are not accepted.",
+      "outcome": {
+        "passed": false,
+        "checks": {
+          "schemaValid": false,
+          "kindCorrect": false,
+          "intentCorrect": null,
+          "amountCorrect": null,
+          "entitiesCorrect": null,
+          "dateCorrect": null,
+          "missingFieldsCorrect": null,
+          "unsupportedHandled": false,
+          "semanticFaithful": false
+        },
+        "summary": "Provider or parser rejected model output: Local model response is not valid JSON; markdown and code fences are not accepted."
+      },
+      "metrics": {
+        "loadMs": 3979,
+        "promptPreparationMs": 19,
+        "promptCharacters": 4858,
+        "generationMs": 25488,
+        "timeToFirstTokenMs": 51,
+        "unloadMs": 1,
+        "promptTokens": 3,
+        "outputTokens": 511,
+        "runtimeStatusAfterGeneration": "unloaded",
+        "maxTokens": 512,
+        "outputLimitStatus": "not-reached",
+        "generationStats": {
+          "loadMs": 3978,
+          "timeToFirstTokenMs": 51,
+          "totalMs": 16563,
+          "promptTokens": 3,
+          "outputTokens": 511
+        },
+        "totalMs": 29519
+      }
+    },
+    "production:expense": {
+      "strategy": "production",
+      "rawOutput": "{\n  \"kind\": \"proposal\",\n  \"intent\": \"income\",\n  \"message\": \"I spent 50 pesos on lunch from Food & drinks.\",\n  \"interpretation\": {\n    \"intent\": \"income\",\n    \"amountMinor\": 50,\n    \"currency\": \"PHP\",\n    \"effectiveDate\": \"2026-10-20\",\n    \"sourceWallet\": \"wallet-cash\",\n    \"sourceContainer\": \"container-food\",\n    \"destinationWallet\": \"wallet-gcash\",\n    \"destinationContainer\": \"container-food\",\n    \"sourceBalanceMinor\": 100000,\n    \"destinationBalanceMinor\": 50000,\n    \"transferKind\": \"container_transfer\",\n    \"transferDetails\": {\n      \"containerId\": \"container-food\",\n      \"transferKind\": \"container_transfer\",\n      \"amountMinor\": 50,\n      \"sourceContainerId\": \"container-food\",\n      \"sourceContainerName\": \"Food & drinks\",\n      \"destinationContainerId\": \"container-food\",\n      \"destinationContainerName\": \"Food & drinks\"\n    },\n    \"transferDetailsDetails\": {\n      \"containerId\": \"container-food\",\n      \"transferKind\": \"container_transfer\",\n      \"amountMinor\": 50,\n      \"sourceContainerId\": \"container-food\",\n      \"sourceContainerName\": \"Food & drinks\",\n      \"destinationContainerId\": \"container-food\",\n      \"destinationContainerName\": \"Food & drinks\"\n    },\n    \"transferDetailsDetailsDetails\": {\n      \"containerId\": \"container-food\",\n      \"transferKind\": \"container_transfer\",\n      \"amountMinor\": 50,\n      \"sourceContainerId\": \"container-food\",\n      \"sourceContainerName\": \"Food & drinks\",\n      \"destinationContainerId\": \"container-food\",\n      \"destinationContainerName\": \"Food & drinks\"\n    },\n    \"transferDetailsDetailsDetailsDetails\": {\n      \"containerId\": \"container-food\",\n      \"transferKind\": \"container_transfer\",\n      \"amountMinor\": 50,\n      \"sourceContainerId\": \"container-food\",\n      \"sourceContainerName\": \"Food & drinks\",\n      \"destinationContainerId\": \"container-food\",\n      \"destinationContainerName\": \"Food & drinks\"\n    },\n    \"transferDetailsDetailsDetailsDetailsDetails\": {\n      \"containerId\": \"container-food\",\n      \"transferKind\": \"container_transfer\",\n      \"amountMinor\": 50,\n      \"sourceContainerId\": \"container",
+      "parsed": null,
+      "parseError": "Local model response is not valid JSON; markdown and code fences are not accepted.",
+      "outcome": {
+        "passed": false,
+        "checks": {
+          "schemaValid": false,
+          "kindCorrect": false,
+          "intentCorrect": null,
+          "amountCorrect": null,
+          "entitiesCorrect": null,
+          "dateCorrect": null,
+          "missingFieldsCorrect": null,
+          "unsupportedHandled": false,
+          "semanticFaithful": false
+        },
+        "summary": "Provider or parser rejected model output: Local model response is not valid JSON; markdown and code fences are not accepted."
+      },
+      "metrics": {
+        "loadMs": 1704,
+        "promptPreparationMs": 1,
+        "promptCharacters": 4876,
+        "generationMs": 25768,
+        "timeToFirstTokenMs": 38,
+        "unloadMs": 0,
+        "promptTokens": 3,
+        "outputTokens": 511,
+        "runtimeStatusAfterGeneration": "unloaded",
+        "maxTokens": 512,
+        "outputLimitStatus": "not-reached",
+        "generationStats": {
+          "loadMs": 1704,
+          "timeToFirstTokenMs": 38,
+          "totalMs": 16899,
+          "promptTokens": 3,
+          "outputTokens": 511
+        },
+        "totalMs": 27473
+      }
+    },
+    "production:wallet-transfer": {
+      "strategy": "production",
+      "rawOutput": "{\n  \"kind\": \"proposal\",\n  \"intent\": \"transfer\",\n  \"message\": \"Transfer 100 pesos from Cash to GCash.\",\n  \"interpretation\": {\n    \"intent\": \"transfer\",\n    \"amountMinor\": 100,\n    \"currency\": \"PHP\",\n    \"effectiveDate\": \"2026-10-20\",\n    \"sourceWallet\": {\n      \"id\": \"wallet-cash\",\n      \"name\": \"Cash on hand\",\n      \"kind\": \"cash\",\n      \"balanceMinor\": 100000\n    },\n    \"sourceContainer\": {\n      \"id\": \"container-food\",\n      \"name\": \"Food & drinks\",\n      \"status\": \"active\",\n      \"systemKey\": null,\n      \"balanceMinor\": 20000,\n      \"limitMinor\": 10000,\n      \"spentMinor\": 80000,\n      \"remainingMinor\": 20000\n    },\n    \"destinationWallet\": {\n      \"id\": \"wallet-gcash\",\n      \"name\": \"Virtual GCash\",\n      \"kind\": \"virtual_gcash\",\n      \"balanceMinor\": 100000\n    },\n    \"destinationContainer\": {\n      \"id\": \"container-food\",\n      \"name\": \"Food & drinks\",\n      \"status\": \"active\",\n      \"systemKey\": null,\n      \"balanceMinor\": 20000,\n      \"limitMinor\": 50000,\n      \"spentMinor\": 40000,\n      \"remainingMinor\": 10000\n    },\n    \"transferKind\": \"transfer\",\n    \"transferDetails\": {\n      \"amount\": 100,\n      \"currency\": \"PHP\",\n      \"source\": \"Cash\",\n      \"destination\": \"GCash\"\n    },\n    \"transferDetails\": {\n      \"amount\": 100,\n      \"currency\": \"PHP\",\n      \"source\": \"Cash\",\n      \"destination\": \"GCash\"\n    },\n    \"transferDetails\": {\n      \"amount\": 100,\n      \"currency\": \"PHP\",\n      \"source\": \"Cash\",\n      \"destination\": \"GCash\"\n    },\n    \"transferDetails\": {\n      \"amount\": 100,\n      \"currency\": \"PHP\",\n      \"source\": \"Cash\",\n      \"destination\": \"GCash\"\n    },\n   ",
+      "parsed": null,
+      "parseError": "Local model response is not valid JSON; markdown and code fences are not accepted.",
+      "outcome": {
+        "passed": false,
+        "checks": {
+          "schemaValid": false,
+          "kindCorrect": false,
+          "intentCorrect": null,
+          "amountCorrect": null,
+          "entitiesCorrect": null,
+          "dateCorrect": null,
+          "missingFieldsCorrect": null,
+          "unsupportedHandled": false,
+          "semanticFaithful": false
+        },
+        "summary": "Provider or parser rejected model output: Local model response is not valid JSON; markdown and code fences are not accepted."
+      },
+      "metrics": {
+        "loadMs": 1690,
+        "promptPreparationMs": 2,
+        "promptCharacters": 4869,
+        "generationMs": 39684,
+        "timeToFirstTokenMs": 55,
+        "unloadMs": 0,
+        "promptTokens": 3,
+        "outputTokens": 511,
+        "runtimeStatusAfterGeneration": "unloaded",
+        "maxTokens": 512,
+        "outputLimitStatus": "not-reached",
+        "generationStats": {
+          "loadMs": 1690,
+          "timeToFirstTokenMs": 55,
+          "totalMs": 27550,
+          "promptTokens": 3,
+          "outputTokens": 511
+        },
+        "totalMs": 41378
+      }
+    },
+    "production:container-transfer": {
+      "strategy": "production",
+      "rawOutput": "{\n  \"kind\": \"proposal\",\n  \"intent\": \"income\",\n  \"message\": \"Move 150 pesos from Food & drinks to Transport.\",\n  \"interpretation\": {\n    \"intent\": \"income\",\n    \"amountMinor\": 150,\n    \"currency\": \"PHP\",\n    \"effectiveDate\": \"2026-10-20\",\n    \"sourceWalletId\": \"wallet-cash\",\n    \"sourceWallet\": {\n      \"id\": \"wallet-cash\",\n      \"name\": \"Cash on hand\",\n      \"kind\": \"cash\",\n      \"balanceMinor\": 100000\n    },\n    \"sourceContainerId\": \"container-food\",\n    \"sourceContainer\": {\n      \"name\": \"Food & drinks\",\n      \"status\": \"active\",\n      \"systemKey\": null,\n      \"balanceMinor\": 20000,\n      \"limitMinor\": 10000,\n      \"spentMinor\": 80000,\n      \"remainingMinor\": 20000\n    },\n    \"destinationWalletId\": \"wallet-gcash\",\n    \"destinationWallet\": {\n      \"id\": \"wallet-gcash\",\n      \"name\": \"Virtual GCash\",\n      \"kind\": \"virtual_gcash\",\n      \"balanceMinor\": 100000\n    },\n    \"destinationContainerId\": \"container-food\",\n    \"destinationContainer\": {\n      \"name\": \"Food & drinks\",\n      \"status\": \"active\",\n      \"systemKey\": null,\n      \"balanceMinor\": 20000,\n      \"limitMinor\": 50000,\n      \"spentMinor\": 40000,\n      \"remainingMinor\": 10000\n    },\n    \"transferKind\": \"transfer\",\n    \"transferDetails\": {\n      \"amount\": 150,\n      \"currency\": \"PHP\",\n      \"sourceWalletId\": \"wallet-cash\",\n      \"sourceWallet\": {\n        \"id\": \"wallet-cash\",\n        \"name\": \"Cash on hand\",\n        \"kind\": \"cash\",\n        \"balanceMinor\": 100000\n      },\n      \"sourceContainerId\": \"container-food\",\n      \"sourceContainer\": {\n        \"name\": \"Food & drinks\",\n        \"status\": \"active\",\n        \"systemKey\": null,\n        \"balanceMinor\": 20000,\n",
+      "parsed": null,
+      "parseError": "Local model response is not valid JSON; markdown and code fences are not accepted.",
+      "outcome": {
+        "passed": false,
+        "checks": {
+          "schemaValid": false,
+          "kindCorrect": false,
+          "intentCorrect": null,
+          "amountCorrect": null,
+          "entitiesCorrect": null,
+          "dateCorrect": null,
+          "missingFieldsCorrect": null,
+          "unsupportedHandled": false,
+          "semanticFaithful": false
+        },
+        "summary": "Provider or parser rejected model output: Local model response is not valid JSON; markdown and code fences are not accepted."
+      },
+      "metrics": {
+        "loadMs": 1748,
+        "promptPreparationMs": 2,
+        "promptCharacters": 4878,
+        "generationMs": 37227,
+        "timeToFirstTokenMs": 49,
+        "unloadMs": 0,
+        "promptTokens": 3,
+        "outputTokens": 511,
+        "runtimeStatusAfterGeneration": "unloaded",
+        "maxTokens": 512,
+        "outputLimitStatus": "not-reached",
+        "generationStats": {
+          "loadMs": 1748,
+          "timeToFirstTokenMs": 49,
+          "totalMs": 25377,
+          "promptTokens": 3,
+          "outputTokens": 511
+        },
+        "totalMs": 38978
+      }
+    },
+    "production:balance-inquiry": {
+      "strategy": "production",
+      "rawOutput": "{\n  \"kind\": \"proposal\",\n  \"intent\": \"income\",\n  \"message\": \"How much is in Savings?\",\n  \"interpretation\": {\n    \"intent\": \"income\",\n    \"amountMinor\": 100000,\n    \"currency\": \"PHP\",\n    \"effectiveDate\": \"2026-10\",\n    \"sourceWallet\": \"wallet-cash\",\n    \"sourceContainer\": \"container-food\",\n    \"destinationWallet\": \"wallet-gcash\",\n    \"destinationContainer\": \"container-food\",\n    \"transferKind\": \"container_transfer\",\n    \"amount\": 100000,\n    \"currency\": \"PHP\",\n    \"confidence\": 0.99,\n    \"missingFields\": [\n      \"amountMinor\",\n      \"effectiveDate\",\n      \"sourceWallet\",\n      \"sourceContainer\",\n      \"destinationWallet\",\n      \"destinationContainer\",\n      \"transferKind\"\n    ]\n  }\n}",
+      "parsed": null,
+      "parseError": "interpretation.effectiveDate is invalid.",
+      "outcome": {
+        "passed": false,
+        "checks": {
+          "schemaValid": false,
+          "kindCorrect": false,
+          "intentCorrect": null,
+          "amountCorrect": null,
+          "entitiesCorrect": null,
+          "dateCorrect": null,
+          "missingFieldsCorrect": null,
+          "unsupportedHandled": false,
+          "semanticFaithful": false
+        },
+        "summary": "Provider or parser rejected model output: interpretation.effectiveDate is invalid."
+      },
+      "metrics": {
+        "loadMs": 1708,
+        "promptPreparationMs": 2,
+        "promptCharacters": 4854,
+        "generationMs": 18245,
+        "timeToFirstTokenMs": 51,
+        "unloadMs": 0,
+        "promptTokens": 3,
+        "outputTokens": 195,
+        "runtimeStatusAfterGeneration": "unloaded",
+        "maxTokens": 512,
+        "outputLimitStatus": "not-reached",
+        "generationStats": {
+          "loadMs": 1708,
+          "timeToFirstTokenMs": 51,
+          "totalMs": 9242,
+          "promptTokens": 3,
+          "outputTokens": 195
+        },
+        "totalMs": 19960
+      }
+    },
+    "production:spending-summary": {
+      "strategy": "production",
+      "rawOutput": "{\n  \"kind\": \"proposal\",\n  \"intent\": \"income\",\n  \"message\": \"How much did I spend this month?\",\n  \"interpretation\": {\n    \"intent\": \"income\",\n    \"amountMinor\": 100000,\n    \"currency\": \"PHP\",\n    \"effectiveDate\": \"2026-10-20\",\n    \"sourceWalletId\": \"wallet-cash\",\n    \"sourceWallet\": {\n      \"id\": \"wallet-cash\",\n      \"name\": \"Cash on hand\",\n      \"kind\": \"cash\",\n      \"balanceMinor\": 100000\n    },\n    \"sourceContainerId\": \"container-food\",\n    \"sourceContainer\": {\n      \"id\": \"container-food\",\n      \"name\": \"Food & drinks\",\n      \"status\": \"active\",\n      \"systemKey\": null,\n      \"balanceMinor\": 20000,\n      \"limitMinor\": 10000,\n      \"spentMinor\": 80000,\n      \"remainingMinor\": 20000,\n      \"systemKey\": null,\n      \"limitMinor\": 50000,\n      \"spentMinor\": 40000,\n      \"remainingMinor\": 10000,\n      \"spentMinor\": 80000,\n      \"remainingMinor\": 40000,\n      \"spentMinor\": 80000,\n      \"remainingMinor\": 40000,\n      \"spentMinor\": 80000,\n      \"remainingMinor\": 40000,\n      \"spentMinor\": 80000,\n      \"remainingMinor\": 40000,\n      \"spentMinor\": 80000,\n      \"remainingMinor\": 40000,\n      \"spentMinor\": 80000,\n      \"remainingMinor\": 40000,\n      \"spentMinor\": 80000,\n      \"remainingMinor\": 40000,\n      \"spentMinor\": 80000,\n      \"remainingMinor\": 40000,\n      \"spentMinor\": 80000,\n      \"remainingMinor\": 40000,\n      \"spentMinor\": 80000,\n      \"remainingMinor\": 40000",
+      "parsed": null,
+      "parseError": "Local model response is not valid JSON; markdown and code fences are not accepted.",
+      "outcome": {
+        "passed": false,
+        "checks": {
+          "schemaValid": false,
+          "kindCorrect": false,
+          "intentCorrect": null,
+          "amountCorrect": null,
+          "entitiesCorrect": null,
+          "dateCorrect": null,
+          "missingFieldsCorrect": null,
+          "unsupportedHandled": false,
+          "semanticFaithful": false
+        },
+        "summary": "Provider or parser rejected model output: Local model response is not valid JSON; markdown and code fences are not accepted."
+      },
+      "metrics": {
+        "loadMs": 1696,
+        "promptPreparationMs": 2,
+        "promptCharacters": 4863,
+        "generationMs": 39279,
+        "timeToFirstTokenMs": 55,
+        "unloadMs": 0,
+        "promptTokens": 3,
+        "outputTokens": 511,
+        "runtimeStatusAfterGeneration": "unloaded",
+        "maxTokens": 512,
+        "outputLimitStatus": "not-reached",
+        "generationStats": {
+          "loadMs": 1696,
+          "timeToFirstTokenMs": 55,
+          "totalMs": 27453,
+          "promptTokens": 3,
+          "outputTokens": 511
+        },
+        "totalMs": 40977
+      }
+    },
+    "production:budget-inquiry": {
+      "strategy": "production",
+      "rawOutput": "{\n  \"kind\": \"proposal\",\n  \"intent\": \"income\",\n  \"message\": \"How much budget is left for Food & drinks?\",\n  \"interpretation\": {\n    \"intent\": \"income\",\n    \"amountMinor\": 100000,\n    \"currency\": \"PHP\",\n    \"effectiveDate\": \"2026-10-20\",\n    \"sourceWalletId\": \"wallet-gcash\",\n    \"sourceWallet\": {\n      \"id\": \"wallet-gcash\",\n      \"name\": \"Virtual GCash\",\n      \"kind\": \"virtual_gcash\",\n      \"balanceMinor\": 100000\n    },\n    \"destinationWalletId\": \"wallet-cash\",\n    \"destinationWallet\": {\n      \"id\": \"wallet-cash\",\n      \"name\": \"Cash on hand\",\n      \"kind\": \"cash\",\n      \"balanceMinor\": 100000\n    },\n    \"containerId\": \"container-food\",\n    \"container\": {\n      \"id\": \"container-food\",\n      \"name\": \"Food & drinks\",\n      \"status\": \"active\",\n      \"systemKey\": null,\n      \"balanceMinor\": 20000,\n      \"limitMinor\": 10000,\n      \"spentMinor\": 80000,\n      \"remainingMinor\": 20000,\n      \"spentMinor\": 40000,\n      \"remainingMinor\": 10000,\n      \"spentMinor\": 0,\n      \"remainingMinor\": 0,\n      \"spentMinor\": 0,\n      \"remainingMinor\": 0,\n      \"spentMinor\": 0,\n      \"remainingMinor\": 0,\n      \"spentMinor\": 0,\n      \"remainingMinor\": 0,\n      \"spentMinor\": 0,\n      \"remainingMinor\": 0,\n      \"spentMinor\": 0,\n      \"remainingMinor\": 0,\n      \"spentMinor\": 0,\n      \"remainingMinor\": 0,\n      \"spentMinor\": 0,\n      \"remainingMinor\": 0,\n      \"spentMinor\": 0,\n      \"remainingMinor\": 0,\n      \"spentMinor\": 0,\n      \"remainingMinor\": 0,\n      \"spentMinor\": 0,\n      \"remainingMinor\": 0,\n      \"spentMinor\": 0,\n      \"remainingMinor\": 0,\n      \"spentMinor\": 0",
+      "parsed": null,
+      "parseError": "Local model response is not valid JSON; markdown and code fences are not accepted.",
+      "outcome": {
+        "passed": false,
+        "checks": {
+          "schemaValid": false,
+          "kindCorrect": false,
+          "intentCorrect": null,
+          "amountCorrect": null,
+          "entitiesCorrect": null,
+          "dateCorrect": null,
+          "missingFieldsCorrect": null,
+          "unsupportedHandled": false,
+          "semanticFaithful": false
+        },
+        "summary": "Provider or parser rejected model output: Local model response is not valid JSON; markdown and code fences are not accepted."
+      },
+      "metrics": {
+        "loadMs": 1699,
+        "promptPreparationMs": 2,
+        "promptCharacters": 4873,
+        "generationMs": 39219,
+        "timeToFirstTokenMs": 57,
+        "unloadMs": 0,
+        "promptTokens": 3,
+        "outputTokens": 511,
+        "runtimeStatusAfterGeneration": "unloaded",
+        "maxTokens": 512,
+        "outputLimitStatus": "not-reached",
+        "generationStats": {
+          "loadMs": 1699,
+          "timeToFirstTokenMs": 57,
+          "totalMs": 27222,
+          "promptTokens": 3,
+          "outputTokens": 511
+        },
+        "totalMs": 40920
+      }
+    },
+    "production:missing-amount": {
+      "strategy": "production",
+      "rawOutput": "{\n  \"kind\": \"proposal|clarification|answer|refusal\",\n  \"intent\": \"expense\",\n  \"message\": \"I spent on lunch from Food & drinks.\",\n  \"interpretation\": {\n    \"intent\": \"expense\",\n    \"amountMinor\": 100000,\n    \"currency\": \"PHP\",\n    \"effectiveDate\": \"2026-10-20\",\n    \"sourceWalletId\": \"wallet-cash\",\n    \"sourceWallet\": {\n      \"id\": \"wallet-cash\",\n      \"name\": \"Cash on hand\",\n      \"kind\": \"cash\",\n      \"balanceMinor\": 100000\n    },\n    \"sourceContainerId\": \"container-food\",\n    \"sourceContainer\": {\n      \"name\": \"Food & drinks\",\n      \"status\": \"active\",\n      \"systemKey\": null,\n      \"balanceMinor\": 20000,\n      \"limitMinor\": 10000,\n      \"spentMinor\": 80000,\n      \"remainingMinor\": 20000\n    },\n    \"destinationWalletId\": \"wallet-gcash\",\n    \"destinationWallet\": {\n      \"id\": \"wallet-gcash\",\n      \"name\": \"Virtual GCash\",\n      \"kind\": \"virtual_gcash\",\n      \"balanceMinor\": 100000\n    },\n    \"destinationContainerId\": \"container-food\",\n    \"destinationContainer\": {\n      \"name\": \"Food & drinks\",\n      \"status\": \"active\",\n      \"systemKey\": null,\n      \"balanceMinor\": 20000,\n      \"limitMinor\": 50000,\n      \"spentMinor\": 40000,\n      \"remainingMinor\": 10000\n    },\n    \"walletLabel\": \"Cash on hand\",\n    \"sourceWalletLabel\": \"Cash on hand\",\n    \"destinationWalletLabel\": \"Virtual GCash\",\n    \"sourceContainerLabel\": \"Food & drinks\",\n    \"destinationContainerLabel\": \"Food & drinks\",\n    \"walletId\": \"wallet-cash\",\n    \"sourceWalletId\": \"wallet-cash\",\n    \"destinationWalletId\": \"wallet-gcash\",\n    \"sourceWalletLabel\": \"Cash on hand\",\n    \"destinationWalletLabel\": \"Virtual GCash\",\n    \"containerLabel\": \"Food & drinks\",\n    \"sourceContainerId\": \"container-food\",\n    \"destination",
+      "parsed": null,
+      "parseError": "Local model response is not valid JSON; markdown and code fences are not accepted.",
+      "outcome": {
+        "passed": false,
+        "checks": {
+          "schemaValid": false,
+          "kindCorrect": false,
+          "intentCorrect": null,
+          "amountCorrect": null,
+          "entitiesCorrect": null,
+          "dateCorrect": null,
+          "missingFieldsCorrect": null,
+          "unsupportedHandled": false,
+          "semanticFaithful": false
+        },
+        "summary": "Provider or parser rejected model output: Local model response is not valid JSON; markdown and code fences are not accepted."
+      },
+      "metrics": {
+        "loadMs": 1709,
+        "promptPreparationMs": 6,
+        "promptCharacters": 4867,
+        "generationMs": 41045,
+        "timeToFirstTokenMs": 63,
+        "unloadMs": 0,
+        "promptTokens": 3,
+        "outputTokens": 511,
+        "runtimeStatusAfterGeneration": "unloaded",
+        "maxTokens": 512,
+        "outputLimitStatus": "not-reached",
+        "generationStats": {
+          "loadMs": 1709,
+          "timeToFirstTokenMs": 63,
+          "totalMs": 28883,
+          "promptTokens": 3,
+          "outputTokens": 511
+        },
+        "totalMs": 42761
+      }
+    },
+    "production:ambiguous-date": {
+      "strategy": "production",
+      "rawOutput": "{\n  \"kind\": \"proposal|clarification|answer|refusal\",\n  \"intent\": \"income\",\n  \"message\": \"I spent 50 pesos on lunch last week.\",\n  \"interpretation\": {\n    \"intent\": \"income\",\n    \"amountMinor\": 50,\n    \"currency\": \"PHP\",\n    \"effectiveDate\": \"2026-10-20\",\n    \"sourceWallet\": {\n      \"id\": \"wallet-gcash\",\n      \"name\": \"Virtual Gcash\",\n      \"kind\": \"virtual_gcash\",\n      \"balanceMinor\": 100000\n    },\n    \"destinationWallet\": {\n      \"id\": \"wallet-cash\",\n      \"name\": \"Cash on hand\",\n      \"kind\": \"cash\",\n      \"balanceMinor\": 100000\n    },\n    \"sourceContainer\": {\n      \"id\": \"container-food\",\n      \"name\": \"Food & drinks\",\n      \"status\": \"active\",\n      \"systemKey\": null,\n      \"balanceMinor\": 20000,\n      \"limitMinor\": 10000,\n      \"spentMinor\": 80000,\n      \"remainingMinor\": 20000\n    },\n    \"destinationContainer\": {\n      \"id\": \"container-transport\",\n      \"name\": \"Transport\",\n      \"status\": \"active\",\n      \"systemKey\": null,\n      \"balanceMinor\": 10000,\n      \"limitMinor\": 50000,\n      \"spentMinor\": 40000,\n      \"remainingMinor\": 10000\n    },\n    \"walletLabel\": \"Cash on hand\",\n    \"sourceWalletLabel\": \"Cash on hand\",\n    \"destinationWalletLabel\": \"Food & drinks\",\n    \"sourceWalletId\": \"wallet-gcash\",\n    \"destinationWalletId\": \"wallet-cash\",\n    \"containerLabel\": \"Food & drinks\",\n    \"sourceContainerId\": \"container-food\",\n    \"destinationContainerId\": \"container-transport\"\n  },\n  \"clarification\": {\n    \"reason\": \"amount|container|wallet|transfer|setup\",\n    \"options\": \"active container choices\",\n    \"walletOptions\": \"wallet choices\",\n    \"pending\": \"partial transaction\"\n  }\n}",
+      "parsed": null,
+      "parseError": "Unsupported assistant result kind.",
+      "outcome": {
+        "passed": false,
+        "checks": {
+          "schemaValid": false,
+          "kindCorrect": false,
+          "intentCorrect": null,
+          "amountCorrect": null,
+          "entitiesCorrect": null,
+          "dateCorrect": null,
+          "missingFieldsCorrect": null,
+          "unsupportedHandled": false,
+          "semanticFaithful": false
+        },
+        "summary": "Provider or parser rejected model output: Unsupported assistant result kind."
+      },
+      "metrics": {
+        "loadMs": 1673,
+        "promptPreparationMs": 2,
+        "promptCharacters": 4867,
+        "generationMs": 39884,
+        "timeToFirstTokenMs": 62,
+        "unloadMs": 0,
+        "promptTokens": 3,
+        "outputTokens": 489,
+        "runtimeStatusAfterGeneration": "unloaded",
+        "maxTokens": 512,
+        "outputLimitStatus": "not-reached",
+        "generationStats": {
+          "loadMs": 1673,
+          "timeToFirstTokenMs": 62,
+          "totalMs": 27756,
+          "promptTokens": 3,
+          "outputTokens": 489
+        },
+        "totalMs": 41561
+      }
+    },
+    "production:unsupported-request": {
+      "strategy": "production",
+      "rawOutput": "{\n  \"kind\": \"proposal\",\n  \"intent\": \"income\",\n  \"message\": \"What is the weather tomorrow?\",\n  \"interpretation\": {\n    \"intent\": \"income\",\n    \"amountMinor\": 0,\n    \"currency\": \"PHP\",\n    \"effectiveDate\": \"2026-10-20\",\n    \"sourceWallet\": {\n      \"id\": \"wallet-gcash\",\n      \"name\": \"Virtual Gcash\",\n      \"kind\": \"virtual_gcash\",\n      \"balanceMinor\": 100000\n    },\n    \"destinationWallet\": {\n      \"id\": \"wallet-cash\",\n      \"name\": \"Cash on hand\",\n      \"kind\": \"cash\",\n      \"balanceMinor\": 100000\n    },\n    \"sourceContainer\": {\n      \"id\": \"container-food\",\n      \"name\": \"Food & drinks\",\n      \"status\": \"active\",\n      \"systemKey\": null,\n      \"balanceMinor\": 20000,\n      \"limitMinor\": 10000,\n      \"spentMinor\": 80000,\n      \"remainingMinor\": 20000\n    },\n    \"destinationContainer\": {\n      \"id\": \"container-transport\",\n      \"name\": \"Transport\",\n      \"status\": \"active\",\n      \"systemKey\": null,\n      \"balanceMinor\": 10000,\n      \"limitMinor\": 50000,\n      \"spentMinor\": 40000,\n      \"remainingMinor\": 10000\n    },\n    \"walletLabel\": \"Cash on hand\",\n    \"sourceWalletLabel\": \"Cash on hand\",\n    \"destinationWalletLabel\": \"Cash on hand\",\n    \"containerLabel\": \"Food & drinks\",\n    \"sourceContainerLabel\": \"Food & drinks\",\n    \"destinationContainerLabel\": \"Food & drinks\"\n  },\n  \"clarification\": {\n    \"reason\": \"transfer\",\n    \"options\": [\n      \"transfer to\",\n      \"transfer from\",\n      \"transfer to/from\"\n    ],\n    \"walletOptions\": [\n      \"transfer to\",\n      \"transfer from\",\n      \"transfer to/from\"\n    ],\n    \"pending\": [\n      \"transfer to/from\"\n    ]\n  },\n  \"answer\": {\n    \"topic\": \"income\",\n    \"title\": \"Weather forecast\",\n    \"figures\": [\n      {\n        \"label\": \"income",
+      "parsed": null,
+      "parseError": "Local model response is not valid JSON; markdown and code fences are not accepted.",
+      "outcome": {
+        "passed": false,
+        "checks": {
+          "schemaValid": false,
+          "kindCorrect": false,
+          "intentCorrect": null,
+          "amountCorrect": null,
+          "entitiesCorrect": null,
+          "dateCorrect": null,
+          "missingFieldsCorrect": null,
+          "unsupportedHandled": false,
+          "semanticFaithful": false
+        },
+        "summary": "Provider or parser rejected model output: Local model response is not valid JSON; markdown and code fences are not accepted."
+      },
+      "metrics": {
+        "loadMs": 1673,
+        "promptPreparationMs": 1,
+        "promptCharacters": 4860,
+        "generationMs": 40703,
+        "timeToFirstTokenMs": 58,
+        "unloadMs": 0,
+        "promptTokens": 3,
+        "outputTokens": 511,
+        "runtimeStatusAfterGeneration": "unloaded",
+        "maxTokens": 512,
+        "outputLimitStatus": "not-reached",
+        "generationStats": {
+          "loadMs": 1673,
+          "timeToFirstTokenMs": 58,
+          "totalMs": 28459,
+          "promptTokens": 3,
+          "outputTokens": 511
+        },
+        "totalMs": 42378
+      }
+    },
+    "production:malformed-output": {
+      "strategy": "production",
+      "rawOutput": "{\"kind\":\"proposal\",\"intent\":\"expense\"",
+      "parsed": null,
+      "parseError": "Local model response is not valid JSON; markdown and code fences are not accepted.",
+      "outcome": {
+        "passed": true,
+        "checks": {
+          "schemaValid": false,
+          "kindCorrect": false,
+          "intentCorrect": null,
+          "amountCorrect": null,
+          "entitiesCorrect": null,
+          "dateCorrect": null,
+          "missingFieldsCorrect": null,
+          "unsupportedHandled": true,
+          "semanticFaithful": false
+        },
+        "summary": "Parser rejected output: Local model response is not valid JSON; markdown and code fences are not accepted."
+      },
+      "metrics": {
+        "loadMs": null,
+        "promptPreparationMs": null,
+        "promptCharacters": null,
+        "generationMs": null,
+        "timeToFirstTokenMs": null,
+        "unloadMs": null,
+        "promptTokens": null,
+        "outputTokens": null,
+        "runtimeStatusAfterGeneration": null,
+        "maxTokens": null,
+        "outputLimitStatus": "unknown",
+        "generationStats": null,
+        "totalMs": 1
+      }
+    },
+    "production:missing-destination": {
+      "strategy": "production",
+      "rawOutput": "{\n  \"kind\": \"proposal|clarification|answer|refusal\",\n  \"intent\": \"transfer\",\n  \"message\": \"Move 150 pesos from Food & drinks.\",\n  \"interpretation\": {\n    \"intent\": \"transfer\",\n    \"amountMinor\": 150,\n    \"currency\": \"PHP\",\n    \"effectiveDate\": \"2026-10-20\",\n    \"sourceWalletId\": \"wallet-gcash\",\n    \"sourceWallet\": \"Cash on hand\",\n    \"sourceContainerId\": \"container-food\",\n    \"sourceContainer\": \"Food & drinks\",\n    \"destinationWalletId\": \"wallet-cash\",\n    \"destinationWallet\": \"Virtual GCash\",\n    \"destinationContainerId\": \"container-food\",\n    \"destinationContainer\": \"Food & drinks\",\n    \"transferKind\": \"transfer\",\n    \"amount\": 150,\n    \"currency\": \"PHP\",\n    \"confidence\": 1,\n    \"missingFields\": [\n      \"amount\",\n      \"effectiveDate\",\n      \"sourceWalletId\",\n      \"sourceWallet\",\n      \"sourceContainerId\",\n      \"sourceContainer\",\n      \"destinationWalletId\",\n      \"destinationWallet\",\n      \"destinationContainerId\",\n      \"destinationContainer\"\n    ],\n    \"clarificationQuestion\": \"Could you please confirm the amount and currency?\",\n    \"reasoningSummary\": \"The user requested to transfer 150 pesos from Food & drinks.\",\n    \"reason\": \"The user requested to transfer 150 pesos from Food & drinks.\",\n    \"answer\": {\n      \"topic\": \"transfer\",\n      \"title\": \"Transfer\",\n      \"figures\": [\n        {\n          \"label\": \"150\",\n          \"amountMinor\": 150,\n          \"currency\": \"PHP\"\n        }\n      ]\n    }\n  }\n}",
+      "parsed": null,
+      "parseError": "Unsupported assistant result kind.",
+      "outcome": {
+        "passed": false,
+        "checks": {
+          "schemaValid": false,
+          "kindCorrect": false,
+          "intentCorrect": null,
+          "amountCorrect": null,
+          "entitiesCorrect": null,
+          "dateCorrect": null,
+          "missingFieldsCorrect": null,
+          "unsupportedHandled": false,
+          "semanticFaithful": false
+        },
+        "summary": "Provider or parser rejected model output: Unsupported assistant result kind."
+      },
+      "metrics": {
+        "loadMs": 1720,
+        "promptPreparationMs": 1,
+        "promptCharacters": 4865,
+        "generationMs": 33567,
+        "timeToFirstTokenMs": 59,
+        "unloadMs": 0,
+        "promptTokens": 3,
+        "outputTokens": 379,
+        "runtimeStatusAfterGeneration": "unloaded",
+        "maxTokens": 512,
+        "outputLimitStatus": "not-reached",
+        "generationStats": {
+          "loadMs": 1720,
+          "timeToFirstTokenMs": 59,
+          "totalMs": 22084,
+          "promptTokens": 3,
+          "outputTokens": 379
+        },
+        "totalMs": 35289
+      }
+    },
+    "minimal:income": {
+      "strategy": "minimal",
+      "rawOutput": "{ \"type\": \"wallet_transfer\", \"intent\": \"transfer\", \"message\": \"100 pesos from mom\", \"title\": \"Transfer\", \"amountMinor\": 10000, \"effectiveDate\": \"2026-10-20\", \"walletId\": \"wallet-gcash\", \"fromContainerId\": \"container-food\", \"toContainerId\": \"system-unallocated\", \"confidence\": 0.9 }",
+      "parsed": null,
+      "parseError": "result.type must be proposal, clarification, answer, or refusal.",
+      "outcome": {
+        "passed": false,
+        "checks": {
+          "schemaValid": false,
+          "kindCorrect": false,
+          "intentCorrect": null,
+          "amountCorrect": null,
+          "entitiesCorrect": null,
+          "dateCorrect": null,
+          "missingFieldsCorrect": null,
+          "unsupportedHandled": false,
+          "semanticFaithful": false
+        },
+        "summary": "Provider or parser rejected model output: result.type must be proposal, clarification, answer, or refusal."
+      },
+      "metrics": {
+        "loadMs": 1787,
+        "promptPreparationMs": 1,
+        "promptCharacters": 3767,
+        "generationMs": 12105,
+        "timeToFirstTokenMs": 56,
+        "unloadMs": 0,
+        "promptTokens": 3,
+        "outputTokens": 94,
+        "runtimeStatusAfterGeneration": "unloaded",
+        "maxTokens": 512,
+        "outputLimitStatus": "not-reached",
+        "generationStats": {
+          "loadMs": 1787,
+          "timeToFirstTokenMs": 56,
+          "totalMs": 4748,
+          "promptTokens": 3,
+          "outputTokens": 94
+        },
+        "totalMs": 13898
+      }
+    },
+    "minimal:expense": {
+      "strategy": "minimal",
+      "rawOutput": "{ \"type\": \"wallet_transfer\", \"intent\": \"transfer\", \"message\": \"Lunch\", \"title\": \"Lunch\", \"amountMinor\": 5000, \"effectiveDate\": \"2026-10-20\", \"walletId\": \"wallet-gcash\", \"fromContainerId\": \"container-food\", \"toContainerId\": \"system-unallocated\", \"transferKind\": \"transfer\", \"confidence\": 0.9 }",
+      "parsed": null,
+      "parseError": "result.type must be proposal, clarification, answer, or refusal.",
+      "outcome": {
+        "passed": false,
+        "checks": {
+          "schemaValid": false,
+          "kindCorrect": false,
+          "intentCorrect": null,
+          "amountCorrect": null,
+          "entitiesCorrect": null,
+          "dateCorrect": null,
+          "missingFieldsCorrect": null,
+          "unsupportedHandled": false,
+          "semanticFaithful": false
+        },
+        "summary": "Provider or parser rejected model output: result.type must be proposal, clarification, answer, or refusal."
+      },
+      "metrics": {
+        "loadMs": 1959,
+        "promptPreparationMs": 0,
+        "promptCharacters": 3785,
+        "generationMs": 12318,
+        "timeToFirstTokenMs": 54,
+        "unloadMs": 0,
+        "promptTokens": 3,
+        "outputTokens": 97,
+        "runtimeStatusAfterGeneration": "unloaded",
+        "maxTokens": 512,
+        "outputLimitStatus": "not-reached",
+        "generationStats": {
+          "loadMs": 1959,
+          "timeToFirstTokenMs": 54,
+          "totalMs": 4785,
+          "promptTokens": 3,
+          "outputTokens": 97
+        },
+        "totalMs": 14277
+      }
+    },
+    "minimal:wallet-transfer": {
+      "strategy": "minimal",
+      "rawOutput": "{ \"type\": \"wallet_transfer\", \"intent\": \"transfer\", \"message\": \"Move 100 pesos from Cash to GCash\", \"title\": \"Transfer 100 pesos\", \"amountMinor\": 10000, \"effectiveDate\": \"2026-10-20\", \"walletId\": \"wallet-gcash\", \"fromContainerId\": \"container-food\", \"toContainerId\": \"system-unallocated\", \"confidence\": 0.9 }",
+      "parsed": null,
+      "parseError": "result.type must be proposal, clarification, answer, or refusal.",
+      "outcome": {
+        "passed": false,
+        "checks": {
+          "schemaValid": false,
+          "kindCorrect": false,
+          "intentCorrect": null,
+          "amountCorrect": null,
+          "entitiesCorrect": null,
+          "dateCorrect": null,
+          "missingFieldsCorrect": null,
+          "unsupportedHandled": false,
+          "semanticFaithful": false
+        },
+        "summary": "Provider or parser rejected model output: result.type must be proposal, clarification, answer, or refusal."
+      },
+      "metrics": {
+        "loadMs": 2141,
+        "promptPreparationMs": 0,
+        "promptCharacters": 3778,
+        "generationMs": 12713,
+        "timeToFirstTokenMs": 51,
+        "unloadMs": 0,
+        "promptTokens": 3,
+        "outputTokens": 104,
+        "runtimeStatusAfterGeneration": "unloaded",
+        "maxTokens": 512,
+        "outputLimitStatus": "not-reached",
+        "generationStats": {
+          "loadMs": 2141,
+          "timeToFirstTokenMs": 51,
+          "totalMs": 5186,
+          "promptTokens": 3,
+          "outputTokens": 104
+        },
+        "totalMs": 14855
+      }
+    },
+    "minimal:container-transfer": {
+      "strategy": "minimal",
+      "rawOutput": "{ \"type\": \"wallet_transfer\", \"intent\": \"transfer\", \"message\": \"Move 150 pesos from Food & drinks to Transport\", \"title\": \"Move 150 pesos from Food & drinks to Transport\", \"amountMinor\": 150000, \"effectiveDate\": \"2026-10-20\", \"walletId\": \"wallet-food\", \"fromContainerId\": \"container-food\", \"toContainerId\": \"container-transport\", \"confidence\": 0.9 }",
+      "parsed": null,
+      "parseError": "result.type must be proposal, clarification, answer, or refusal.",
+      "outcome": {
+        "passed": false,
+        "checks": {
+          "schemaValid": false,
+          "kindCorrect": false,
+          "intentCorrect": null,
+          "amountCorrect": null,
+          "entitiesCorrect": null,
+          "dateCorrect": null,
+          "missingFieldsCorrect": null,
+          "unsupportedHandled": false,
+          "semanticFaithful": false
+        },
+        "summary": "Provider or parser rejected model output: result.type must be proposal, clarification, answer, or refusal."
+      },
+      "metrics": {
+        "loadMs": 1927,
+        "promptPreparationMs": 0,
+        "promptCharacters": 3787,
+        "generationMs": 13178,
+        "timeToFirstTokenMs": 54,
+        "unloadMs": 0,
+        "promptTokens": 3,
+        "outputTokens": 111,
+        "runtimeStatusAfterGeneration": "unloaded",
+        "maxTokens": 512,
+        "outputLimitStatus": "not-reached",
+        "generationStats": {
+          "loadMs": 1927,
+          "timeToFirstTokenMs": 54,
+          "totalMs": 5589,
+          "promptTokens": 3,
+          "outputTokens": 111
+        },
+        "totalMs": 15105
+      }
+    },
+    "minimal:balance-inquiry": {
+      "strategy": "minimal",
+      "rawOutput": "{ \"type\": \"answer\", \"intent\": \"balance_inquiry\", \"message\": \"Savings holds PHP 100.00.\", \"topic\": \"savings_balance\", \"figures\": [{\"label\": \"Savings\", \"amountMinor\": 10000}]}",
+      "parsed": null,
+      "parseError": "result.confidence must be between 0 and 1.",
+      "outcome": {
+        "passed": false,
+        "checks": {
+          "schemaValid": false,
+          "kindCorrect": false,
+          "intentCorrect": null,
+          "amountCorrect": null,
+          "entitiesCorrect": null,
+          "dateCorrect": null,
+          "missingFieldsCorrect": null,
+          "unsupportedHandled": false,
+          "semanticFaithful": false
+        },
+        "summary": "Provider or parser rejected model output: result.confidence must be between 0 and 1."
+      },
+      "metrics": {
+        "loadMs": 2084,
+        "promptPreparationMs": 0,
+        "promptCharacters": 3763,
+        "generationMs": 10438,
+        "timeToFirstTokenMs": 52,
+        "unloadMs": 0,
+        "promptTokens": 3,
+        "outputTokens": 61,
+        "runtimeStatusAfterGeneration": "unloaded",
+        "maxTokens": 512,
+        "outputLimitStatus": "not-reached",
+        "generationStats": {
+          "loadMs": 2084,
+          "timeToFirstTokenMs": 52,
+          "totalMs": 3079,
+          "promptTokens": 3,
+          "outputTokens": 61
+        },
+        "totalMs": 12522
+      }
+    },
+    "minimal:spending-summary": {
+      "strategy": "minimal",
+      "rawOutput": "{ \"type\": \"answer\", \"intent\": \"balance_inquiry\", \"message\": \"Savings holds PHP 100.00.\", \"topic\": \"savings_balance\", \"figures\": [ { \"label\": \"Savings\", \"amountMinor\": 10000 } ] }",
+      "parsed": null,
+      "parseError": "result.confidence must be between 0 and 1.",
+      "outcome": {
+        "passed": false,
+        "checks": {
+          "schemaValid": false,
+          "kindCorrect": false,
+          "intentCorrect": null,
+          "amountCorrect": null,
+          "entitiesCorrect": null,
+          "dateCorrect": null,
+          "missingFieldsCorrect": null,
+          "unsupportedHandled": false,
+          "semanticFaithful": false
+        },
+        "summary": "Provider or parser rejected model output: result.confidence must be between 0 and 1."
+      },
+      "metrics": {
+        "loadMs": 1987,
+        "promptPreparationMs": 0,
+        "promptCharacters": 3772,
+        "generationMs": 10555,
+        "timeToFirstTokenMs": 44,
+        "unloadMs": 0,
+        "promptTokens": 3,
+        "outputTokens": 64,
+        "runtimeStatusAfterGeneration": "unloaded",
+        "maxTokens": 512,
+        "outputLimitStatus": "not-reached",
+        "generationStats": {
+          "loadMs": 1987,
+          "timeToFirstTokenMs": 44,
+          "totalMs": 3312,
+          "promptTokens": 3,
+          "outputTokens": 64
+        },
+        "totalMs": 12542
+      }
+    },
+    "minimal:budget-inquiry": {
+      "strategy": "minimal",
+      "rawOutput": "{ \"type\": \"answer\", \"intent\": \"balance_inquiry\", \"message\": \"Savings holds PHP 100.00.\", \"topic\": \"savings_balance\", \"figures\": [{\"label\": \"Savings\", \"amountMinor\": 10000}]}",
+      "parsed": null,
+      "parseError": "result.confidence must be between 0 and 1.",
+      "outcome": {
+        "passed": false,
+        "checks": {
+          "schemaValid": false,
+          "kindCorrect": false,
+          "intentCorrect": null,
+          "amountCorrect": null,
+          "entitiesCorrect": null,
+          "dateCorrect": null,
+          "missingFieldsCorrect": null,
+          "unsupportedHandled": false,
+          "semanticFaithful": false
+        },
+        "summary": "Provider or parser rejected model output: result.confidence must be between 0 and 1."
+      },
+      "metrics": {
+        "loadMs": 2135,
+        "promptPreparationMs": 0,
+        "promptCharacters": 3782,
+        "generationMs": 10438,
+        "timeToFirstTokenMs": 54,
+        "unloadMs": 0,
+        "promptTokens": 3,
+        "outputTokens": 61,
+        "runtimeStatusAfterGeneration": "unloaded",
+        "maxTokens": 512,
+        "outputLimitStatus": "not-reached",
+        "generationStats": {
+          "loadMs": 2135,
+          "timeToFirstTokenMs": 54,
+          "totalMs": 3088,
+          "promptTokens": 3,
+          "outputTokens": 61
+        },
+        "totalMs": 12573
+      }
+    },
+    "minimal:missing-amount": {
+      "strategy": "minimal",
+      "rawOutput": "{ \"type\": \"wallet_transfer\", \"intent\": \"transfer\", \"message\": \"Lunch\", \"title\": \"Lunch\", \"amountMinor\": 5000, \"effectiveDate\": \"2026-10-20\", \"walletId\": \"wallet-gcash\", \"fromContainerId\": \"container-food\", \"toContainerId\": \"system-unallocated\", \"transferKind\": \"transfer\", \"confidence\": 0.9 }",
+      "parsed": null,
+      "parseError": "result.type must be proposal, clarification, answer, or refusal.",
+      "outcome": {
+        "passed": false,
+        "checks": {
+          "schemaValid": false,
+          "kindCorrect": false,
+          "intentCorrect": null,
+          "amountCorrect": null,
+          "entitiesCorrect": null,
+          "dateCorrect": null,
+          "missingFieldsCorrect": null,
+          "unsupportedHandled": false,
+          "semanticFaithful": false
+        },
+        "summary": "Provider or parser rejected model output: result.type must be proposal, clarification, answer, or refusal."
+      },
+      "metrics": {
+        "loadMs": 2061,
+        "promptPreparationMs": 0,
+        "promptCharacters": 3776,
+        "generationMs": 12541,
+        "timeToFirstTokenMs": 54,
+        "unloadMs": 0,
+        "promptTokens": 3,
+        "outputTokens": 97,
+        "runtimeStatusAfterGeneration": "unloaded",
+        "maxTokens": 512,
+        "outputLimitStatus": "not-reached",
+        "generationStats": {
+          "loadMs": 2061,
+          "timeToFirstTokenMs": 54,
+          "totalMs": 4972,
+          "promptTokens": 3,
+          "outputTokens": 97
+        },
+        "totalMs": 14602
+      }
+    },
+    "minimal:missing-destination": {
+      "strategy": "minimal",
+      "rawOutput": "{ \"type\": \"wallet_transfer\", \"intent\": \"transfer\", \"message\": \"Move 150 pesos from Food & drinks.\", \"title\": \"Move 150 pesos from Food & drinks.\", \"amountMinor\": 150000, \"effectiveDate\": \"2026-10-20\", \"walletId\": \"wallet-food\", \"fromContainerId\": \"container-food\", \"toContainerId\": \"container-food\", \"transferKind\": \"transfer\", \"confidence\": 0.9 }",
+      "parsed": null,
+      "parseError": "result.type must be proposal, clarification, answer, or refusal.",
+      "outcome": {
+        "passed": false,
+        "checks": {
+          "schemaValid": false,
+          "kindCorrect": false,
+          "intentCorrect": null,
+          "amountCorrect": null,
+          "entitiesCorrect": null,
+          "dateCorrect": null,
+          "missingFieldsCorrect": null,
+          "unsupportedHandled": false,
+          "semanticFaithful": false
+        },
+        "summary": "Provider or parser rejected model output: result.type must be proposal, clarification, answer, or refusal."
+      },
+      "metrics": {
+        "loadMs": 2124,
+        "promptPreparationMs": 0,
+        "promptCharacters": 3774,
+        "generationMs": 13598,
+        "timeToFirstTokenMs": 51,
+        "unloadMs": 0,
+        "promptTokens": 3,
+        "outputTokens": 113,
+        "runtimeStatusAfterGeneration": "unloaded",
+        "maxTokens": 512,
+        "outputLimitStatus": "not-reached",
+        "generationStats": {
+          "loadMs": 2124,
+          "timeToFirstTokenMs": 51,
+          "totalMs": 5835,
+          "promptTokens": 3,
+          "outputTokens": 113
+        },
+        "totalMs": 15722
+      }
+    },
+    "minimal:ambiguous-date": {
+      "strategy": "minimal",
+      "rawOutput": "{ \"type\": \"proposal\", \"intent\": \"income\", \"message\": \"Lunch\", \"title\": \"Lunch\", \"amountMinor\": 5000, \"effectiveDate\": \"2026-10-20\", \"walletId\": \"wallet-gcash\", \"fromContainerId\": \"container-food\", \"confidence\": 0.9 }",
+      "parsed": null,
+      "parseError": "result.action must be a string.",
+      "outcome": {
+        "passed": false,
+        "checks": {
+          "schemaValid": false,
+          "kindCorrect": false,
+          "intentCorrect": null,
+          "amountCorrect": null,
+          "entitiesCorrect": null,
+          "dateCorrect": null,
+          "missingFieldsCorrect": null,
+          "unsupportedHandled": false,
+          "semanticFaithful": false
+        },
+        "summary": "Provider or parser rejected model output: result.action must be a string."
+      },
+      "metrics": {
+        "loadMs": 2099,
+        "promptPreparationMs": 0,
+        "promptCharacters": 3776,
+        "generationMs": 11635,
+        "timeToFirstTokenMs": 58,
+        "unloadMs": 0,
+        "promptTokens": 3,
+        "outputTokens": 79,
+        "runtimeStatusAfterGeneration": "unloaded",
+        "maxTokens": 512,
+        "outputLimitStatus": "not-reached",
+        "generationStats": {
+          "loadMs": 2099,
+          "timeToFirstTokenMs": 58,
+          "totalMs": 4088,
+          "promptTokens": 3,
+          "outputTokens": 79
+        },
+        "totalMs": 13735
+      }
+    },
+    "minimal:unsupported-request": {
+      "strategy": "minimal",
+      "rawOutput": "{ }",
+      "parsed": null,
+      "parseError": "result.type must be a string.",
+      "outcome": {
+        "passed": false,
+        "checks": {
+          "schemaValid": false,
+          "kindCorrect": false,
+          "intentCorrect": null,
+          "amountCorrect": null,
+          "entitiesCorrect": null,
+          "dateCorrect": null,
+          "missingFieldsCorrect": null,
+          "unsupportedHandled": false,
+          "semanticFaithful": false
+        },
+        "summary": "Provider or parser rejected model output: result.type must be a string."
+      },
+      "metrics": {
+        "loadMs": 2062,
+        "promptPreparationMs": 0,
+        "promptCharacters": 3769,
+        "generationMs": 7144,
+        "timeToFirstTokenMs": 53,
+        "unloadMs": 0,
+        "promptTokens": 3,
+        "outputTokens": 2,
+        "runtimeStatusAfterGeneration": "unloaded",
+        "maxTokens": 512,
+        "outputLimitStatus": "not-reached",
+        "generationStats": {
+          "loadMs": 2062,
+          "timeToFirstTokenMs": 53,
+          "totalMs": 157,
+          "promptTokens": 3,
+          "outputTokens": 2
+        },
+        "totalMs": 9206
+      }
+    },
+    "minimal:malformed-output": {
+      "strategy": "minimal",
+      "rawOutput": "{\"kind\":\"proposal\",\"intent\":\"expense\"",
+      "parsed": null,
+      "parseError": "Minimal-schema response is not valid JSON.",
+      "outcome": {
+        "passed": true,
+        "checks": {
+          "schemaValid": false,
+          "kindCorrect": false,
+          "intentCorrect": null,
+          "amountCorrect": null,
+          "entitiesCorrect": null,
+          "dateCorrect": null,
+          "missingFieldsCorrect": null,
+          "unsupportedHandled": true,
+          "semanticFaithful": false
+        },
+        "summary": "Parser rejected output: Minimal-schema response is not valid JSON."
+      },
+      "metrics": {
+        "loadMs": null,
+        "promptPreparationMs": null,
+        "promptCharacters": null,
+        "generationMs": null,
+        "timeToFirstTokenMs": null,
+        "unloadMs": null,
+        "promptTokens": null,
+        "outputTokens": null,
+        "runtimeStatusAfterGeneration": null,
+        "maxTokens": null,
+        "outputLimitStatus": "unknown",
+        "generationStats": null,
+        "totalMs": 0
+      }
+    }
+  }
+}
