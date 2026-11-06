@@ -294,3 +294,31 @@ test('gateway client accepts an injected signal that is already aborted', async 
   );
   assert.equal(transport.calls.length, 0);
 });
+
+test('gateway client maps gateway policy failures to compatible typed errors', async () => {
+  const envelope = createOnlineRequest(
+    'Spent 50 on lunch from Food & drinks',
+    createContext(),
+  );
+  const invalidCases = [400, 413, 415, 502];
+  for (const status of invalidCases) {
+    const client = new OnlineGatewayClient({
+      transport: new FakeTransport(async () => ({ status, body: '{}' })),
+    });
+    await assert.rejects(
+      () => client.interpret(envelope.request),
+      (error: unknown) =>
+        error instanceof OnlineGatewayError &&
+        error.code === 'invalid_response',
+    );
+  }
+
+  const timeoutClient = new OnlineGatewayClient({
+    transport: new FakeTransport(async () => ({ status: 504, body: '{}' })),
+  });
+  await assert.rejects(
+    () => timeoutClient.interpret(envelope.request),
+    (error: unknown) =>
+      error instanceof OnlineGatewayError && error.code === 'timeout',
+  );
+});

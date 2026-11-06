@@ -120,10 +120,22 @@ export class OnlineGatewayClient {
           'The online gateway quota is exhausted.',
         );
       }
-      if (response.status === 408) {
+      if (response.status === 408 || response.status === 504) {
         throw new OnlineGatewayError(
           'timeout',
           'The online gateway request timed out.',
+        );
+      }
+      if (
+        response.status === 400 ||
+        response.status === 413 ||
+        response.status === 415 ||
+        response.status === 422 ||
+        response.status === 502
+      ) {
+        throw new OnlineGatewayError(
+          'invalid_response',
+          'The online gateway returned an invalid response.',
         );
       }
       if (response.status < 200 || response.status >= 300) {
