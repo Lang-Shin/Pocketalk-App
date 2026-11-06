@@ -6,7 +6,7 @@ AI-powered mobile app for natural language allowance and container-based budget 
 
 The Phase 2 UI foundation was never separately approved; its exploratory Expo scaffold became the base for Phase 4. Phase 3 added a local SQLite ledger (migrations v1–v4), repositories, a deterministic finance engine, the system Unallocated account, the permanent system Savings container, and automatic monthly rollover. Phase 4 connects Home, Budgets, Wallet, History, and Monthly History to that ledger through a SQLite-backed finance service and provider, including active and historical months, container lifecycle, Unallocated allocation, Savings transfers, rollover, and reporting.
 
-Phase 5 adds an interpretation-only local assistant prototype. It classifies income, expense, wallet-transfer, container-transfer, Savings-transfer, read-only inquiry, clarification, and unsupported messages; produces validated drafts or answers; and never saves a transaction or changes balances. The current provider is the explicitly labeled `MockAssistantProvider` backed by deterministic rules, not an LLM. No local model/runtime is integrated, downloaded, or benchmarked, and no on-device inference has been verified. Confirmation and execution remain Phase 6 work. Profile content still uses sample data, React Native UI/accessibility/E2E tests are not implemented, and there is no GCash integration or cloud AI connection.
+Phase 5 adds an interpretation-only local assistant prototype. It classifies income, expense, wallet-transfer, container-transfer, Savings-transfer, read-only inquiry, clarification, and unsupported messages; produces validated drafts or answers; and never saves a transaction or changes balances. The current provider is the explicitly labeled `OfflineAssistantProvider` backed by deterministic rules, not an LLM. No local model/runtime is integrated, downloaded, or benchmarked, and no on-device inference has been verified. Confirmation and execution remain Phase 6 work. Profile content still uses sample data, React Native UI/accessibility/E2E tests are not implemented, and there is no GCash integration or cloud AI connection.
 
 ## Implemented screens
 
@@ -71,7 +71,7 @@ Connected workflows:
 
 - `src/ai/localAssistant.ts` contains the deterministic classifier, parser, container/wallet resolution, proposal validation, clarification model, and read-only question answers.
 - Every result includes a typed `interpretation` object with the intent, optional integer minor-unit amount and PHP currency, effective date, source/destination wallets or containers, description, confidence, explicit `missingFields`, `clarificationQuestion`, and a short user-facing `reasoningSummary`. Confidence is parse metadata, not proof of correctness or authorization to write.
-- `src/ai/providers` defines `AssistantProvider`; `MockAssistantProvider` is the current, clearly labeled rules-based implementation. The assistant screen accesses interpretation through this provider boundary.
+- `src/ai/providers` defines `AssistantProvider`; `OfflineAssistantProvider` is the current, clearly labeled rules-based implementation. The assistant screen accesses interpretation through this provider boundary.
 - `ValidatedAssistantProvider` runs every result through `src/ai/validation.ts` before display, checking structure, intent, positive integer minor-unit amounts, dates, wallet/container existence and status, balances, and proposal/interpretation consistency. The AI layer imports no finance service, repository, engine, or SQLite module and cannot write financial data.
 - `src/features/assistant/AssistantScreen.tsx` sends user text through the provider and renders readable intent labels, drafts, extracted details, explicit missing fields, clarification chips, loading/error/retry states, and read-only answer cards. It reads local summaries but has no write or confirmation action.
 - Phase 5 is interpretation-only: the assistant layer has no database or native model access and cannot create ledger entries, change balances, or bypass Phase 6 confirmation.
@@ -86,7 +86,7 @@ Connected workflows:
 - Expense, income, wallet-transfer, ordinary-container-transfer, Savings-contribution, and Savings-withdrawal drafts.
 - Read-only balance, spending, income, Savings, and budget questions.
 - Clarification for missing or ambiguous information and refusal of unsupported requests.
-- Provider abstraction, mock provider, output validation, assistant UI, and deterministic tests.
+- Provider abstraction, offline provider, output validation, assistant UI, and deterministic tests.
 
 **Deferred to Phase 6**
 
@@ -102,7 +102,7 @@ npm install
 npm start
 ```
 
-Open the Assistant tab. The mock provider requires no model download, native module, development build, or network connection. `npm run web` also runs the browser preview.
+Open the Assistant tab. The offline provider requires no model download, native module, development build, or network connection. `npm run web` also runs the browser preview.
 
 **Run the tests**
 
@@ -117,14 +117,14 @@ The AI tests use deterministic local responses and do not require an LLM, intern
 
 **Native build requirements**
 
-- The Phase 5 mock prototype runs in Expo Go and web without native AI dependencies.
+- The Phase 5 offline prototype runs in Expo Go and web without native AI dependencies.
 - A real local LLM would require a development build and prebuild/native changes because Expo Go cannot load the required native libraries.
 - Candidate requirements differ: `react-native-executorch` documents Android 13+ and iOS 17+; `llama.rn` requires a native build and has device-dependent acceleration. No such runtime is installed.
 
 **Known limitations**
 
 - No real LLM, model file, download flow, or on-device inference exists; Android/iOS inference is unverified.
-- The mock provider is a rules engine, not a natural-language model.
+- The offline provider is a rules engine, not a natural-language model.
 - Assistant state and drafts are session-only.
 - No React Native UI/accessibility/E2E test suite exists.
 - Phase 5 cannot save or execute transactions.
@@ -143,7 +143,7 @@ The app is on Expo SDK 57, React Native 0.86.3, and the New Architecture. Expo G
 
 No final runtime is selected. The model file must not be bundled. Download must require explicit user awareness and integrity checking. No runtime dependency or model has been added, and there is no cloud fallback. See `docs/local-model-integration.md` for the evidence matrix, sources, blockers, and the full OPPO Reno8 5G verification procedure.
 
-The assistant now uses an `AssistantProvider` boundary with `load()`, `unload()`, and interpretation methods. The current provider is `MockAssistantProvider`, which runs the existing deterministic rules and is explicitly labeled as **not a language model**. A `LocalLlmProvider` should only be added after the supported Android range and device profiles are confirmed and a development-build spike passes memory, latency, thermal, offline, JSON-reliability, and failure-path checks.
+The assistant now uses an `AssistantProvider` boundary with `load()`, `unload()`, and interpretation methods. The current provider is `OfflineAssistantProvider`, which runs the existing deterministic rules and is explicitly labeled as **not a language model**. A `LocalLlmProvider` should only be added after the supported Android range and device profiles are confirmed and a development-build spike passes memory, latency, thermal, offline, JSON-reliability, and failure-path checks.
 
 ## Run locally
 
@@ -186,7 +186,7 @@ The current suite contains 177 tests covering migrations, persistence, foreign k
 - Web SQLite bundling is configured through `metro.config.js`, but browser worker/WASM runtime behavior has not been verified; Android/iOS are the primary targets.
 - Budget-limit behavior across rollover remains `UNRESOLVED` in the specification. Materialized versus derived monthly summaries and the late-correction overdraw recovery UX are also unresolved.
 - There is no React Native UI test framework or end-to-end device test. Screen rendering, accessibility semantics, safe-area, keyboard, and touch flows require manual verification, so the Phase 4 gate is not fully closed. Responsive layout and card-grid sizing are covered by unit tests at 320, 360, 390, 430, 768, and 1280 widths, and web screenshots were checked at those sizes, but on-device visual checks are still manual.
-- The assistant is a deterministic local-rule prototype behind `MockAssistantProvider`, not an AI model. It only classifies messages, prepares drafts, and answers read-only questions in Phase 5; it cannot save transactions or change balances. Confirmation and execution are deferred to Phase 6. It does not persist chat history or AI draft audit records.
+- The assistant is a deterministic local-rule prototype behind `OfflineAssistantProvider`, not an AI model. It only classifies messages, prepares drafts, and answers read-only questions in Phase 5; it cannot save transactions or change balances. Confirmation and execution are deferred to Phase 6. It does not persist chat history or AI draft audit records.
 - The virtual GCash wallet is manually maintained and is not connected to GCash.
 - Wallet management (custom wallet creation, archiving, and lifecycle) remains unresolved in the specification (§14 Decision 24). The app exposes the two established default wallets (Cash on hand and Virtual GCash) under the approved global-container accounting model; containers are global allocations of recorded funds and do not belong to individual wallets.
 - No cloud sync, authentication, or encryption is implemented.

@@ -1336,7 +1336,7 @@ test('provider and native-free runtime files have no native or finance imports',
   );
   assert.doesNotMatch(
     localProviderSource,
-    /\bMockAssistantProvider\b|https?:\/\/|\bfetch\s*\(/i,
+    /\bOfflineAssistantProvider\b|https?:\/\/|\bfetch\s*\(/i,
   );
 });
 

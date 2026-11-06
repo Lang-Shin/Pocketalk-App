@@ -11,16 +11,16 @@ import type {
   AssistantProviderInfo,
 } from './assistantProvider';
 
-export class MockAssistantProvider implements AssistantProvider {
+export class OfflineAssistantProvider implements AssistantProvider {
   readonly info: AssistantProviderInfo = {
-    id: 'mock-rules-v1',
-    displayName: 'Rules-based mock',
-    kind: 'mock',
+    id: 'offline-rules-v1',
+    displayName: 'Offline rules',
+    kind: 'offline',
     isRealModel: false,
     needsModelDownload: false,
     offline: true,
     description:
-      'Deterministic local rules for interpreting finance messages. This is not a language model.',
+      'Deterministic offline rules for interpreting finance messages. This is not a language model.',
   };
 
   async load(): Promise<void> {

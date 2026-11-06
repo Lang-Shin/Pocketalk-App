@@ -11,7 +11,7 @@ import {
 } from '../src/ai/localAssistant';
 import type { AssistantProvider } from '../src/ai/providers';
 import {
-  MockAssistantProvider,
+  OfflineAssistantProvider,
   ValidatedAssistantProvider,
 } from '../src/ai/providers';
 import {
@@ -97,7 +97,7 @@ function providerReturning(result: unknown): AssistantProvider {
     info: {
       id: 'test-provider',
       displayName: 'Test provider',
-      kind: 'mock',
+      kind: 'offline',
       isRealModel: false,
       needsModelDownload: false,
       offline: true,
@@ -216,9 +216,9 @@ test('the validated provider blocks invalid provider output', async () => {
   );
 });
 
-test('the production factory accepts valid mock output', async () => {
+test('the production factory accepts valid offline provider output', async () => {
   const provider = new ValidatedAssistantProvider(
-    new MockAssistantProvider(),
+    new OfflineAssistantProvider(),
   );
   const result = await provider.interpret(
     'Spent ₱50 on lunch from Food & drinks',

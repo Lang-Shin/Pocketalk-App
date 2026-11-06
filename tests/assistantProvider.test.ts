@@ -12,7 +12,8 @@ import {
   createConfiguredAssistantProvider,
   createDevelopmentLocalAssistantProvider,
   createLocalAssistantProvider,
-  MockAssistantProvider,
+  OfflineAssistantProvider,
+  ValidatedAssistantProvider,
   type AssistantProvider,
 } from '../src/ai/providers';
 import { FakeLocalModelRuntime } from '../src/ai/runtime';
@@ -87,18 +88,23 @@ function createContext(): AssistantContext {
   };
 }
 
-test('the default provider is an explicitly labeled mock', () => {
+test('the default provider is an explicitly labeled offline provider', () => {
   const provider = createAssistantProvider();
 
-  assert.equal(provider.info.kind, 'mock');
+  assert.ok(provider instanceof ValidatedAssistantProvider);
+  assert.equal(provider.info.id, 'offline-rules-v1');
+  assert.equal(provider.info.kind, 'offline');
+  assert.equal(provider.info.displayName, 'Offline rules');
   assert.equal(provider.info.isRealModel, false);
   assert.equal(provider.info.needsModelDownload, false);
   assert.equal(provider.info.offline, true);
+  assert.match(provider.info.description, /deterministic offline rules/i);
   assert.match(provider.info.description, /not a language model/i);
 });
 
-test('the app singleton remains mock-backed by default', () => {
-  assert.equal(assistantProvider.info.kind, 'mock');
+test('the app singleton uses the offline provider by default', () => {
+  assert.equal(assistantProvider.info.id, 'offline-rules-v1');
+  assert.equal(assistantProvider.info.kind, 'offline');
   assert.equal(assistantProvider.info.isRealModel, false);
 });
 
@@ -131,7 +137,7 @@ test('local provider selection requires development mode and explicit configurat
       return localProvider;
     },
   });
-  assert.equal(production.info.kind, 'mock');
+  assert.equal(production.info.kind, 'offline');
   assert.equal(localFactoryCalls, 1);
 
   const notRequested = createConfiguredAssistantProvider({
@@ -142,7 +148,7 @@ test('local provider selection requires development mode and explicit configurat
       return localProvider;
     },
   });
-  assert.equal(notRequested.info.kind, 'mock');
+  assert.equal(notRequested.info.kind, 'offline');
   assert.equal(localFactoryCalls, 1);
 });
 
@@ -303,7 +309,7 @@ test('selected local invalid model output cannot become a proposal', async () =>
   assert.equal(runtime.generateCalls, 1);
 });
 
-test('selected local runtime errors do not fall back to mock or cloud', async () => {
+test('selected local runtime errors do not fall back to offline or cloud', async () => {
   const runtimeError = new Error('local runtime unavailable');
   const runtime = new FakeLocalModelRuntime({
     responses: [runtimeError],
@@ -379,15 +385,16 @@ test('selected local proposals require confirmation before coordinator execution
   assert.equal(executions, 1);
 });
 
-test('the mock provider exposes no-op model lifecycle hooks', async () => {
-  const provider = new MockAssistantProvider();
+test('the offline provider implements AssistantProvider with no-op lifecycle hooks', async () => {
+  const provider: AssistantProvider = new OfflineAssistantProvider();
 
+  assert.equal(provider.info.id, 'offline-rules-v1');
   await provider.load();
   await provider.unload();
 });
 
-test('the mock provider interprets through the existing assistant engine', async () => {
-  const provider = new MockAssistantProvider();
+test('the offline provider interprets through the existing assistant engine', async () => {
+  const provider = new OfflineAssistantProvider();
   const result = await provider.interpret(
     'Transfer ₱100 from Cash to GCash',
     createContext(),
@@ -400,8 +407,8 @@ test('the mock provider interprets through the existing assistant engine', async
   assert.equal(result.interpretation.currency, 'PHP');
 });
 
-test('the mock provider resolves wallet and container clarifications', async () => {
-  const provider = new MockAssistantProvider();
+test('the offline provider resolves wallet and container clarifications', async () => {
+  const provider = new OfflineAssistantProvider();
   const context = createContext();
 
   const walletClarification = await provider.interpret(
@@ -435,4 +442,22 @@ test('the mock provider resolves wallet and container clarifications', async () 
   assert.equal(containerResult.kind, 'proposal');
   if (containerResult.kind !== 'proposal') return;
   assert.equal(containerResult.proposal.action, 'container_transfer');
+});
+
+test('the offline provider returns refusal and read-only answers without proposals', async () => {
+  const provider = new OfflineAssistantProvider();
+  const context = createContext();
+
+  const refusal = await provider.interpret('Hello there', context);
+  assert.equal(refusal.kind, 'refusal');
+  if (refusal.kind === 'refusal') {
+    assert.equal(refusal.interpretation.intent, 'unknown');
+  }
+
+  const answer = await provider.interpret(
+    'How much is in Savings?',
+    context,
+  );
+  assert.equal(answer.kind, 'answer');
+  assert.equal('proposal' in answer, false);
 });

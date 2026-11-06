@@ -4,7 +4,7 @@ import type {
   LocalModelRuntime,
 } from '../runtime';
 import { ExecuTorchLocalModelRuntime } from '../runtime/executorch';
-import { MockAssistantProvider } from './mockAssistantProvider';
+import { OfflineAssistantProvider } from './offlineAssistantProvider';
 import type {
   AssistantProvider,
   AssistantProviderInfo,
@@ -16,7 +16,7 @@ import type { LocalPromptTokenEstimator } from './promptBudget';
 import { ValidatedAssistantProvider } from './validatedAssistantProvider';
 
 export function createAssistantProvider(
-  provider: AssistantProvider = new MockAssistantProvider(),
+  provider: AssistantProvider = new OfflineAssistantProvider(),
 ): AssistantProvider {
   return new ValidatedAssistantProvider(provider);
 }
@@ -156,7 +156,7 @@ export type {
   AssistantProviderInfo,
   AssistantProviderKind,
 } from './assistantProvider';
-export { MockAssistantProvider } from './mockAssistantProvider';
+export { OfflineAssistantProvider } from './offlineAssistantProvider';
 export {
   DEFAULT_MAX_PENDING_REQUESTS,
   LocalLlmProvider,

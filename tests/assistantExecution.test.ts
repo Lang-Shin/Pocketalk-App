@@ -9,7 +9,7 @@ import {
 } from '../src/ai/localAssistant';
 import {
   createAssistantProvider,
-  MockAssistantProvider,
+  OfflineAssistantProvider,
   type AssistantProvider,
 } from '../src/ai/providers';
 import { createPendingConfirmation } from '../src/features/assistant/confirmationState';
@@ -470,8 +470,8 @@ test('reuses the proposal idempotency key when a retry reaches the executor', as
   assert.equal(executor.calls[1]?.idempotencyKey, 'assistant:proposal-1');
 });
 
-test('validated mock provider reaches the coordinator only after confirmation', async () => {
-  const provider = createAssistantProvider(new MockAssistantProvider());
+test('validated offline provider reaches the coordinator only after confirmation', async () => {
+  const provider = createAssistantProvider(new OfflineAssistantProvider());
   const context = createContext();
   const result = await provider.interpret(
     'Spent 50 on lunch from Food & drinks',
@@ -513,7 +513,7 @@ test('validated mock provider reaches the coordinator only after confirmation', 
 });
 
 test('read-only, clarification, and refusal results never create confirmation', async () => {
-  const provider = createAssistantProvider(new MockAssistantProvider());
+  const provider = createAssistantProvider(new OfflineAssistantProvider());
   const context = createContext();
   const messages = [
     'How much is in Savings?',
@@ -546,7 +546,7 @@ test('rejects invalid provider output before the coordinator can execute it', as
     info: {
       id: 'invalid-test-provider',
       displayName: 'Invalid test provider',
-      kind: 'mock',
+      kind: 'offline',
       isRealModel: false,
       needsModelDownload: false,
       offline: true,

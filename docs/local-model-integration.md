@@ -2,9 +2,9 @@
 
 ## Status
 
-Not integrated. The assistant currently runs through `MockAssistantProvider`, which uses the existing deterministic rules engine. No local LLM runtime, model file, native module, or cloud fallback is installed. The mock is not a language model and must not be presented as one.
+Not integrated. The assistant currently runs through `OfflineAssistantProvider`, which uses the existing deterministic rules engine. No local LLM runtime, model file, native module, or cloud fallback is installed. The offline provider is not a language model and must not be presented as one.
 
-Run the Phase 5 prototype with `npm install` and `npm start`, then open the Assistant tab. Run the tests with `npm test`. Mock mode requires no model download, native build, or internet access.
+Run the Phase 5 prototype with `npm install` and `npm start`, then open the Assistant tab. Run the tests with `npm test`. Offline mode requires no model download, native build, or internet access.
 
 Phase 6 owns confirmation, transaction execution, ledger writes, and AI-draft audit persistence. Phase 5 only interprets and displays validated drafts/answers.
 
@@ -15,7 +15,7 @@ Recorded on 2026-11-01:
 - Expo SDK 57, React Native 0.86.3, React 19.2.3, TypeScript 6.0.3
 - New Architecture; no `android/` or `ios/` project
 - No development client, local-model runtime, model artifact, model download, or device-capability module
-- Active assistant provider: `MockAssistantProvider`, wrapped by `ValidatedAssistantProvider`
+- Active assistant provider: `OfflineAssistantProvider`, wrapped by `ValidatedAssistantProvider`
 - `npm test`: 151/151 passed
 - `npm run lint`: passed
 - `npm run typecheck`: passed
@@ -227,7 +227,7 @@ Implemented native-free boundaries in `src/ai/runtime` and `src/ai/providers`:
 - `LocalLlmProvider` implements the existing `AssistantProvider` contract, lazily loads an unloaded runtime, delegates lifecycle operations, and uses the injected prompt builder/parser.
 - `FakeLocalModelRuntime` is deterministic and supports queued responses, load/generation errors, held generation, cancellation, and lifecycle counters.
 - `ValidatedAssistantProvider` remains the outer validation wrapper; `LocalLlmProvider` output is not trusted.
-- `MockAssistantProvider` remains unchanged and is still the default provider.
+- `OfflineAssistantProvider` remains the default provider.
 - No native runtime import, model download, model file, finance service, repository, SQLite, or finance engine is used.
 
 Cancellation is currently exposed at the runtime boundary. The assistant provider/UI does not yet expose a cancel control. Real runtime cancellation semantics, metrics quality, and prompt/parser behavior remain for later sections.
@@ -262,7 +262,7 @@ Concrete adapter:
 - Native imports are isolated to `src/ai/runtime/executorch/executorchLocalModelRuntime.ts`.
 - Local file paths only; remote model URLs are rejected.
 - No model is loaded, no inference is run, and the adapter is not wired to the default provider or UI.
-- `MockAssistantProvider` remains the default; `ValidatedAssistantProvider` remains the outer wrapper.
+- `OfflineAssistantProvider` remains the default; `ValidatedAssistantProvider` remains the outer wrapper.
 
 Verification:
 
@@ -312,7 +312,7 @@ Remaining native-only uncertainties:
 
 ## Required provider boundary
 
-`src/ai/providers/assistantProvider.ts` defines the provider interface, including `load()`, `unload()`, and interpretation methods. `src/ai/providers/mockAssistantProvider.ts` is the only implementation. A future local provider must keep model lifecycle, prompt construction, inference, cancellation, and unload behavior behind this boundary; screens must not call runtime APIs directly.
+`src/ai/providers/assistantProvider.ts` defines the provider interface, including `load()`, `unload()`, and interpretation methods. `src/ai/providers/offlineAssistantProvider.ts` is the only implementation. A future local provider must keep model lifecycle, prompt construction, inference, cancellation, and unload behavior behind this boundary; screens must not call runtime APIs directly.
 
 The local provider must return the existing structured `AssistantResult`/`AssistantInterpretation` contract and pass all financial values through the existing deterministic validation layer. It must never write to finance storage.
 
@@ -328,7 +328,7 @@ These checks have not been performed. Do not claim device verification until the
    - `adb shell cat /proc/meminfo | Select-String MemTotal,MemAvailable`
    - `adb shell df -h /data`
 2. Record `MemTotal` as physical RAM. Do not use extended/virtual RAM.
-3. Install a development build with the local provider disabled by default. Confirm the app still starts and the mock provider works.
+3. Install a development build with the local provider disabled by default. Confirm the app still starts and the offline provider works.
 4. Confirm the app binary does not contain the model. Record the installed APK/AAB size.
 5. Download the model only through an explicit user action. Record the exact model filename, size, source, checksum, and download time.
 
