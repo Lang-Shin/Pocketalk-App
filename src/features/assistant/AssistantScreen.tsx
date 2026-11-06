@@ -10,6 +10,7 @@ import {
   View,
 } from 'react-native';
 
+import { selectAssistantMode } from '@/ai/assistantMode';
 import type {
   AssistantAnswer,
   AssistantClarification,
@@ -20,10 +21,7 @@ import type {
   AssistantProposal,
   AssistantResult,
 } from '@/ai/localAssistant';
-import {
-  assistantProvider,
-  type AssistantProviderInfo,
-} from '@/ai/providers';
+import type { AssistantProviderInfo } from '@/ai/providers';
 import { createAssistantExecutionCoordinator } from '@/application/assistantExecution';
 import { AppText } from '@/components/AppText';
 import { ChatBubble } from '@/components/chat/ChatBubble';
@@ -48,6 +46,7 @@ import { formatPeso } from '@/lib/money';
 import { formatDateKey, formatMonthKey } from '@/lib/period';
 import { useAppTheme, radii, spacing } from '@/theme';
 
+import { AssistantModeSelector } from './AssistantModeSelector';
 import {
   claimExecution,
   createPendingConfirmation,
@@ -107,8 +106,10 @@ export function AssistantScreen() {
   const { activeMonthKey, todayDateKey, executeMoneyEntry } = useFinance();
   const monthQuery = useFinanceMonth(activeMonthKey);
   const walletQuery = useFinanceWallets();
+  const modeSelection = useMemo(() => selectAssistantMode(), []);
+  const activeProvider = modeSelection.provider;
   const [messages, setMessages] = useState<ThreadMessage[]>(() => [
-    createWelcomeMessage(assistantProvider),
+    createWelcomeMessage(activeProvider),
   ]);
   const [input, setInput] = useState('');
   const [isResponding, setIsResponding] = useState(false);
@@ -219,7 +220,7 @@ export function AssistantScreen() {
   const requestInterpretation = async (text: string) => {
     setIsResponding(true);
     try {
-      const result = await assistantProvider.interpret(text, context);
+      const result = await activeProvider.interpret(text, context);
       setMessages((current) => [
         ...current,
         createThreadMessage(result),
@@ -291,7 +292,7 @@ export function AssistantScreen() {
     const pending = message.clarification?.pending;
     if (!pending) return;
     void runChoice(message, () =>
-      assistantProvider.resolveContainerChoice(
+      activeProvider.resolveContainerChoice(
         containerId,
         pending,
         context,
@@ -306,7 +307,7 @@ export function AssistantScreen() {
     const pending = message.clarification?.pending;
     if (!pending) return;
     void runChoice(message, () =>
-      assistantProvider.resolveWalletChoice(walletId, pending, context),
+      activeProvider.resolveWalletChoice(walletId, pending, context),
     );
   };
 
@@ -379,15 +380,18 @@ export function AssistantScreen() {
         style={styles.flex}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
-        <NoticeBanner
-          title={assistantProvider.info.displayName}
-          message={`${assistantProvider.info.description} ${
-            assistantProvider.info.isRealModel
-              ? 'This development build uses the explicitly configured on-device model.'
-              : 'No model is installed or downloaded.'
-          } Drafts stay on this device and are written only after you confirm them.`}
-          icon="hardware-chip-outline"
-        />
+        <View style={styles.modeArea}>
+          <AssistantModeSelector mode={modeSelection.mode} />
+          <NoticeBanner
+            title={activeProvider.info.displayName}
+            message={`${activeProvider.info.description} ${
+              activeProvider.info.isRealModel
+                ? 'This development build uses the explicitly configured on-device model.'
+                : 'No model is installed or downloaded.'
+            } Drafts stay on this device and are written only after you confirm them.`}
+            icon="hardware-chip-outline"
+          />
+        </View>
 
         <ScrollView
           ref={scrollRef}
@@ -1092,6 +1096,9 @@ const styles = StyleSheet.create({
   },
   flexShrink: {
     flexShrink: 1,
+  },
+  modeArea: {
+    gap: spacing.sm,
   },
   messages: {
     gap: spacing.lg,
