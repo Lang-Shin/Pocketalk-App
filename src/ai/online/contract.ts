@@ -44,6 +44,7 @@ export interface OnlineRequestEnvelope {
   request: OnlineRequest;
   walletIdsByAlias: ReadonlyMap<string, string>;
   containerIdsByAlias: ReadonlyMap<string, string>;
+  toJSON(): OnlineRequest;
 }
 
 export interface OnlineEntityRefs {
@@ -266,7 +267,20 @@ export function createOnlineRequest(
     request,
     walletIdsByAlias,
     containerIdsByAlias,
+    toJSON: () => request,
   };
+}
+
+export function toGatewayRequest(
+  envelope: OnlineRequestEnvelope,
+): OnlineRequest {
+  return validateOnlineRequest(envelope.request);
+}
+
+export function serializeOnlineRequest(
+  envelope: OnlineRequestEnvelope,
+): string {
+  return JSON.stringify(toGatewayRequest(envelope));
 }
 
 export function validateOnlineRequest(value: unknown): OnlineRequest {

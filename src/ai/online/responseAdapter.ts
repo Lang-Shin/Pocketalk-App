@@ -45,15 +45,16 @@ export function adaptOnlineResponse(
 ): AssistantResult {
   const parsed = validateOnlineResponse(response);
   assertKnownRefs(parsed, envelope);
+  const local = interpretAssistantMessage(
+    envelope.request.message,
+    context,
+  );
 
   if (parsed.kind === 'refusal') {
     return validateResult(refusalResult(parsed), context);
   }
   if (parsed.kind === 'answer') {
-    return validateResult(
-      answerResult(parsed, envelope.request.message, context),
-      context,
-    );
+    return validateResult(answerResult(parsed, local), context);
   }
   if (parsed.kind === 'clarification') {
     return validateResult(
@@ -62,13 +63,14 @@ export function adaptOnlineResponse(
     );
   }
 
-  return adaptProposal(parsed, envelope, context);
+  return adaptProposal(parsed, envelope, context, local);
 }
 
 function adaptProposal(
   response: Extract<OnlineResponse, { kind: 'proposal' }>,
   envelope: OnlineRequestEnvelope,
   context: AssistantContext,
+  local: AssistantResult,
 ): AssistantResult {
   if ((response.missingFields?.length ?? 0) > 0) {
     return validateResult(
@@ -82,6 +84,26 @@ function adaptProposal(
   }
 
   assertIntentMatchesAction(response.intent, response.action);
+  assertSingleActionMessage(envelope.request.message);
+
+  if (local.kind === 'clarification') {
+    return validateResult(local, context);
+  }
+  if (local.kind !== 'proposal') {
+    throw new OnlineAdapterError(
+      'The online response proposed a transaction that local rules could not ground.',
+      'ungrounded_action',
+    );
+  }
+  if (
+    local.proposal.action !== response.action ||
+    local.intent !== response.intent
+  ) {
+    throw new OnlineAdapterError(
+      'The online response action does not match the user message.',
+      'ungrounded_action',
+    );
+  }
 
   if (!response.amountText) {
     return validateResult(
@@ -90,15 +112,24 @@ function adaptProposal(
     );
   }
 
-  const amountMinor = parseGroundedAmount(
-    response.amountText,
-    envelope.request.message,
-  );
+  const amountMinor = parseGroundedAmount(response.amountText);
   const effectiveDate = resolveEffectiveDate(
     response.dateText,
     envelope.request.message,
     context,
   );
+  if (local.proposal.amountMinor !== amountMinor) {
+    throw new OnlineAdapterError(
+      'The online response amount does not match the user message.',
+      'ungrounded_amount',
+    );
+  }
+  if (local.proposal.effectiveDate !== effectiveDate) {
+    throw new OnlineAdapterError(
+      'The online response date does not match the user message.',
+      'ungrounded_date',
+    );
+  }
   const refs = response.refs ?? {};
   const missingFields = requiredProposalFields(response.action, refs);
   if (missingFields.length > 0) {
@@ -121,6 +152,10 @@ function adaptProposal(
       context,
       'expense container',
     );
+    assertEntitiesMatchLocal(response.action, local.proposal, {
+      wallet,
+      container,
+    });
     return validateResult(
       buildProposalResult(
         response.intent,
@@ -150,6 +185,10 @@ function adaptProposal(
       context,
       'income container',
     );
+    assertEntitiesMatchLocal(response.action, local.proposal, {
+      destinationWallet: wallet,
+      destinationContainer: container,
+    });
     return validateResult(
       buildProposalResult(
         response.intent,
@@ -179,6 +218,10 @@ function adaptProposal(
       context,
       'destination wallet',
     );
+    assertEntitiesMatchLocal(response.action, local.proposal, {
+      sourceWallet,
+      destinationWallet,
+    });
     return validateResult(
       buildProposalResult(
         response.intent,
@@ -209,6 +252,10 @@ function adaptProposal(
   );
 
   if (response.action === 'container_transfer') {
+    assertEntitiesMatchLocal(response.action, local.proposal, {
+      sourceContainer,
+      destinationContainer,
+    });
     return validateResult(
       buildProposalResult(
         response.intent,
@@ -225,6 +272,10 @@ function adaptProposal(
     );
   }
 
+  assertEntitiesMatchLocal(response.action, local.proposal, {
+    sourceContainer,
+    destinationContainer,
+  });
   return validateResult(
     buildProposalResult(
       response.intent,
@@ -443,10 +494,8 @@ function clarificationResult(
 
 function answerResult(
   response: Extract<OnlineResponse, { kind: 'answer' }>,
-  message: string,
-  context: AssistantContext,
+  local: AssistantResult,
 ): AssistantResult {
-  const local = interpretAssistantMessage(message, context);
   if (local.kind !== 'answer') {
     throw new OnlineAdapterError(
       'The online response claimed a read-only answer that local rules could not produce.',
@@ -616,7 +665,7 @@ function assertKnownRefs(
   }
 }
 
-function parseGroundedAmount(amountText: string, message: string): number {
+function parseGroundedAmount(amountText: string): number {
   const amountMinor = parsePesoToMinor(amountText);
   if (amountMinor === null || amountMinor <= 0) {
     throw new OnlineAdapterError(
@@ -624,31 +673,98 @@ function parseGroundedAmount(amountText: string, message: string): number {
       'invalid_amount',
     );
   }
-  if (!messageSupportsAmount(message, amountMinor)) {
-    throw new OnlineAdapterError(
-      'The online response amount was not supported by the user message.',
-      'ungrounded_amount',
-    );
-  }
   return amountMinor;
 }
 
-function messageSupportsAmount(message: string, amountMinor: number): boolean {
-  const sanitized = message
-    .replace(/\b\d{4}-\d{2}-\d{2}\b/g, ' ')
-    .replace(/\b\d{1,2}(?::\d{2})?\s*(?:am|pm)\b/gi, ' ');
-  const matches = sanitized.matchAll(
-    /([0-9][0-9,]*(?:\.[0-9]{1,2})?)\s*(k|thousand)?/gi,
-  );
-  for (const match of matches) {
-    const raw = match[1];
-    if (!raw) continue;
-    const parsed = parsePesoToMinor(raw);
-    if (parsed === null) continue;
-    const scale = match[2] ? 1000 : 1;
-    if (parsed * scale === amountMinor) return true;
+function assertSingleActionMessage(message: string) {
+  const lower = message.toLowerCase();
+  const hasExpense =
+    /\b(spent|spend|paid|pay|bought|buy|purchased|purchase|gastos|gasto|binili|bumili|nagbayad|bayad)\b/.test(
+      lower,
+    );
+  const hasIncome =
+    /\b(received|receive|got|get|earned|earn|income|allowance|sweldo|sahod|padala|pinadala|regalo|bonus)\b|\b(?:sent|send)\s+me\b/.test(
+      lower,
+    );
+  const hasTransfer =
+    /\b(transfer|transferred|move|moved|put|ilagay|ilipat|tabi|magtabi)\b/.test(
+      lower,
+    );
+  const hasWithdrawal =
+    /\b(withdraw|withdrew|withdrawal|take out|took out|kunin|bawi|bawas)\b/.test(
+      lower,
+    );
+  const categories = [
+    hasExpense,
+    hasIncome,
+    hasTransfer,
+    hasWithdrawal,
+  ].filter(Boolean).length;
+  const actionVerbs =
+    lower.match(
+      /\b(spent|spend|paid|pay|bought|buy|purchased|purchase|gastos|gasto|binili|bumili|nagbayad|bayad|received|receive|got|get|earned|earn|transfer|transferred|move|moved|put|ilagay|ilipat|tabi|magtabi|withdraw|withdrew|withdrawal|save|saved|saving|contribute|contributed)\b/g,
+    ) ?? [];
+  if (categories > 1 || actionVerbs.length > 1) {
+    throw new OnlineAdapterError(
+      'The user message contains more than one financial action.',
+      'multiple_actions',
+    );
   }
-  return false;
+}
+
+function assertEntitiesMatchLocal(
+  action: AssistantAction,
+  local: AssistantProposal,
+  entities: ProposalEntities,
+) {
+  const required =
+    action === 'expense'
+      ? [
+          [local.walletId, entities.wallet?.id, 'wallet'],
+          [local.containerId, entities.container?.id, 'container'],
+        ]
+      : action === 'income'
+        ? [
+            [local.walletId, entities.destinationWallet?.id, 'wallet'],
+            [
+              local.destinationContainerId,
+              entities.destinationContainer?.id,
+              'container',
+            ],
+          ]
+        : action === 'wallet_transfer'
+          ? [
+              [
+                local.sourceWalletId,
+                entities.sourceWallet?.id,
+                'source wallet',
+              ],
+              [
+                local.destinationWalletId,
+                entities.destinationWallet?.id,
+                'destination wallet',
+              ],
+            ]
+          : [
+              [
+                local.containerId,
+                entities.sourceContainer?.id,
+                'source container',
+              ],
+              [
+                local.destinationContainerId,
+                entities.destinationContainer?.id,
+                'destination container',
+              ],
+            ];
+  for (const [localId, modelId, label] of required) {
+    if (!localId || localId !== modelId) {
+      throw new OnlineAdapterError(
+        `The online response selected a ${label} not supported by the user message.`,
+        'ungrounded_entity',
+      );
+    }
+  }
 }
 
 function resolveEffectiveDate(
