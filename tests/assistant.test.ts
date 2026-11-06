@@ -831,3 +831,207 @@ test('assistant does not expose any execution step', () => {
   assert.equal('moneyEntry' in result, false);
   assert.match(result.message, /No ledger entry/i);
 });
+
+test('parses supported peso amount formats without floating-point rounding', () => {
+  const peso = '\u20B1';
+  const context = createContext();
+  const formats: ReadonlyArray<readonly [string, number]> = [
+    ['I received PHP 50', 5_000],
+    [`I received ${peso}50`, 5_000],
+    ['I received 50 pesos', 5_000],
+    ['I received P50', 5_000],
+    [`I received ${peso}1,000`, 100_000],
+    [`I received ${peso}1,000.50`, 100_050],
+    ['I received 1k', 100_000],
+    ['I received 1 thousand', 100_000],
+  ];
+
+  for (const [message, expected] of formats) {
+    const result = interpretAssistantMessage(message, context);
+    assert.equal(result.kind, 'proposal', message);
+    if (result.kind !== 'proposal') continue;
+    assert.equal(result.proposal.action, 'income', message);
+    assert.equal(result.proposal.amountMinor, expected, message);
+  }
+});
+
+test('rejects zero, negative, and malformed decimal amounts', () => {
+  const peso = '\u20B1';
+  const context = createContext();
+  const unsafeMessages = [
+    `I received ${peso}0`,
+    `I received -${peso}50`,
+    'I received -50 pesos',
+    `I received ${peso}50.999`,
+  ];
+
+  for (const message of unsafeMessages) {
+    const result = interpretAssistantMessage(message, context);
+    assert.notEqual(result.kind, 'proposal', message);
+  }
+});
+
+test('ignores dates and unrelated numbers when extracting amounts', () => {
+  const peso = '\u20B1';
+  const context = createContext();
+  const result = interpretAssistantMessage(
+    `I received ${peso}50 on 2026-10-20 in 2 payments`,
+    context,
+  );
+
+  assert.equal(result.kind, 'proposal');
+  if (result.kind !== 'proposal') return;
+  assert.equal(result.proposal.amountMinor, 5_000);
+  assert.equal(result.proposal.effectiveDate, '2026-10-20');
+});
+
+test('uses the plain-number fallback for messages without a currency marker', () => {
+  const result = interpretAssistantMessage('I received 50', createContext());
+
+  assert.equal(result.kind, 'proposal');
+  if (result.kind !== 'proposal') return;
+  assert.equal(result.proposal.amountMinor, 5_000);
+});
+
+test('uses the current local date when no date is supplied', () => {
+  const result = interpretAssistantMessage(
+    'I spent 50 on lunch from Food & drinks',
+    createContext(),
+  );
+
+  assert.equal(result.kind, 'proposal');
+  if (result.kind !== 'proposal') return;
+  assert.equal(result.proposal.effectiveDate, '2026-10-20');
+  assert.equal(result.proposal.monthKey, '2026-10');
+});
+
+test('resolves today and yesterday from the active local date', () => {
+  const context = createContext();
+  const today = interpretAssistantMessage(
+    'I spent 50 on lunch from Food & drinks today',
+    context,
+  );
+  const yesterday = interpretAssistantMessage(
+    'I spent 50 on lunch from Food & drinks yesterday',
+    context,
+  );
+
+  assert.equal(today.kind, 'proposal');
+  if (today.kind === 'proposal') {
+    assert.equal(today.proposal.effectiveDate, '2026-10-20');
+  }
+  assert.equal(yesterday.kind, 'proposal');
+  if (yesterday.kind === 'proposal') {
+    assert.equal(yesterday.proposal.effectiveDate, '2026-10-19');
+  }
+});
+
+test('refuses future and unsupported relative dates', () => {
+  const context = createContext();
+  const future = interpretAssistantMessage(
+    'I spent 50 on lunch from Food & drinks 2026-10-21',
+    context,
+  );
+  const relative = interpretAssistantMessage(
+    'I spent 50 on lunch from Food & drinks last week',
+    context,
+  );
+
+  assert.notEqual(future.kind, 'proposal');
+  assert.notEqual(relative.kind, 'proposal');
+});
+
+test('resolves an explicitly named wallet for an expense', () => {
+  const context = createContext();
+  const cash = interpretAssistantMessage(
+    'I spent 50 on lunch from Food & drinks using Cash',
+    context,
+  );
+  const gcash = interpretAssistantMessage(
+    'I spent 50 on lunch from Food & drinks using GCash',
+    context,
+  );
+
+  assert.equal(cash.kind, 'proposal');
+  if (cash.kind === 'proposal') assert.equal(cash.proposal.walletId, 'wallet-cash');
+  assert.equal(gcash.kind, 'proposal');
+  if (gcash.kind === 'proposal') assert.equal(gcash.proposal.walletId, 'wallet-gcash');
+});
+
+test('defaults to the only wallet when no wallet is mentioned', () => {
+  const context = createContext();
+  context.wallets = context.wallets.filter((wallet) => wallet.kind === 'cash');
+
+  const result = interpretAssistantMessage(
+    'I spent 50 on lunch from Food & drinks',
+    context,
+  );
+
+  assert.equal(result.kind, 'proposal');
+  if (result.kind !== 'proposal') return;
+  assert.equal(result.proposal.walletId, 'wallet-cash');
+});
+
+test('defaults to the virtual GCash wallet when multiple wallets exist and none is named', () => {
+  const result = interpretAssistantMessage(
+    'I spent 50 on lunch from Food & drinks',
+    createContext(),
+  );
+
+  assert.equal(result.kind, 'proposal');
+  if (result.kind !== 'proposal') return;
+  assert.equal(result.proposal.walletId, 'wallet-gcash');
+});
+
+test('asks for clarification when a named transfer wallet is unavailable', () => {
+  const result = interpretAssistantMessage(
+    'Transfer 100 from Bank to GCash',
+    createContext(),
+  );
+
+  assert.equal(result.kind, 'clarification');
+});
+
+test('answers balance, spending, income, and budget questions without proposing a write', () => {
+  const context = createContext();
+  const cases = [
+    {
+      message: 'How much is in Savings?',
+      intent: 'balance_inquiry',
+      topic: 'savings_balance',
+      figures: [{ label: 'Savings balance', amountMinor: 40_000 }],
+    },
+    {
+      message: 'How much did I spend this month?',
+      intent: 'spending_summary',
+      topic: 'monthly_spending',
+      figures: [{ label: 'Expenses', amountMinor: 120_000 }],
+    },
+    {
+      message: 'How much income this month?',
+      intent: 'income_summary',
+      topic: 'monthly_income',
+      figures: [{ label: 'Income', amountMinor: 200_000 }],
+    },
+    {
+      message: 'How much budget is left for Food & drinks?',
+      intent: 'budget_inquiry',
+      topic: 'budget_remaining',
+      figures: [
+        { label: 'Limit', amountMinor: 100_000 },
+        { label: 'Spent', amountMinor: 80_000 },
+        { label: 'Remaining', amountMinor: 20_000 },
+      ],
+    },
+  ] as const;
+
+  for (const expected of cases) {
+    const result = interpretAssistantMessage(expected.message, context);
+    assert.equal(result.kind, 'answer', expected.message);
+    if (result.kind !== 'answer') continue;
+    assert.equal(result.intent, expected.intent, expected.message);
+    assert.equal(result.answer.topic, expected.topic, expected.message);
+    assert.deepEqual(result.answer.figures, expected.figures, expected.message);
+    assert.equal('proposal' in result, false, expected.message);
+  }
+});

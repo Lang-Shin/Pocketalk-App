@@ -1,11 +1,18 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import type {
-  AssistantContainerOption,
-  AssistantContext,
-  AssistantProposal,
+import {
+  interpretAssistantMessage,
+  type AssistantContainerOption,
+  type AssistantContext,
+  type AssistantProposal,
 } from '../src/ai/localAssistant';
+import {
+  createAssistantProvider,
+  MockAssistantProvider,
+  type AssistantProvider,
+} from '../src/ai/providers';
+import { createPendingConfirmation } from '../src/features/assistant/confirmationState';
 import {
   AssistantProposalMappingError,
   assistantProposalToMoneyEntry,
@@ -461,4 +468,106 @@ test('reuses the proposal idempotency key when a retry reaches the executor', as
   assert.equal(executor.calls.length, 2);
   assert.equal(executor.calls[0]?.idempotencyKey, 'assistant:proposal-1');
   assert.equal(executor.calls[1]?.idempotencyKey, 'assistant:proposal-1');
+});
+
+test('validated mock provider reaches the coordinator only after confirmation', async () => {
+  const provider = createAssistantProvider(new MockAssistantProvider());
+  const context = createContext();
+  const result = await provider.interpret(
+    'Spent 50 on lunch from Food & drinks',
+    context,
+  );
+
+  assert.equal(result.kind, 'proposal');
+  if (result.kind !== 'proposal') return;
+
+  const pending = createPendingConfirmation({
+    id: 'message-1',
+    proposal: result.proposal,
+  });
+  assert.ok(pending);
+  assert.equal(pending.proposal.amountMinor, 5_000);
+  assert.equal(pending.proposal.effectiveDate, '2026-11-02');
+
+  const executor = executorReturning({ ok: true, transactionId: 'tx-pipeline' });
+  const coordinator = createAssistantExecutionCoordinator(executor);
+  const blocked = await coordinator.execute({
+    proposal: result.proposal,
+    context,
+    confirmed: false,
+  });
+
+  assert.equal(blocked.ok, false);
+  assert.equal(executor.calls.length, 0);
+
+  const executed = await coordinator.execute({
+    proposal: result.proposal,
+    context,
+    confirmed: true,
+  });
+
+  assert.deepEqual(executed, { ok: true, transactionId: 'tx-pipeline' });
+  assert.equal(executor.calls.length, 1);
+  assert.equal(executor.calls[0]?.amountMinor, 5_000);
+  assert.equal(executor.calls[0]?.idempotencyKey, `assistant:${result.proposal.id}`);
+});
+
+test('read-only, clarification, and refusal results never create confirmation', async () => {
+  const provider = createAssistantProvider(new MockAssistantProvider());
+  const context = createContext();
+  const messages = [
+    'How much is in Savings?',
+    'I spent 50 on lunch',
+    'Hello there',
+  ];
+
+  for (const message of messages) {
+    const result = await provider.interpret(message, context);
+    assert.notEqual(result.kind, 'proposal', message);
+    const proposal = 'proposal' in result ? result.proposal : undefined;
+    const pending = createPendingConfirmation({
+      id: message,
+      proposal,
+    });
+    assert.equal(pending, null, message);
+  }
+});
+
+test('rejects invalid provider output before the coordinator can execute it', async () => {
+  const context = createContext();
+  const valid = interpretAssistantMessage(
+    'Spent 50 on lunch from Food & drinks',
+    context,
+  );
+  assert.equal(valid.kind, 'proposal');
+  if (valid.kind !== 'proposal') return;
+
+  const invalidProvider: AssistantProvider = {
+    info: {
+      id: 'invalid-test-provider',
+      displayName: 'Invalid test provider',
+      kind: 'mock',
+      isRealModel: false,
+      needsModelDownload: false,
+      offline: true,
+      description: 'Test-only provider returning invalid output.',
+    },
+    load: async () => undefined,
+    unload: async () => undefined,
+    interpret: async () => ({
+      ...valid,
+      proposal: { ...valid.proposal, amountMinor: -1 },
+    }),
+    resolveContainerChoice: async () => {
+      throw new Error('Unexpected container resolution.');
+    },
+    resolveWalletChoice: async () => {
+      throw new Error('Unexpected wallet resolution.');
+    },
+  };
+  const provider = createAssistantProvider(invalidProvider);
+
+  await assert.rejects(
+    () => provider.interpret('Spent 50 on lunch from Food & drinks', context),
+  );
 });

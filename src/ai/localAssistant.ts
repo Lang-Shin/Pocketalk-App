@@ -2249,20 +2249,27 @@ function extractAmount(text: string): ParsedAmount | null {
   const sanitized = text
     .replace(/\b\d{4}-\d{2}-\d{2}\b/g, ' ')
     .replace(/\b\d{1,2}(?::\d{2})?\s*(?:am|pm)\b/gi, ' ');
+  const hasNegativeAmount =
+    /(?:^|[\s(])[-\u2212]\s*(?:\u20B1|php\b|pesos?\b|p\b)?\s*\d/i.test(
+      text,
+    ) ||
+    /(?:\u20B1|php\b|pesos?\b|p\b)\s*[-\u2212]\s*\d/i.test(text);
+  if (hasNegativeAmount) return null;
+  if (/[0-9][0-9,]*\.[0-9]{3,}/.test(text)) return null;
   const patterns: { pattern: RegExp }[] = [
     {
       pattern:
-        /(?:₱|\bphp\b|\bpesos?\b|\bp\b)\s*([0-9][0-9,]*(?:\.[0-9]{1,2})?)\s*(k|thousand)?/i,
+        /(?:₱|\bphp\b|\bpesos?\b|\bp\b)\s*([0-9][0-9,]*(?:\.[0-9]{1,2})?)(?![0-9]|\.[0-9])\s*(k|thousand)?/i,
     },
     {
       pattern:
-        /([0-9][0-9,]*(?:\.[0-9]{1,2})?)\s*(k|thousand|pesos?|php|₱)\b/i,
+        /([0-9][0-9,]*(?:\.[0-9]{1,2})?)(?![0-9]|\.[0-9])\s*(k|thousand|pesos?|php|₱)\b/i,
     },
     {
-      pattern: /([0-9][0-9,]*(?:\.[0-9]{1,2})?)\s*(k|thousand)\b/i,
+      pattern: /([0-9][0-9,]*(?:\.[0-9]{1,2})?)(?![0-9]|\.[0-9])\s*(k|thousand)\b/i,
     },
     {
-      pattern: /([0-9][0-9,]*(?:\.[0-9]{1,2})?)/,
+      pattern: /([0-9][0-9,]*(?:\.[0-9]{1,2})?)(?![0-9]|\.[0-9])/,
     },
   ];
 
