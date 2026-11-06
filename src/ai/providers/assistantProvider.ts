@@ -4,7 +4,7 @@ import type {
   AssistantResult,
 } from '../localAssistant';
 
-export type AssistantProviderKind = 'offline' | 'local_llm';
+export type AssistantProviderKind = 'offline' | 'online' | 'local_llm';
 
 export interface AssistantProviderInfo {
   id: string;
