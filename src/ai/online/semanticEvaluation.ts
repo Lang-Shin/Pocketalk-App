@@ -34,6 +34,8 @@ export type SemanticRejectionReason =
   | 'candidate_failed_contract_validation'
   | 'candidate_is_not_a_proposal'
   | 'candidate_requested_clarification'
+  | 'candidate_clarification_ungrounded'
+  | 'candidate_unknown_entity'
   | 'candidate_read_only_requires_local_answer'
   | 'candidate_refused_or_unsupported'
   | 'unsupported_historical_question'
@@ -94,6 +96,9 @@ export interface SemanticEvaluationInput {
   eligibility?: {
     balanceAsOfDateKey: string;
     walletStatuses: Readonly<Record<string, 'active' | 'archived'>>;
+    /** Synthetic test tokens, supplied by the trusted experiment caller. */
+    snapshotRevision?: string;
+    currentRevision?: string;
   };
 }
 
@@ -221,11 +226,47 @@ export function evaluateSemanticCandidate(
       reasons: ['candidate_failed_contract_validation'],
     };
   }
+  if (PROMPT_INJECTION_EVIDENCE.test(input.message)) {
+    return { status: 'rejected', offline, reasons: ['prompt_injection_evidence'] };
+  }
   if (candidate.kind === 'clarification') {
+    if (candidate.refs) {
+      const envelope = createOnlineRequest(input.message, input.context);
+      const unknown = Object.entries(candidate.refs).some(([key, alias]) =>
+        key.toLowerCase().includes('wallet') ? !envelope.walletIdsByAlias.has(alias) : !envelope.containerIdsByAlias.has(alias));
+      if (unknown) return { status: 'unsupported', offline, reasons: ['candidate_unknown_entity'] };
+    }
+    const reasonField: Record<string, readonly AssistantMissingField[]> = {
+      missing_amount: ['amount'],
+      missing_destination: ['destinationWallet', 'destinationContainer'],
+      ambiguous_entity: ['sourceWallet', 'destinationWallet', 'sourceContainer', 'destinationContainer'],
+      invalid_date: ['effectiveDate'],
+      unsupported_transfer: ['transferKind'],
+    };
+    const reasonAgrees = candidate.reason === undefined ||
+      candidate.missingFields.some((field) => reasonField[candidate.reason ?? '']?.includes(field));
+    const numbers = input.message.replace(/\b\d{4}-\d{2}-\d{2}\b/g, ' ').match(/\d+(?:,\d+)*(?:\.\d+)?/g) ?? [];
+    const unambiguousAmountPresent = candidate.missingFields.includes('amount') && numbers.length === 1 &&
+      parseCandidateAmount(numbers[0]) !== null;
+    const destinationWalletClaim = candidate.missingFields.includes('destinationWallet');
+    const sourceWalletExplicit = !destinationWalletClaim || input.context.wallets.some((wallet) => {
+      const name = wallet.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      return new RegExp(`\\bfrom\\s+${name}(?=$|[^\\p{L}\\p{N}])`, 'iu').test(input.message);
+    });
+    const destinationWalletExplicit = destinationWalletClaim && input.context.wallets.some((wallet) => {
+      const name = wallet.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      return new RegExp(`\\b(?:to|into)\\s+${name}(?=$|[^\\p{L}\\p{N}])`, 'iu').test(input.message);
+    });
+    if (offline.kind !== 'clarification' || offline.intent !== candidate.intent ||
+        candidate.missingFields.length !== offline.interpretation.missingFields.length ||
+        !candidate.missingFields.every((field) => offline.interpretation.missingFields.includes(field)) ||
+        !reasonAgrees || unambiguousAmountPresent || !sourceWalletExplicit || destinationWalletExplicit || candidate.refs !== undefined) {
+      return { status: 'unsupported', offline, reasons: ['candidate_clarification_ungrounded'] };
+    }
     return {
       status: 'clarification_required',
       offline,
-      missingFields: candidate.missingFields,
+      missingFields: [...offline.interpretation.missingFields],
       reasons: ['candidate_requested_clarification'],
     };
   }
@@ -244,13 +285,6 @@ export function evaluateSemanticCandidate(
     };
   }
 
-  if (PROMPT_INJECTION_EVIDENCE.test(input.message)) {
-    return {
-      status: 'rejected',
-      offline,
-      reasons: ['prompt_injection_evidence'],
-    };
-  }
   if (candidate.intent !== ACTION_INTENT[candidate.action]) {
     return {
       status: 'rejected',
@@ -259,12 +293,7 @@ export function evaluateSemanticCandidate(
     };
   }
   if ((candidate.missingFields?.length ?? 0) > 0) {
-    return {
-      status: 'clarification_required',
-      offline,
-      missingFields: candidate.missingFields,
-      reasons: ['candidate_declared_missing_fields'],
-    };
+    return { status: 'unsupported', offline, reasons: ['candidate_clarification_ungrounded'] };
   }
 
   if (!ACTION_EVIDENCE[candidate.action].test(input.message)) {
@@ -396,6 +425,8 @@ export function evaluateSemanticCandidate(
   };
   const walletIds = [checkedCandidate.walletId, checkedCandidate.sourceWalletId, checkedCandidate.destinationWalletId].filter((id): id is string => id !== undefined);
   if (!input.eligibility || input.eligibility.balanceAsOfDateKey !== input.context.todayDateKey ||
+      !input.eligibility.snapshotRevision?.trim() || !input.eligibility.currentRevision?.trim() ||
+      input.eligibility.snapshotRevision !== input.eligibility.currentRevision ||
       walletIds.some((id) => input.eligibility?.walletStatuses[id] === undefined)) {
     return { status: 'clarification_required', offline, reasons: ['eligibility_context_missing_or_stale'] };
   }
