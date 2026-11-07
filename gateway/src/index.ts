@@ -92,6 +92,7 @@ export type { GatewayDependencies } from './handler';
 export type {
   AttestationStatus,
   AuthenticatedIdentity,
+  AuthenticationAssurance,
   AuthenticationRequestContext,
   Authenticator,
   ReplayProtectionContext,
@@ -99,6 +100,54 @@ export type {
   ReplayProtector,
 } from './auth';
 export { FakeAuthenticator } from './auth';
+export {
+  InMemoryChallengeStore,
+  ChallengeReplayProtector,
+  type ChallengeConsumeInput,
+  type ChallengeConsumeResult,
+  type ChallengeInspectInput,
+  type ChallengeInspectResult,
+  type ChallengeIssue,
+  type ChallengeIssueInput,
+  type ChallengeReplayProtectorOptions,
+  type ChallengeStore,
+} from './auth/challengeStore';
+export {
+  SyntheticAttestationVerifier,
+  type AttestationVerificationInput,
+  type AttestationVerificationResult,
+  type AttestationVerificationStatus,
+  type AttestationVerifier,
+  type SyntheticAttestationAssurance,
+  type SyntheticAttestationFixture,
+} from './auth/attestation';
+export {
+  InMemoryPublicKeyRegistry,
+  type PublicKeyRegistry,
+  type RegisteredPublicKey,
+} from './auth/publicKeyRegistry';
+export {
+  base64UrlDecode,
+  base64UrlEncode,
+  parseRequestProof,
+  verifyRequestProof,
+  REQUEST_PROOF_ALGORITHM,
+  REQUEST_PROOF_TYPE,
+  REQUEST_PROOF_VERSION,
+  RequestProofError,
+  type ParsedRequestProof,
+  type RequestProofClaims,
+  type RequestProofErrorCode,
+  type RequestProofFailureReason,
+  type RequestProofHeader,
+  type RequestProofVerificationResult,
+  type VerifyRequestProofInput,
+} from './auth/requestProof';
+export {
+  SignedRequestAuthenticator,
+  type SignedRequestAuthenticatorOptions,
+  type SubjectPseudonymizer,
+} from './auth/signedRequestAuthenticator';
 export type {
   RateLimitContext,
   RateLimitDecision,

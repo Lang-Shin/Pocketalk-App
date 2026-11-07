@@ -298,6 +298,94 @@ deployed or connected to any provider. No production composition is available.
 - The Play Integrity, Firebase App Check, Play Console, and real provider
   integrations are not implemented.
 
+## Synthetic request-bound authentication prototype (Task 5J)
+
+This prototype is test-only and must not be treated as production
+authentication.
+
+- Proof format: compact JWS serialization with ES256. Header is exactly
+  `alg=ES256`, `typ=pocketa-request-proof+jws`, and registered `kid`. Claims are
+  versioned (`v=pocketa-request-proof-v1`) and bind `iss`, `sub`, `aud`, `iat`,
+  `exp`, unique proof ID `jti`, uppercase method `htm`, path-only route `htu`,
+  lowercase hex SHA-256 of exact request bytes `bh`, server challenge ID `cid`,
+  and server challenge value `ch`. `jti` is a unique proof identifier and is
+  not the replay authority; `cid`/`ch` are. Extra header/claim keys are
+  rejected.
+- Canonicalization: UTF-8 JSON header/claims, JWS compact serialization without
+  padding, signature over the ASCII header/payload signing input, ES256 raw
+  R||S signature (64 bytes), lowercase hex body hash, uppercase HTTP method,
+  and pathname-only route without scheme, host, query, or fragment.
+- Challenge store: `InMemoryChallengeStore` is process-local. It generates
+  random challenge IDs and values, stores only challenge hashes, enforces
+  expiry, binds challenges to key ID and registered subject, compares challenge
+  hashes in constant time, and performs atomic single-use consumption after the
+  asynchronous hash step. It is not durable and must not be used as production
+  replay storage.
+- Key registry: `InMemoryPublicKeyRegistry` accepts test-only ECDSA P-256
+  public keys, rejects duplicate registrations, supports explicit revocation,
+  and returns no entry for unknown or revoked keys. There is no automatic
+  enrollment and no real Android Keystore enrollment.
+- Attestation: `AttestationVerifier` is the production-intended boundary.
+  `SyntheticAttestationVerifier` supports explicit fixtures for accepted,
+  rejected, expired, unavailable, and unsupported-assurance outcomes. It does
+  not generate synthetic Google attestation certificates and does not verify
+  Android Key Attestation, X.509 chains, certificate revocation, or Play
+  Integrity. It never represents a client-provided `attested=true` boolean as
+  proof. `SignedRequestAuthenticator` rejects synthetic verifiers unless
+  `allowSyntheticAttestation` is explicitly true; the default
+  production-intended composition therefore rejects synthetic attestation.
+- Integration: `SignedRequestAuthenticator` implements the existing
+  `Authenticator`; `ChallengeReplayProtector` implements the existing
+  `ReplayProtector`. The handler passes `keyId` and `challengeId` into replay
+  context. Authentication still precedes replay, quota, and provider.
+- Pseudonymous identity: the prototype requires an injected pseudonymizer and
+  rejects raw-subject or invalid pseudonymous output. Production must use a
+  server-side HMAC pepper. The returned identity includes key ID and synthetic
+  assurance metadata.
+- Privacy: challenge storage keeps only challenge hash, key ID, registered
+  subject, expiry, and consumed state. Key registration keeps only key ID,
+  subject, public key, attestation status, and revocation state. It does not
+  persist financial messages, balances, transaction history, provider
+  responses, private keys, or authentication secrets. No authentication
+  secrets are logged.
+- Key lifecycle: revocation is explicit through the registry and immediately
+  removes the key from `get`. Rotation requires a new server-side registration;
+  there is no automatic enrollment, no hardware-backed key rotation, and no
+  production revocation propagation. Revoked keys are rejected by
+  authentication.
+- Locally verified vs unverified: ES256 parsing/signature verification, exact
+  body/method/route/challenge binding, challenge expiry and single-use
+  consumption, registry lookup, duplicate/revocation handling, pseudonymous
+  identity validation, and gateway ordering are covered by local synthetic
+  tests. Android hardware attestation, real APK identity, real Keystore key
+  possession, X.509 trust/revocation, distributed replay storage, and
+  production enrollment remain unverified.
+- Challenge lifecycle: issue with CSPRNG ID/value and TTL; authenticate by
+  inspecting the key/identity-bound challenge; replay-consume atomically after
+  authentication; reject expired, consumed, unknown, wrong-key, or
+  wrong-subject challenges; cleanup removes expired records.
+- Zero-cost assumptions: the prototype uses only local Web Crypto, synthetic
+  test keys, and in-memory storage. It adds no Google/Firebase/Play services,
+  no paid SDK, no cloud resource, and no production backend. A future
+  production verifier and durable replay store still require an approved
+  zero-cost-capable backend.
+- Production integration blockers: real Android signing/enrollment, Android
+  Key Attestation and X.509/CRL verification, durable distributed challenge
+  storage, challenge issuance rate limiting, account/auth integration,
+  production pseudonym pepper/key management, release signing, provider
+  adapter, and deployment approval remain outstanding.
+- Not production-ready: no real Android signing module, no durable challenge
+  store, no challenge issuance rate limit, no account verifier, no real
+  attestation verifier, no deployed Worker, no zero-cost production backend
+  verification, and no Online Mode activation.
+- Tests cover valid proof authentication, body/method/route/audience/issuer/
+  subject/challenge/signature tampering, expiry, future-issued and overlong
+  proof age, synthetic attestation accepted/rejected/expired/unavailable/
+  unsupported-assurance fixtures, malformed/unsupported algorithms, missing and
+  prohibited claims, pseudonymizer failure, unknown/revoked keys, duplicate
+  registration, challenge expiry/key/identity binding, concurrent single-use
+  consumption, cleanup, replay-protector mapping, and handler integration.
+
 ## Authentication and attestation
 
 Authentication identifies an account or subject. Attestation assesses the
@@ -309,6 +397,7 @@ Current authenticator context contains:
 - `route`
 - `canonicalBodyHash` (server-computed SHA-256 over accepted request bytes)
 - `challenge` reference
+- `challengeId` reference for the synthetic request-bound prototype
 
 A claimed client hash or challenge is not proof. A future verifier must validate
 a server-issued challenge/proof, an authenticated identity, and app attestation

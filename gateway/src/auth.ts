@@ -4,18 +4,22 @@ import {
 } from './errors';
 
 export type AttestationStatus = 'not_verified' | 'verified';
+export type AuthenticationAssurance = 'none' | 'synthetic_verified';
 
 export interface AuthenticationRequestContext {
   method: string;
   route: string;
   canonicalBodyHash: string;
   challenge: string | null;
+  challengeId?: string | null;
 }
 
 export interface AuthenticatedIdentity {
   subject: string;
   expiresAt: number;
   attestation: AttestationStatus;
+  keyId?: string;
+  assurance?: AuthenticationAssurance;
 }
 
 export interface Authenticator {
@@ -31,6 +35,8 @@ export interface ReplayProtectionContext {
   route: string;
   canonicalBodyHash: string;
   challenge: string | null;
+  challengeId?: string | null;
+  keyId?: string;
 }
 
 export interface ReplayProtectionDecision {

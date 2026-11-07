@@ -20,6 +20,15 @@ import {
   type AuthenticationRequestContext,
 } from '../src/auth';
 import {
+  SyntheticAttestationVerifier,
+} from '../src/auth/attestation';
+import {
+  ChallengeReplayProtector,
+  InMemoryChallengeStore,
+} from '../src/auth/challengeStore';
+import { InMemoryPublicKeyRegistry } from '../src/auth/publicKeyRegistry';
+import { SignedRequestAuthenticator } from '../src/auth/signedRequestAuthenticator';
+import {
   createGateway,
   createTestGateway,
   disabledGateway,
@@ -31,6 +40,13 @@ import { FakeSemanticProvider } from '../src/provider';
 import { ProviderTimeoutError } from '../src/errors';
 import { InMemoryRateLimiter } from '../src/rateLimit';
 import { handleGatewayRequest } from '../src/handler';
+import {
+  createTestKeyPair,
+  requestProofClaims,
+  requestProofHeader,
+  sha256Hex,
+  signRequestProof,
+} from './authTestUtils';
 
 const VALID_REQUEST: OnlineRequest = {
   version: ONLINE_CONTRACT_VERSION,
@@ -181,6 +197,43 @@ test('authentication is mandatory and verifier outages fail closed', async () =>
     }),
   );
   assert.equal(outage.status, 503);
+  assert.equal(providerCalls, 0);
+});
+
+test('authentication and replay failures do not consume quota or provider calls', async () => {
+  let admissions = 0;
+  let providerCalls = 0;
+  const deps = dependencies({
+    rateLimiter: {
+      async admit() {
+        admissions += 1;
+        return { allowed: true, status: 'admitted' };
+      },
+    },
+    replayProtector: {
+      async consume() {
+        return { accepted: false };
+      },
+    },
+    provider: new FakeSemanticProvider(async () => {
+      providerCalls += 1;
+      return VALID_RESPONSE;
+    }),
+  });
+
+  const authFailure = await handleGatewayRequest(
+    request(VALID_REQUEST, { authorization: 'Bearer invalid' }),
+    deps,
+  );
+  assert.equal(authFailure.status, 401);
+  assert.equal(admissions, 0);
+
+  const replayFailure = await handleGatewayRequest(
+    request(VALID_REQUEST, { authorization: 'Bearer valid' }),
+    deps,
+  );
+  assert.equal(replayFailure.status, 401);
+  assert.equal(admissions, 0);
   assert.equal(providerCalls, 0);
 });
 
@@ -440,6 +493,11 @@ test('gateway source contains no outbound network calls', () => {
     '../src/auth.ts',
     '../src/rateLimit.ts',
     '../src/provider.ts',
+    '../src/auth/requestProof.ts',
+    '../src/auth/challengeStore.ts',
+    '../src/auth/attestation.ts',
+    '../src/auth/publicKeyRegistry.ts',
+    '../src/auth/signedRequestAuthenticator.ts',
   ];
   const source = files
     .map((file) =>
@@ -737,6 +795,104 @@ test('handler preserves validation, authentication, replay, quota, and provider 
   );
   assert.equal(quota.status, 429);
   assert.deepEqual(quotaOrder, ['auth', 'replay', 'quota']);
+});
+
+test('signed request auth integrates with replay and the gateway pipeline', async () => {
+  const pair = await createTestKeyPair();
+  const registry = new InMemoryPublicKeyRegistry();
+  const keyId = 'gateway-test-key';
+  const subject = 'gateway-test-install';
+  registry.register({
+    keyId,
+    subject,
+    publicKey: pair.publicKey,
+    attestation: 'verified',
+  });
+  const challenges = new InMemoryChallengeStore();
+  const now = Date.UTC(2026, 10, 7, 12);
+  const challenge = await challenges.issue({
+    keyId,
+    subject,
+    ttlMs: 60_000,
+    nowMs: now,
+  });
+  const body = JSON.stringify(VALID_REQUEST);
+  const nowSeconds = Math.floor(now / 1000);
+  const proof = await signRequestProof({
+    privateKey: pair.privateKey,
+    header: requestProofHeader(keyId),
+    claims: requestProofClaims({
+      issuer: 'pocketa-test-issuer',
+      subject,
+      audience: 'gateway.test',
+      proofId: 'gateway-proof-0001',
+      challengeId: challenge.challengeId,
+      challenge: challenge.challenge,
+      bodyHashHex: sha256Hex(body),
+      issuedAt: nowSeconds,
+      expiresAt: nowSeconds + 60,
+    }),
+  });
+  let providerCalls = 0;
+  let admissions = 0;
+  const deps = dependencies({
+    authenticator: new SignedRequestAuthenticator({
+      registry,
+      challenges,
+      attestationVerifier: new SyntheticAttestationVerifier(
+        new Map([
+          [
+            keyId,
+            {
+              status: 'accepted',
+              assurance: 'synthetic_verified',
+            },
+          ],
+        ]),
+      ),
+      allowSyntheticAttestation: true,
+      pseudonymize: (value) => `pseudo:${value}`,
+      issuer: 'pocketa-test-issuer',
+      audience: 'gateway.test',
+      now: () => now,
+    }),
+    replayProtector: new ChallengeReplayProtector(challenges, {
+      now: () => now,
+      registry,
+    }),
+    rateLimiter: {
+      async admit() {
+        admissions += 1;
+        return { allowed: true, status: 'admitted' };
+      },
+    },
+    provider: new FakeSemanticProvider(async () => {
+      providerCalls += 1;
+      return VALID_RESPONSE;
+    }),
+    now: () => now,
+  });
+  const makeRequest = () =>
+    new Request('https://gateway.test/v1/assistant/interpret', {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${proof}`,
+        'content-type': 'application/json',
+        'x-pocketa-challenge': challenge.challenge,
+        'x-pocketa-challenge-id': challenge.challengeId,
+      },
+      body,
+    });
+
+  const first = await handleGatewayRequest(makeRequest(), deps);
+  assert.equal(first.status, 200);
+  assert.equal(admissions, 1);
+  assert.equal(providerCalls, 1);
+
+  const replay = await handleGatewayRequest(makeRequest(), deps);
+  assert.equal(replay.status, 401);
+  assert.equal(admissions, 1);
+  assert.equal(providerCalls, 1);
 });
 
 test('provider deadline returns 504 even when the provider never settles', async () => {

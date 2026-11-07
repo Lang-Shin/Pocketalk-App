@@ -82,6 +82,7 @@ export async function handleGatewayRequest(
       route: new URL(request.url).pathname,
       canonicalBodyHash: payload.canonicalBodyHash,
       challenge: request.headers.get('x-pocketa-challenge'),
+      challengeId: request.headers.get('x-pocketa-challenge-id'),
     };
     const identity = await authenticate(
       request,
@@ -97,6 +98,8 @@ export async function handleGatewayRequest(
           route: authContext.route,
           canonicalBodyHash: authContext.canonicalBodyHash,
           challenge: authContext.challenge,
+          challengeId: authContext.challengeId,
+          keyId: identity.keyId,
         });
         if (!replay.accepted) {
           throw new GatewayHttpError(
