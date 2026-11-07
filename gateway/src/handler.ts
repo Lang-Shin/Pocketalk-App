@@ -1,4 +1,8 @@
-import type { Authenticator } from './auth';
+import type {
+  AuthenticationRequestContext,
+  Authenticator,
+  ReplayProtector,
+} from './auth';
 import {
   AuthenticationError,
   AuthenticatorUnavailableError,
@@ -6,6 +10,7 @@ import {
   ProviderTimeoutError,
   ProviderUnavailableError,
   RateLimiterUnavailableError,
+  ReplayProtectionUnavailableError,
   errorResponse,
   jsonResponse,
 } from './errors';
@@ -23,6 +28,8 @@ export interface GatewayDependencies {
   authenticator: Authenticator;
   rateLimiter: RateLimiter;
   provider: SemanticProvider;
+  replayProtector?: ReplayProtector;
+  providerTimeoutMs?: number;
   now?: () => number;
 }
 
@@ -64,11 +71,40 @@ export async function handleGatewayRequest(
     }
 
     const now = (dependencies.now ?? Date.now)();
+    const payload = await readGatewayRequest(request);
+    const authContext: AuthenticationRequestContext = {
+      method: request.method,
+      route: new URL(request.url).pathname,
+      canonicalBodyHash: payload.canonicalBodyHash,
+      challenge: request.headers.get('x-pocketa-challenge'),
+    };
     const identity = await authenticate(
       request,
       dependencies.authenticator,
       now,
+      authContext,
     );
+    if (dependencies.replayProtector) {
+      try {
+        const replay = await dependencies.replayProtector.consume({
+          identitySubject: identity.subject,
+          method: authContext.method,
+          route: authContext.route,
+          canonicalBodyHash: authContext.canonicalBodyHash,
+          challenge: authContext.challenge,
+        });
+        if (!replay.accepted) {
+          throw new GatewayHttpError(
+            401,
+            'unauthorized',
+            'Replay protection rejected the request.',
+          );
+        }
+      } catch (error) {
+        if (error instanceof GatewayHttpError) throw error;
+        throw new ReplayProtectionUnavailableError();
+      }
+    }
     let decision;
     try {
       decision = await dependencies.rateLimiter.admit({
@@ -91,12 +127,12 @@ export async function handleGatewayRequest(
       );
     }
 
-    const onlineRequest = await readGatewayRequest(request);
     let providerOutput;
     try {
-      providerOutput = await dependencies.provider.interpret(
-        onlineRequest,
-        { signal: request.signal },
+      providerOutput = await runProviderWithDeadline(
+        dependencies.provider,
+        payload.request,
+        dependencies.providerTimeoutMs ?? 10_000,
       );
     } catch (error) {
       if (error instanceof ProviderTimeoutError) throw error;
@@ -113,6 +149,7 @@ async function authenticate(
   request: Request,
   authenticator: Authenticator,
   now: number,
+  context: AuthenticationRequestContext,
 ) {
   const authorization = request.headers.get('authorization');
   if (!authorization) {
@@ -134,7 +171,7 @@ async function authenticate(
 
   let identity;
   try {
-    identity = await authenticator.authenticate(credential);
+    identity = await authenticator.authenticate(credential, context);
   } catch (error) {
     if (error instanceof AuthenticationError) {
       throw new GatewayHttpError(
@@ -152,7 +189,7 @@ async function authenticate(
       'Authentication is invalid.',
     );
   }
-  if (identity.expiresAt !== undefined && identity.expiresAt <= now) {
+  if (!Number.isFinite(identity.expiresAt) || identity.expiresAt <= now) {
     throw new GatewayHttpError(
       401,
       'unauthorized',
@@ -160,4 +197,26 @@ async function authenticate(
     );
   }
   return identity;
+}
+
+function runProviderWithDeadline(
+  provider: SemanticProvider,
+  request: Parameters<SemanticProvider['interpret']>[0],
+  timeoutMs: number,
+): Promise<Awaited<ReturnType<SemanticProvider['interpret']>>> {
+  const controller = new AbortController();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const operation = provider.interpret(request, {
+    signal: controller.signal,
+  });
+  operation.catch(() => undefined);
+  const deadline = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      controller.abort();
+      reject(new ProviderTimeoutError());
+    }, timeoutMs);
+  });
+  return Promise.race([operation, deadline]).finally(() => {
+    if (timer !== undefined) clearTimeout(timer);
+  });
 }

@@ -3,13 +3,45 @@ import {
   AuthenticatorUnavailableError,
 } from './errors';
 
+export type AttestationStatus = 'not_verified' | 'verified';
+
+export interface AuthenticationRequestContext {
+  method: string;
+  route: string;
+  canonicalBodyHash: string;
+  challenge: string | null;
+}
+
 export interface AuthenticatedIdentity {
   subject: string;
-  expiresAt?: number;
+  expiresAt: number;
+  attestation: AttestationStatus;
 }
 
 export interface Authenticator {
-  authenticate(credential: string): Promise<AuthenticatedIdentity>;
+  authenticate(
+    credential: string,
+    context: AuthenticationRequestContext,
+  ): Promise<AuthenticatedIdentity>;
+}
+
+export interface ReplayProtectionContext {
+  identitySubject: string;
+  method: string;
+  route: string;
+  canonicalBodyHash: string;
+  challenge: string | null;
+}
+
+export interface ReplayProtectionDecision {
+  accepted: boolean;
+  reason?: string;
+}
+
+export interface ReplayProtector {
+  consume(
+    context: ReplayProtectionContext,
+  ): Promise<ReplayProtectionDecision>;
 }
 
 export class FakeAuthenticator implements Authenticator {

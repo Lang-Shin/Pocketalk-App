@@ -17,8 +17,14 @@ import {
 import {
   FakeAuthenticator,
   type AuthenticatedIdentity,
+  type AuthenticationRequestContext,
 } from '../src/auth';
-import { disabledGateway } from '../src/index';
+import {
+  createGateway,
+  createTestGateway,
+  disabledGateway,
+  type GatewayTestComposition,
+} from '../src/index';
 import type { GatewayDependencies } from '../src/handler';
 import { FakeSemanticProvider } from '../src/provider';
 import { ProviderTimeoutError } from '../src/errors';
@@ -52,12 +58,23 @@ const VALID_RESPONSE: OnlineResponse = {
 };
 
 function createAuthenticator(): FakeAuthenticator {
+  const valid = (subject: string): AuthenticatedIdentity => ({
+    subject,
+    expiresAt: 4_000_000_000_000,
+    attestation: 'not_verified',
+  });
   return new FakeAuthenticator(
     new Map<string, AuthenticatedIdentity | 'expired'>([
-      ['valid', { subject: 'user-a' }],
-      ['valid-b', { subject: 'user-b' }],
+      ['valid', valid('user-a')],
+      ['valid-b', valid('user-b')],
       ['expired', 'expired'],
-      ['expired-identity', { subject: 'user-expired', expiresAt: 0 }],
+      [
+        'expired-identity',
+        {
+          ...valid('user-expired'),
+          expiresAt: 0,
+        },
+      ],
     ]),
   );
 }
@@ -426,4 +443,307 @@ test('gateway source contains no outbound network calls', () => {
 
   assert.doesNotMatch(source, /\bfetch\s*\(/);
   assert.doesNotMatch(source, /https?:\/\//);
+});
+
+function bodyStream(bytes: Uint8Array): ReadableStream<Uint8Array> {
+  return new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(bytes);
+      controller.close();
+    },
+  });
+}
+
+function rawRequest(
+  body: ReadableStream<Uint8Array> | null,
+  headers: Record<string, string> = {},
+): Request {
+  return {
+    method: 'POST',
+    url: 'https://gateway.test/v1/assistant/interpret',
+    headers: new Headers({
+      authorization: 'Bearer valid',
+      'content-type': 'application/json',
+      ...headers,
+    }),
+    body,
+    signal: new AbortController().signal,
+  } as unknown as Request;
+}
+
+function bytes(value: string): Uint8Array {
+  return new TextEncoder().encode(value);
+}
+
+test('streaming request body limits reject oversized and malformed bodies', async () => {
+  let providerCalls = 0;
+  const deps = dependencies({
+    provider: new FakeSemanticProvider(async () => {
+      providerCalls += 1;
+      return VALID_RESPONSE;
+    }),
+  });
+  const oversized = 'x'.repeat(13_000);
+  const cases: Array<[Request, number]> = [
+    [
+      rawRequest(bodyStream(bytes('{}')), {
+        'content-length': '13000',
+      }),
+      413,
+    ],
+    [
+      rawRequest(bodyStream(bytes(oversized)), {
+        'content-length': '5',
+      }),
+      413,
+    ],
+    [rawRequest(bodyStream(bytes(oversized))), 413],
+    [
+      rawRequest(
+        bodyStream(
+          bytes(JSON.stringify({
+            ...VALID_REQUEST,
+            message: '�'.repeat(6_000),
+          })),
+        ),
+      ),
+      413,
+    ],
+    [
+      rawRequest(bodyStream(new Uint8Array([0xc3, 0x28]))),
+      400,
+    ],
+    [
+      rawRequest(
+        new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.error(new Error('stream failed'));
+          },
+        }),
+      ),
+      400,
+    ],
+    [rawRequest(null), 400],
+  ];
+
+  for (const [input, expectedStatus] of cases) {
+    const response = await handleGatewayRequest(input, deps);
+    assert.equal(response.status, expectedStatus);
+  }
+  assert.equal(providerCalls, 0);
+
+  const multibyteValid = await handleGatewayRequest(
+    rawRequest(
+      bodyStream(
+        bytes(JSON.stringify({
+          ...VALID_REQUEST,
+          message: '�'.repeat(1_000),
+        })),
+      ),
+    ),
+    deps,
+  );
+  assert.equal(multibyteValid.status, 200);
+});
+
+test('authentication receives server-computed request metadata', async () => {
+  let captured: unknown;
+  const identity: AuthenticatedIdentity = {
+    subject: 'user-a',
+    expiresAt: 4_000_000_000_000,
+    attestation: 'verified',
+  };
+  const deps = dependencies({
+    authenticator: {
+      async authenticate(_credential, context) {
+        captured = context;
+        return identity;
+      },
+    },
+  });
+
+  const response = await handleGatewayRequest(
+    request(VALID_REQUEST, { 'x-pocketa-challenge': 'challenge-1' }),
+    deps,
+  );
+
+  assert.equal(response.status, 200);
+  const context = captured as AuthenticationRequestContext;
+  assert.equal(context.method, 'POST');
+  assert.equal(context.route, '/v1/assistant/interpret');
+  assert.equal(context.challenge, 'challenge-1');
+  assert.match(context.canonicalBodyHash, /^[a-f0-9]{64}$/);
+});
+
+test('authentication identities require finite expiry and a valid subject', async () => {
+  const cases: Array<Record<string, unknown> | AuthenticatedIdentity> = [
+    { subject: 'user-a', attestation: 'not_verified' },
+    {
+      subject: 'user-a',
+      expiresAt: Number.POSITIVE_INFINITY,
+      attestation: 'not_verified',
+    },
+    {
+      subject: ' ',
+      expiresAt: 4_000_000_000_000,
+      attestation: 'not_verified',
+    },
+  ];
+
+  for (const identity of cases) {
+    const response = await handleGatewayRequest(
+      request(VALID_REQUEST),
+      dependencies({
+        authenticator: {
+          async authenticate() {
+            return identity as AuthenticatedIdentity;
+          },
+        },
+      }),
+    );
+    assert.equal(response.status, 401);
+  }
+});
+
+test('replay protection rejects or fails closed before quota and provider', async () => {
+  let providerCalls = 0;
+  const baseProvider = new FakeSemanticProvider(async () => {
+    providerCalls += 1;
+    return VALID_RESPONSE;
+  });
+
+  const rejected = await handleGatewayRequest(
+    request(VALID_REQUEST),
+    dependencies({
+      replayProtector: {
+        async consume() {
+          return { accepted: false };
+        },
+      },
+      provider: baseProvider,
+    }),
+  );
+  assert.equal(rejected.status, 401);
+  assert.equal(providerCalls, 0);
+
+  const outage = await handleGatewayRequest(
+    request(VALID_REQUEST),
+    dependencies({
+      replayProtector: {
+        async consume() {
+          throw new Error('nonce storage down');
+        },
+      },
+      provider: baseProvider,
+    }),
+  );
+  assert.equal(outage.status, 503);
+  assert.equal(providerCalls, 0);
+});
+
+test('provider deadline returns 504 even when the provider never settles', async () => {
+  const response = await handleGatewayRequest(
+    request(VALID_REQUEST),
+    dependencies({
+      providerTimeoutMs: 5,
+      provider: new FakeSemanticProvider(
+        async () => new Promise<OnlineResponse>(() => undefined),
+      ),
+    }),
+  );
+
+  assert.equal(response.status, 504);
+});
+
+test('provider late success and late rejection cannot become responses', async () => {
+  const lateSuccess = await handleGatewayRequest(
+    request(VALID_REQUEST),
+    dependencies({
+      providerTimeoutMs: 5,
+      provider: new FakeSemanticProvider(
+        async () =>
+          new Promise<OnlineResponse>((resolve) => {
+            setTimeout(() => resolve(VALID_RESPONSE), 20);
+          }),
+      ),
+    }),
+  );
+  assert.equal(lateSuccess.status, 504);
+
+  const lateFailure = await handleGatewayRequest(
+    request(VALID_REQUEST),
+    dependencies({
+      providerTimeoutMs: 5,
+      provider: new FakeSemanticProvider(
+        async () =>
+          new Promise<OnlineResponse>((_, reject) => {
+            setTimeout(() => reject(new Error('late failure')), 20);
+          }),
+      ),
+    }),
+  );
+  assert.equal(lateFailure.status, 504);
+});
+
+test('invalid requests do not consume provider quota', async () => {
+  let admissions = 0;
+  const response = await handleGatewayRequest(
+    request({ ...VALID_REQUEST, version: 'online-intent-v2' }),
+    dependencies({
+      rateLimiter: {
+        async admit() {
+          admissions += 1;
+          return { allowed: true };
+        },
+      },
+    }),
+  );
+
+  assert.equal(response.status, 400);
+  assert.equal(admissions, 0);
+});
+
+test('production-intended composition cannot be enabled with fakes or missing dependencies', () => {
+  const fakeComposition = {
+    authenticator: createAuthenticator(),
+    rateLimiter: new InMemoryRateLimiter({
+      perIdentityLimit: 1,
+      globalLimit: 1,
+    }),
+    provider: new FakeSemanticProvider(async () => VALID_RESPONSE),
+  };
+
+  assert.throws(
+    () =>
+      createGateway(
+        true,
+        fakeComposition as unknown as GatewayTestComposition,
+      ),
+    /production gateway/i,
+  );
+  assert.throws(
+    () =>
+      createGateway(true, {
+        kind: 'test',
+        authenticator: createAuthenticator(),
+      } as unknown as GatewayTestComposition),
+    /production gateway/i,
+  );
+
+  const testGateway = createTestGateway(true, fakeComposition);
+  assert.equal(typeof testGateway.fetch, 'function');
+});
+
+test('malformed bearer headers and client-supplied user IDs are rejected', async () => {
+  const malformed = await handleGatewayRequest(
+    request(VALID_REQUEST, { authorization: 'Basic abc' }),
+    dependencies(),
+  );
+  assert.equal(malformed.status, 401);
+
+  const clientIdentity = await handleGatewayRequest(
+    request({ ...VALID_REQUEST, userId: 'attacker' }),
+    dependencies(),
+  );
+  assert.equal(clientIdentity.status, 400);
 });

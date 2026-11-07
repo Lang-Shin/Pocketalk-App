@@ -76,32 +76,48 @@ export class OnlineGatewayClient {
     }
 
     const controller = new AbortController();
-    let timedOut = false;
-    const timeout = setTimeout(() => {
-      timedOut = true;
-      controller.abort();
-    }, this.timeoutMs);
-    const onAbort = () => controller.abort();
-    options.signal?.addEventListener('abort', onAbort, { once: true });
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let abortHandler: (() => void) | undefined;
+
+    const operation = this.transport.send({
+      body: JSON.stringify(validated),
+      signal: controller.signal,
+    });
+    operation.catch(() => undefined);
+
+    const timeout = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => {
+        controller.abort();
+        reject(
+          new OnlineGatewayError(
+            'timeout',
+            'The online gateway request timed out.',
+          ),
+        );
+      }, this.timeoutMs);
+    });
+
+    const cancellation = new Promise<never>((_, reject) => {
+      if (!options.signal) return;
+      abortHandler = () => {
+        controller.abort();
+        reject(
+          new OnlineGatewayError(
+            'cancelled',
+            'The online gateway request was cancelled.',
+          ),
+        );
+      };
+      options.signal.addEventListener('abort', abortHandler, { once: true });
+    });
 
     try {
-      const response = await this.transport.send({
-        body: JSON.stringify(validated),
-        signal: controller.signal,
-      });
+      const response = await Promise.race([
+        operation,
+        timeout,
+        cancellation,
+      ]);
 
-      if (timedOut) {
-        throw new OnlineGatewayError(
-          'timeout',
-          'The online gateway request timed out.',
-        );
-      }
-      if (controller.signal.aborted) {
-        throw new OnlineGatewayError(
-          'cancelled',
-          'The online gateway request was cancelled.',
-        );
-      }
       if (!Number.isInteger(response.status)) {
         throw new OnlineGatewayError(
           'invalid_response',
@@ -161,12 +177,6 @@ export class OnlineGatewayClient {
       }
     } catch (error) {
       if (error instanceof OnlineGatewayError) throw error;
-      if (timedOut) {
-        throw new OnlineGatewayError(
-          'timeout',
-          'The online gateway request timed out.',
-        );
-      }
       if (options.signal?.aborted || controller.signal.aborted) {
         throw new OnlineGatewayError(
           'cancelled',
@@ -178,8 +188,10 @@ export class OnlineGatewayClient {
         'The online gateway could not be reached.',
       );
     } finally {
-      clearTimeout(timeout);
-      options.signal?.removeEventListener('abort', onAbort);
+      if (timer !== undefined) clearTimeout(timer);
+      if (abortHandler) {
+        options.signal?.removeEventListener('abort', abortHandler);
+      }
     }
   }
 }

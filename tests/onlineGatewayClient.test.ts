@@ -322,3 +322,96 @@ test('gateway client maps gateway policy failures to compatible typed errors', a
       error instanceof OnlineGatewayError && error.code === 'timeout',
   );
 });
+
+interface Deferred<T> {
+  promise: Promise<T>;
+  resolve(value: T): void;
+  reject(error: unknown): void;
+}
+
+function deferred<T>(): Deferred<T> {
+  let resolve!: (value: T) => void;
+  let reject!: (error: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, resolve, reject };
+}
+
+test('gateway client times out even when transport ignores AbortSignal', async () => {
+  const envelope = createOnlineRequest(
+    'Spent 50 on lunch from Food & drinks',
+    createContext(),
+  );
+  const transport = new FakeTransport(
+    async () => new Promise<OnlineGatewayTransportResponse>(() => undefined),
+  );
+  const client = new OnlineGatewayClient({ transport, timeoutMs: 5 });
+
+  await assert.rejects(
+    () => client.interpret(envelope.request),
+    (error: unknown) =>
+      error instanceof OnlineGatewayError && error.code === 'timeout',
+  );
+});
+
+test('gateway client ignores late transport success after timeout', async () => {
+  const envelope = createOnlineRequest(
+    'Spent 50 on lunch from Food & drinks',
+    createContext(),
+  );
+  const late = deferred<OnlineGatewayTransportResponse>();
+  const transport = new FakeTransport(async () => late.promise);
+  const client = new OnlineGatewayClient({ transport, timeoutMs: 5 });
+  const pending = client.interpret(envelope.request);
+
+  await assert.rejects(
+    () => pending,
+    (error: unknown) =>
+      error instanceof OnlineGatewayError && error.code === 'timeout',
+  );
+  late.resolve(validResponse());
+  await new Promise((resolve) => setTimeout(resolve, 10));
+});
+
+test('gateway client safely absorbs late transport rejection after timeout', async () => {
+  const envelope = createOnlineRequest(
+    'Spent 50 on lunch from Food & drinks',
+    createContext(),
+  );
+  const late = deferred<OnlineGatewayTransportResponse>();
+  const transport = new FakeTransport(async () => late.promise);
+  const client = new OnlineGatewayClient({ transport, timeoutMs: 5 });
+  const pending = client.interpret(envelope.request);
+
+  await assert.rejects(
+    () => pending,
+    (error: unknown) =>
+      error instanceof OnlineGatewayError && error.code === 'timeout',
+  );
+  late.reject(new Error('late transport failure'));
+  await new Promise((resolve) => setTimeout(resolve, 10));
+});
+
+test('gateway client caller cancellation remains distinct from timeout', async () => {
+  const envelope = createOnlineRequest(
+    'Spent 50 on lunch from Food & drinks',
+    createContext(),
+  );
+  const transport = new FakeTransport(
+    async () => new Promise<OnlineGatewayTransportResponse>(() => undefined),
+  );
+  const client = new OnlineGatewayClient({ transport, timeoutMs: 100 });
+  const controller = new AbortController();
+  const pending = client.interpret(envelope.request, {
+    signal: controller.signal,
+  });
+  controller.abort();
+
+  await assert.rejects(
+    () => pending,
+    (error: unknown) =>
+      error instanceof OnlineGatewayError && error.code === 'cancelled',
+  );
+});

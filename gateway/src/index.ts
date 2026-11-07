@@ -1,6 +1,7 @@
 import {
   unavailableAuthenticator,
   type Authenticator,
+  type ReplayProtector,
 } from './auth';
 import {
   handleGatewayRequest,
@@ -19,10 +20,13 @@ export interface GatewayEnvironment {
   POCKETA_ONLINE_GATEWAY_ENABLED?: string;
 }
 
-export interface GatewayComposition {
+export interface GatewayTestComposition {
+  kind: 'test';
   authenticator: Authenticator;
   rateLimiter: RateLimiter;
   provider: SemanticProvider;
+  replayProtector?: ReplayProtector;
+  providerTimeoutMs?: number;
 }
 
 export function isGatewayEnabled(environment: GatewayEnvironment): boolean {
@@ -31,13 +35,26 @@ export function isGatewayEnabled(environment: GatewayEnvironment): boolean {
 
 export function createGateway(
   enabled: boolean,
-  composition: GatewayComposition,
+  composition: GatewayTestComposition,
 ): { fetch(request: Request): Promise<Response> } {
+  if (
+    !composition ||
+    composition.kind !== 'test' ||
+    !composition.authenticator ||
+    !composition.rateLimiter ||
+    !composition.provider
+  ) {
+    throw new Error(
+      'An enabled production gateway requires approved production authentication, quota, and provider implementations.',
+    );
+  }
   const dependencies: GatewayDependencies = {
     enabled,
     authenticator: composition.authenticator,
     rateLimiter: composition.rateLimiter,
     provider: composition.provider,
+    replayProtector: composition.replayProtector,
+    providerTimeoutMs: composition.providerTimeoutMs,
   };
   return {
     fetch: (request: Request) => handleGatewayRequest(request, dependencies),
@@ -45,16 +62,29 @@ export function createGateway(
 }
 
 export const disabledGateway = createGateway(false, {
+  kind: 'test',
   authenticator: unavailableAuthenticator(),
   rateLimiter: unavailableRateLimiter(),
   provider: unavailableProvider(),
 });
 
+export function createTestGateway(
+  enabled: boolean,
+  composition: Omit<GatewayTestComposition, 'kind'>,
+): { fetch(request: Request): Promise<Response> } {
+  return createGateway(enabled, { ...composition, kind: 'test' });
+}
+
 export { handleGatewayRequest } from './handler';
 export type { GatewayDependencies } from './handler';
 export type {
+  AttestationStatus,
   AuthenticatedIdentity,
+  AuthenticationRequestContext,
   Authenticator,
+  ReplayProtectionContext,
+  ReplayProtectionDecision,
+  ReplayProtector,
 } from './auth';
 export { FakeAuthenticator } from './auth';
 export type {
@@ -75,6 +105,7 @@ export {
   ProviderTimeoutError,
   ProviderUnavailableError,
   RateLimiterUnavailableError,
+  ReplayProtectionUnavailableError,
 } from './errors';
 
 export default disabledGateway;

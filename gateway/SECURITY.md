@@ -1,81 +1,118 @@
 # Online Gateway Security Readiness
 
 Status: **offline/test-only**. The gateway is disabled by default and is not
-deployed or connected to any provider.
+deployed or connected to any provider. No production composition is available.
 
-## Trust boundaries
+## Current security guarantees
 
-```text
-Pocketa mobile app
-  -> HTTPS gateway request
-  -> Cloudflare-compatible gateway
-       -> injected authenticator
-       -> injected rate limiter
-       -> injected semantic provider
-       -> validated online-intent-v1 response
-  -> Pocketa local response adapter and validation
-  -> explicit user confirmation
-  -> local finance execution
-```
+- The default gateway is disabled and returns `503` before authenticator,
+  quota, or provider invocation.
+- Enabled test compositions require an explicit `kind: 'test'` composition and
+  injected authenticator, rate limiter, and semantic provider.
+- Every enabled request requires a Bearer credential. Missing, malformed,
+  invalid, expired, or non-finite-expiry identities fail closed.
+- A production-intended composition cannot be enabled with the exported fakes.
+- Request bodies are read incrementally with a 12 KB UTF-8 byte limit. Honest
+  oversized `Content-Length`, dishonest undersized `Content-Length`, missing
+  `Content-Length`, stream failures, invalid UTF-8, and malformed JSON fail
+  closed before authentication or provider quota admission.
+- The server computes a SHA-256 hash over the exact accepted request bytes and
+  passes the method, route, challenge reference, and canonical body hash to the
+  authenticator.
+- Authentication occurs after request validation and before quota admission.
+- Provider quota admission occurs after authentication and before provider
+  invocation. Invalid requests do not consume provider quota.
+- Provider output is bounded and validated by the strict online-intent-v1
+  response parser before return.
+- The gateway enforces a provider deadline and returns `504` when the provider
+  does not settle in time. Late results and late rejections are ignored.
+- The gateway client enforces its own deadline even when the injected transport
+  ignores `AbortSignal`; late success and late rejection cannot become results.
+- Errors contain stable codes and safe messages only. Responses use
+  `Cache-Control: no-store`; no permissive CORS policy is added.
+- No request bodies, responses, credentials, or attestation tokens are logged.
 
-The gateway is a transport and policy boundary. It is not a finance service and
-never executes transactions.
+## Test-only capabilities
 
-## Data transmitted from the device
+- `FakeAuthenticator`, `InMemoryRateLimiter`, and `FakeSemanticProvider` are
+  test doubles. The in-memory limiter is process-local, has no UTC window
+  reset, and does not coordinate across Worker instances.
+- `createTestGateway` explicitly marks a test composition. It must never be
+  used by a production entry point or deployment.
+- The Play Integrity, Firebase App Check, Play Console, and real provider
+  integrations are not implemented.
 
-The online-intent-v1 request contains only:
+## Authentication and attestation
 
-- the user's current message;
-- the current local date and active month;
-- request-local wallet and container aliases;
-- entity labels and non-sensitive entity kinds.
+Authentication identifies an account or subject. Attestation assesses the
+application and/or device. They are not interchangeable.
 
-It must never contain balances, transaction history, persistent database IDs,
-device identifiers, profile information, provider credentials, provider URLs,
-models, prompts, tools, or SQL.
+Current authenticator context contains:
 
-Local alias-to-ID maps remain inside the mobile client and are not serialized as
-part of the gateway request.
+- `method`
+- `route`
+- `canonicalBodyHash` (server-computed SHA-256 over accepted request bytes)
+- `challenge` reference
 
-## Authentication
+A claimed client hash or challenge is not proof. A future verifier must validate
+a server-issued challenge/proof, an authenticated identity, and app attestation
+server-side. It must not trust a client-provided installation ID.
 
-Authentication is mandatory for every request. The handler rejects missing,
-invalid, and expired credentials and fails closed if the authenticator is
-unavailable. The authenticated subject comes from the verifier, never from a
-client-supplied user ID.
+**Production blocker:** no authenticated account verifier or Play
+Integrity/App Check verifier exists. The current fake authenticator only
+returns synthetic identities.
 
-The included fake authenticator is for local tests only. It is not production
-authentication.
+## Replay protection requirements
 
-**Unresolved production requirement:** Play Integrity, Firebase App Check, or an
-approved account/attestation service must be selected and verified before public
-use. The mechanism must support revocation, expiry, replay resistance, and
-server-side verification without exposing a permanent shared credential in the
-mobile app.
+The gateway defines a `ReplayProtector` boundary but no production nonce store.
+A future implementation must:
 
-## Quota enforcement
+- issue or validate a server-issued challenge;
+- verify the proof is bound to the canonical method, route, and body hash;
+- consume a nonce exactly once;
+- enforce strict expiration and reject reuse;
+- fail closed when nonce storage is unavailable;
+- store minimal pseudonymous records and remove expired records;
+- avoid retaining message content, credentials, or attestation tokens.
 
-The handler accepts an injected rate limiter that must make atomic per-identity
-and global admission decisions. The in-memory limiter is a test fake only; it
-does not coordinate across Worker instances and must not be used in public
-deployment.
+The optional test replay protector is not production replay protection. Ordinary
+bearer tokens and App Check JWTs are not automatically one-time tokens. A JWT
+verification alone does not provide single-use replay protection.
 
-A future Cloudflare implementation should use SQLite-backed Durable Objects:
+## Request-body limits
 
-- one global-budget object for provider-wide quota;
-- per-identity objects, or sharded identity counters, for user limits;
-- transactional check-and-increment before the provider call;
-- a reserved global headroom or hard rejection when storage is unavailable;
-- no automatic paid overage or provider retry.
+The gateway rejects a declared `Content-Length` above 12 KB before reading. It
+does not trust that header. It reads the request stream incrementally, tracks
+actual bytes, stops at the limit, and cancels the reader when possible. It
+decodes with fatal UTF-8 handling and validates the exact online-intent-v1
+contract.
 
-If quota storage is unavailable, the gateway returns a safe service-unavailable
-response and does not call the provider.
+## Provider deadline and output limits
 
-## Secret storage
+The gateway imposes a provider deadline, passes an `AbortSignal`, and returns
+`504` after the deadline. `Promise.race` bounds how long the gateway waits; it
+does not guarantee that an uncooperative provider's underlying network work
+stops. Future provider adapters must honor cancellation and enforce network-level
+timeouts.
 
-Provider credentials must be stored as server-side Worker secrets. They must
-never be placed in the mobile source, Expo public variables, logs, screenshots,
-or client configuration.
+Provider output is serialized and passed through the strict 8 KB response
+contract. `JSON.stringify` can still allocate memory for an arbitrarily large
+in-memory object supplied by an untrusted provider adapter. A future production
+adapter must cap upstream response bytes before parsing or serialization.
+
+## Ingress abuse versus provider quota
+
+Provider quota admission is not a substitute for ingress abuse protection. A
+future gateway needs a separate ingress limiter in front of authentication,
+body decoding, and quota storage to protect CPU, memory, and identity services.
+The current in-memory limiter is only a test fake and does not enforce globally
+atomic per-identity or global limits.
+
+## Secrets
+
+Provider credentials must be server-side Worker secrets. Never put a provider
+key in the mobile source, an Expo public variable, logs, screenshots, or client
+configuration.
 
 Server-side environment names:
 
@@ -84,62 +121,57 @@ Server-side environment names:
 - `POCKETA_ONLINE_GLOBAL_DAILY_LIMIT`
 - `POCKETA_ONLINE_IDENTITY_DAILY_LIMIT`
 - `POCKETA_ONLINE_REQUEST_TIMEOUT_MS`
+- `POCKETA_ONLINE_PROVIDER_TIMEOUT_MS`
 - `POCKETA_ONLINE_ATTESTATION_AUDIENCE`
 - `POCKETA_ONLINE_ATTESTATION_PROJECT_NUMBER`
-- `GROQ_API_KEY` (future Worker secret only)
+- `GROQ_API_KEY` (future server-side Worker secret only)
 
-Do not create `EXPO_PUBLIC_GROQ_API_KEY` or any other client-visible secret.
+Never create `EXPO_PUBLIC_GROQ_API_KEY` or any client-visible secret.
 
 ## Privacy and retention
 
-- The gateway does not log request or response bodies.
-- HTTP errors contain only a stable code and safe message.
-- Responses set `Cache-Control: no-store`.
-- No permissive cross-origin policy is added.
-- Provider exception details and stack traces are never returned.
-- Provider privacy, retention, zero-data-retention, and training policies must be
-  reviewed and contractually accepted before live use.
-- User consent must be explicit before any message leaves the device.
-- No balances or financial history are sent to the gateway.
+- No balances, transaction history, persistent database IDs, profiles, or device
+  identifiers are sent in the online-intent-v1 request.
+- Request-local alias maps remain on the device.
+- No request or response content is logged by this gateway.
+- Errors expose no provider messages or stack traces.
+- Explicit user consent is required before a message is sent externally.
+- Provider privacy, retention, zero-data-retention, and training terms must be
+  reviewed and approved before live use.
 
-## Provider and free-tier limitations
+## Production blockers
 
-- Groq and Gemini both require adult account owners and restrict consumer or
-  under-18 use in their terms.
-- Gemini's free tier may use prompts/responses to improve products and may allow
-  human review.
-- Groq's free tier has low request/token limits and may retain data for abuse
-  investigation unless zero data retention is enabled.
-- Free-tier quotas, model availability, and terms can change without notice.
-- No live provider integration is included in this gateway.
+- No production authentication, app attestation, or request-bound proof.
+- No production replay store.
+- No Durable Object or other globally atomic quota implementation.
+- No separate ingress limiter.
+- No production provider adapter or approved provider eligibility path.
+- No deployment, API key, account, or public endpoint.
+- The gateway remains disabled until a separate approved task.
 
-## Deployment blockers
+## No-paid-overage requirement
 
-- Production authentication and native app attestation are unresolved.
-- Provider eligibility, consumer/student use, and financial-message handling
-  require legal review.
-- Global and per-identity quota enforcement must be implemented with a durable,
-  atomic service.
-- Privacy and retention terms must be approved.
-- The gateway must remain disabled until explicit approval and a separate
-  deployment task.
-- No API key, account, billing project, Worker deployment, or public endpoint
-  exists in this repository.
+The pilot must use a dedicated free-tier credential with hard global and
+per-identity limits below the verified upstream quota. Do not link billing,
+enable paid overage, retry into a paid tier, or automatically fall back to
+another provider. If accounting is uncertain, stop Online rather than accept
+uncapped usage.
+
+## Provider eligibility
+
+Provider terms and audience eligibility are unresolved. Neither the existence
+of an adult account owner nor a private test automatically permits Pocketa's
+intended student/consumer use. Live integration remains blocked until provider
+and legal approval is documented.
 
 ## Manual responsibilities
 
-Before any deployment:
-
-1. Confirm provider eligibility and free-tier terms.
-2. Confirm the account owner is 18+ and approve the target audience.
-3. Verify the provider account region and free model availability.
-4. Enable the provider's zero-data-retention setting if available.
-5. Create the provider key only in the provider dashboard.
-6. Store it with a server-side secret command; never share it in chat, logs, or
-   screenshots.
-7. Implement and verify native attestation.
-8. Implement durable atomic quota enforcement.
-9. Verify no request or response bodies are logged.
-10. Test disabled, unauthorized, quota, timeout, provider-failure, malformed
-    response, and stale-response paths.
-11. Obtain explicit deployment approval before enabling the gateway.
+1. Confirm provider eligibility and the intended audience.
+2. Verify the free-tier model, limits, region, and privacy settings.
+3. Configure a production authenticator and app attestation.
+4. Implement durable, atomic quota and replay storage.
+5. Configure secrets only through the server-side secret mechanism.
+6. Verify no message or credential logging.
+7. Test expiry, replay, quota, timeout, malformed-body, and provider-failure
+   paths.
+8. Obtain explicit deployment approval before enabling Online.

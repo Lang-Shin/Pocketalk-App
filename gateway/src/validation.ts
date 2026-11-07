@@ -23,20 +23,31 @@ export function contentLengthExceedsLimit(
   return Number.isFinite(length) && length > limit;
 }
 
+export interface GatewayRequestPayload {
+  request: OnlineRequest;
+  canonicalBodyHash: string;
+}
+
 export async function readGatewayRequest(
   request: Request,
-): Promise<OnlineRequest> {
-  let body: string;
-  try {
-    body = await request.text();
-  } catch {
-    throw new GatewayHttpError(400, 'invalid_request', 'Request body failed.');
-  }
-  if (utf8ByteLength(body) > GATEWAY_MAX_REQUEST_BYTES) {
+): Promise<GatewayRequestPayload> {
+  if (contentLengthExceedsLimit(request.headers.get('content-length'))) {
     throw new GatewayHttpError(
       413,
       'payload_too_large',
       'Request body is too large.',
+    );
+  }
+
+  const bytes = await readBoundedBody(request);
+  let body: string;
+  try {
+    body = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+  } catch {
+    throw new GatewayHttpError(
+      400,
+      'invalid_request',
+      'Request body is not valid UTF-8.',
     );
   }
   if (!body.trim()) {
@@ -58,8 +69,9 @@ export async function readGatewayRequest(
     );
   }
 
+  let onlineRequest: OnlineRequest;
   try {
-    return validateOnlineRequest(parsed);
+    onlineRequest = validateOnlineRequest(parsed);
   } catch {
     throw new GatewayHttpError(
       400,
@@ -67,6 +79,83 @@ export async function readGatewayRequest(
       'Request contract is invalid.',
     );
   }
+
+  return {
+    request: onlineRequest,
+    canonicalBodyHash: await sha256Hex(bytes),
+  };
+}
+
+async function readBoundedBody(request: Request): Promise<Uint8Array> {
+  const body = request.body;
+  if (!body) {
+    throw new GatewayHttpError(
+      400,
+      'invalid_request',
+      'Request body is empty.',
+    );
+  }
+
+  const reader = body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (!value) continue;
+      const chunk =
+        value instanceof Uint8Array ? value : new Uint8Array(value);
+      total += chunk.byteLength;
+      if (total > GATEWAY_MAX_REQUEST_BYTES) {
+        await reader.cancel().catch(() => undefined);
+        throw new GatewayHttpError(
+          413,
+          'payload_too_large',
+          'Request body is too large.',
+        );
+      }
+      chunks.push(chunk);
+    }
+  } catch (error) {
+    if (error instanceof GatewayHttpError) throw error;
+    throw new GatewayHttpError(
+      400,
+      'invalid_request',
+      'Request stream failed.',
+    );
+  } finally {
+    try {
+      reader.releaseLock();
+    } catch {
+      void 0;
+    }
+  }
+
+  if (total === 0) {
+    throw new GatewayHttpError(
+      400,
+      'invalid_request',
+      'Request body is empty.',
+    );
+  }
+
+  const bytes = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return bytes;
+}
+
+async function sha256Hex(bytes: Uint8Array): Promise<string> {
+  const input = new Uint8Array(bytes).buffer as ArrayBuffer;
+  const digest = await crypto.subtle.digest('SHA-256', input);
+  return Array.from(new Uint8Array(digest), (byte) =>
+    byte.toString(16).padStart(2, '0'),
+  ).join('');
 }
 
 export function validateProviderOutput(value: unknown): OnlineResponse {
@@ -96,16 +185,4 @@ export function validateProviderOutput(value: unknown): OnlineResponse {
       'Provider output is invalid.',
     );
   }
-}
-
-function utf8ByteLength(value: string): number {
-  let bytes = 0;
-  for (const character of value) {
-    const codePoint = character.codePointAt(0) ?? 0;
-    if (codePoint <= 0x7f) bytes += 1;
-    else if (codePoint <= 0x7ff) bytes += 2;
-    else if (codePoint <= 0xffff) bytes += 3;
-    else bytes += 4;
-  }
-  return bytes;
 }

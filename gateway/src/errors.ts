@@ -46,6 +46,13 @@ export class RateLimiterUnavailableError extends Error {
   }
 }
 
+export class ReplayProtectionUnavailableError extends Error {
+  constructor(message = 'Replay protection storage is unavailable.') {
+    super(message);
+    this.name = 'ReplayProtectionUnavailableError';
+  }
+}
+
 export class ProviderUnavailableError extends Error {
   constructor(message = 'The semantic provider is unavailable.') {
     super(message);
@@ -83,7 +90,8 @@ export function errorResponse(error: unknown): Response {
   }
   if (
     error instanceof AuthenticatorUnavailableError ||
-    error instanceof RateLimiterUnavailableError
+    error instanceof RateLimiterUnavailableError ||
+    error instanceof ReplayProtectionUnavailableError
   ) {
     return jsonResponse(503, {
       error: {
