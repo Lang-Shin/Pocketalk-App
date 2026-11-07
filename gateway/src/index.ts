@@ -101,17 +101,32 @@ export type {
 } from './auth';
 export { FakeAuthenticator } from './auth';
 export {
-  InMemoryChallengeStore,
+  ChallengeIssuanceLimitError,
   ChallengeReplayProtector,
+  InMemoryChallengeIssuanceLimiter,
+  InMemoryChallengeStore,
+  hashChallengeValue,
   type ChallengeConsumeInput,
   type ChallengeConsumeResult,
   type ChallengeInspectInput,
   type ChallengeInspectResult,
   type ChallengeIssue,
   type ChallengeIssueInput,
+  type ChallengeIssuanceLimiter,
+  type ChallengeIssuanceLimiterInput,
+  type ChallengeIssuanceLimiterResult,
   type ChallengeReplayProtectorOptions,
   type ChallengeStore,
 } from './auth/challengeStore';
+export {
+  SqliteChallengeStore,
+  type SqliteChallengeStoreConfig,
+} from './auth/sqliteChallengeStore';
+export {
+  createDurableObjectChallengeStorage,
+  type ChallengeSqlStorage,
+  type ChallengeSqlValue,
+} from './auth/challengeStorageAdapter';
 export {
   SyntheticAttestationVerifier,
   type AttestationVerificationInput,

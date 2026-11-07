@@ -498,6 +498,8 @@ test('gateway source contains no outbound network calls', () => {
     '../src/auth/attestation.ts',
     '../src/auth/publicKeyRegistry.ts',
     '../src/auth/signedRequestAuthenticator.ts',
+    '../src/auth/sqliteChallengeStore.ts',
+    '../src/auth/challengeStorageAdapter.ts',
   ];
   const source = files
     .map((file) =>

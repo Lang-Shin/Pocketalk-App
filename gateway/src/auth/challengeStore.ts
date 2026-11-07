@@ -67,6 +67,81 @@ export interface ChallengeStore {
   cleanup(nowMs: number): Promise<number>;
 }
 
+export interface ChallengeIssuanceLimiterInput {
+  keyId: string;
+  subject: string;
+  nowMs: number;
+}
+
+export interface ChallengeIssuanceLimiterResult {
+  allowed: boolean;
+  reason?: string;
+}
+
+export interface ChallengeIssuanceLimiter {
+  checkAndRecord(
+    input: ChallengeIssuanceLimiterInput,
+  ):
+    | ChallengeIssuanceLimiterResult
+    | Promise<ChallengeIssuanceLimiterResult>;
+}
+
+export class ChallengeIssuanceLimitError extends Error {
+  constructor() {
+    super('Challenge issuance limit exceeded.');
+    this.name = 'ChallengeIssuanceLimitError';
+  }
+}
+
+export class InMemoryChallengeIssuanceLimiter
+  implements ChallengeIssuanceLimiter
+{
+  private readonly windows = new Map<
+    string,
+    { windowStartMs: number; count: number }
+  >();
+
+  constructor(
+    private readonly maxPerWindow: number,
+    private readonly windowMs: number,
+  ) {
+    if (
+      !Number.isSafeInteger(maxPerWindow) ||
+      maxPerWindow <= 0 ||
+      !Number.isSafeInteger(windowMs) ||
+      windowMs <= 0
+    ) {
+      throw new RangeError(
+        'Challenge issuance limits must be positive safe integers.',
+      );
+    }
+  }
+
+  checkAndRecord(
+    input: ChallengeIssuanceLimiterInput,
+  ): ChallengeIssuanceLimiterResult {
+    validateKey(input.keyId, 'keyId');
+    validateKey(input.subject, 'subject');
+    validateNow(input.nowMs);
+    const key = `${input.keyId}\u0000${input.subject}`;
+    const windowStartMs =
+      Math.floor(input.nowMs / this.windowMs) * this.windowMs;
+    const existing = this.windows.get(key);
+    const count =
+      existing?.windowStartMs === windowStartMs
+        ? existing.count
+        : 0;
+    if (count >= this.maxPerWindow) {
+      return { allowed: false, reason: 'issuance_limit' };
+    }
+    this.windows.set(key, {
+      windowStartMs,
+      count: count + 1,
+    });
+    return { allowed: true };
+  }
+}
+
 interface ChallengeRecord {
   challengeHash: string;
   keyId: string;
@@ -96,7 +171,7 @@ export class InMemoryChallengeStore implements ChallengeStore {
     const challenge = base64UrlEncode(
       crypto.getRandomValues(new Uint8Array(32)),
     );
-    const challengeHash = await hashChallenge(challenge);
+    const challengeHash = await hashChallengeValue(challenge);
     this.records.set(challengeId, {
       challengeHash,
       keyId: input.keyId,
@@ -121,7 +196,7 @@ export class InMemoryChallengeStore implements ChallengeStore {
     if (
       !constantTimeEqualString(
         record.challengeHash,
-        await hashChallenge(input.challenge),
+        await hashChallengeValue(input.challenge),
       )
     ) {
       return { status: 'binding_mismatch' };
@@ -150,7 +225,7 @@ export class InMemoryChallengeStore implements ChallengeStore {
     if (
       !constantTimeEqualString(
         record.challengeHash,
-        await hashChallenge(input.challenge),
+        await hashChallengeValue(input.challenge),
       )
     ) {
       return { status: 'binding_mismatch' };
@@ -228,7 +303,7 @@ export class ChallengeReplayProtector implements ReplayProtector {
   }
 }
 
-async function hashChallenge(challenge: string): Promise<string> {
+export async function hashChallengeValue(challenge: string): Promise<string> {
   const digest = await crypto.subtle.digest(
     'SHA-256',
     new TextEncoder().encode(challenge),

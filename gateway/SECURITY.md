@@ -386,6 +386,58 @@ authentication.
   registration, challenge expiry/key/identity binding, concurrent single-use
   consumption, cleanup, replay-protector mapping, and handler integration.
 
+## SQLite challenge store prototype (Task 5K)
+
+- Schema: `auth_challenges` stores `challenge_id` primary key, `challenge_hash`,
+  `key_id`, `subject`, `issued_at_ms`, `expires_at_ms`, and nullable
+  `consumed_at_ms`. An expiry index supports bounded cleanup and a key/subject
+  index supports binding checks. The table stores no plaintext challenge,
+  private key, raw authentication token, request body, message, balance,
+  history, or provider response.
+- Storage abstraction: `SqliteChallengeStore` reuses the existing
+  `QuotaSqlStorage` transaction/query abstraction rather than duplicating the
+  quota SQL implementation. `createDurableObjectChallengeStorage` aliases the
+  tested Durable Object SQL adapter.
+- Issuance: server-generated challenge ID/value, server timestamp, explicit
+  expiry, key/subject binding, collision-safe unique primary-key insertion, and
+  challenge-hash insertion inside one transaction. An injectable
+  `ChallengeIssuanceLimiter` bounds issuance per key/subject/window; no public
+  issuance endpoint is implemented. The included limiter is in-memory and
+  process-local; a future public endpoint would require a durable or
+  request-level limiter.
+- Inspection: reads the row inside a transaction, compares the challenge hash
+  in constant time, verifies key/subject binding, and reports unknown, expired,
+  consumed, or active state.
+- Consumption: inside one transaction, performs an atomic conditional
+  `UPDATE ... WHERE consumed_at_ms IS NULL AND expires_at_ms > now AND key_id = ? AND challenge_hash = ?`
+  (plus subject when supplied) and verifies the affected-row count. If zero
+  rows change, it reads the row only to classify the rejection. Exactly one
+  consumer can succeed. Storage errors roll back and fail closed; a failed
+  transaction cannot leave partial consumed state.
+- Retention: `SqliteChallengeStoreConfig.retentionMs` is explicit. Cleanup
+  removes rows only after `expires_at_ms` is older than the retention threshold,
+  so consumed state persists through the configured retry horizon. Invalid or
+  negative retention, timestamps, identifiers, TTLs, and challenge tokens are
+  rejected. Active challenges are never deleted.
+- Expired removal rationale: once a challenge is expired, proof verification
+  rejects it regardless of whether the row is present; cleanup after retention
+  removes it entirely, and a later attempt is `unknown` rather than accepted.
+  Consumed rows are not made reusable by cleanup.
+- Test evidence: schema idempotency, no plaintext challenge storage, single-use
+  consumption, reuse rejection, expiry, wrong key/subject/value, retention,
+  consumed cleanup non-reuse, issuance limiting, collision retry, rollback after
+  a post-update failure, concurrent consumption across two file-backed SQLite
+  connections, injected storage failure, invalid input, and signed
+  authentication/replay integration are tested locally.
+- Limitations: the in-memory store remains process-local; the SQLite store is
+  local SQLite evidence only. The Task 5H SQL adapter is sufficient for this
+  table and transaction usage, but real Cloudflare Durable Object SQLite
+  behavior, cross-object coordination, scheduled cleanup, public issuance
+  surface, and production retention values remain unverified. The store is not
+  wired to a production endpoint or Online Mode.
+- Zero-cost: this prototype adds no cloud resource, account, external
+  authentication service, provider, or paid dependency.
+
 ## Authentication and attestation
 
 Authentication identifies an account or subject. Attestation assesses the
