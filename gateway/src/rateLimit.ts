@@ -1,12 +1,24 @@
+export interface RateLimitTokenReservation {
+  expectedInputTokens: number;
+  maxOutputTokens: number;
+  framingOverheadTokens: number;
+}
+
 export interface RateLimitContext {
   identity: string;
   now: number;
+  reservationId?: string;
+  poolId?: string;
+  tokenReservation?: RateLimitTokenReservation;
 }
 
 export interface RateLimitDecision {
   allowed: boolean;
   scope?: 'identity' | 'global';
   retryAfterSeconds?: number;
+  status?: 'admitted' | 'quota_exhausted' | 'duplicate' | 'unavailable';
+  window?: 'daily' | 'short';
+  reason?: 'identical' | 'conflict';
 }
 
 export interface RateLimiter {
@@ -44,14 +56,22 @@ export class InMemoryRateLimiter implements RateLimiter {
   async admit(context: RateLimitContext): Promise<RateLimitDecision> {
     const identityCount = this.identityCounts.get(context.identity) ?? 0;
     if (identityCount >= this.perIdentityLimit) {
-      return { allowed: false, scope: 'identity' };
+      return {
+        allowed: false,
+        scope: 'identity',
+        status: 'quota_exhausted',
+      };
     }
     if (this.globalCount >= this.globalLimit) {
-      return { allowed: false, scope: 'global' };
+      return {
+        allowed: false,
+        scope: 'global',
+        status: 'quota_exhausted',
+      };
     }
     this.identityCounts.set(context.identity, identityCount + 1);
     this.globalCount += 1;
-    return { allowed: true };
+    return { allowed: true, status: 'admitted' };
   }
 }
 

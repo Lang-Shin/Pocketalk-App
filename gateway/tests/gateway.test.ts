@@ -23,6 +23,7 @@ import {
   createGateway,
   createTestGateway,
   disabledGateway,
+  isGatewayEnabled,
   type GatewayTestComposition,
 } from '../src/index';
 import type { GatewayDependencies } from '../src/handler';
@@ -304,6 +305,11 @@ test('disabled gateway returns 503 and never calls the provider', async () => {
 
   const defaultResponse = await disabledGateway.fetch(request(VALID_REQUEST));
   assert.equal(defaultResponse.status, 503);
+  assert.equal(isGatewayEnabled({}), false);
+  assert.equal(
+    isGatewayEnabled({ POCKETA_ONLINE_GATEWAY_ENABLED: 'false' }),
+    false,
+  );
 });
 
 test('provider failures and invalid output are not exposed', async () => {
@@ -639,6 +645,98 @@ test('replay protection rejects or fails closed before quota and provider', asyn
   );
   assert.equal(outage.status, 503);
   assert.equal(providerCalls, 0);
+});
+
+test('handler preserves validation, authentication, replay, quota, and provider order', async () => {
+  const sequenceDependencies = (
+    order: string[],
+    overrides: Partial<GatewayDependencies> = {},
+  ): GatewayDependencies =>
+    dependencies({
+      authenticator: {
+        async authenticate() {
+          order.push('auth');
+          return {
+            subject: 'user-a',
+            expiresAt: 4_000_000_000_000,
+            attestation: 'not_verified',
+          };
+        },
+      },
+      replayProtector: {
+        async consume() {
+          order.push('replay');
+          return { accepted: true };
+        },
+      },
+      rateLimiter: {
+        async admit() {
+          order.push('quota');
+          return { allowed: true, status: 'admitted' };
+        },
+      },
+      provider: new FakeSemanticProvider(async () => {
+        order.push('provider');
+        return VALID_RESPONSE;
+      }),
+      ...overrides,
+    });
+
+  const successOrder: string[] = [];
+  const success = await handleGatewayRequest(
+    request(VALID_REQUEST),
+    sequenceDependencies(successOrder),
+  );
+  assert.equal(success.status, 200);
+  assert.deepEqual(successOrder, ['auth', 'replay', 'quota', 'provider']);
+
+  const invalidOrder: string[] = [];
+  const invalid = await handleGatewayRequest(
+    request({ ...VALID_REQUEST, version: 'online-intent-v2' }),
+    sequenceDependencies(invalidOrder),
+  );
+  assert.equal(invalid.status, 400);
+  assert.deepEqual(invalidOrder, []);
+
+  const authOrder: string[] = [];
+  const auth = await handleGatewayRequest(
+    request(VALID_REQUEST, { authorization: 'Bearer invalid' }),
+    sequenceDependencies(authOrder, {
+      authenticator: createAuthenticator(),
+    }),
+  );
+  assert.equal(auth.status, 401);
+  assert.deepEqual(authOrder, []);
+
+  const replayOrder: string[] = [];
+  const replay = await handleGatewayRequest(
+    request(VALID_REQUEST),
+    sequenceDependencies(replayOrder, {
+      replayProtector: {
+        async consume() {
+          replayOrder.push('replay');
+          return { accepted: false };
+        },
+      },
+    }),
+  );
+  assert.equal(replay.status, 401);
+  assert.deepEqual(replayOrder, ['auth', 'replay']);
+
+  const quotaOrder: string[] = [];
+  const quota = await handleGatewayRequest(
+    request(VALID_REQUEST),
+    sequenceDependencies(quotaOrder, {
+      rateLimiter: {
+        async admit() {
+          quotaOrder.push('quota');
+          return { allowed: false, status: 'quota_exhausted' };
+        },
+      },
+    }),
+  );
+  assert.equal(quota.status, 429);
+  assert.deepEqual(quotaOrder, ['auth', 'replay', 'quota']);
 });
 
 test('provider deadline returns 504 even when the provider never settles', async () => {

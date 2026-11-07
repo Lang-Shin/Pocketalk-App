@@ -26,6 +26,7 @@ export function contentLengthExceedsLimit(
 export interface GatewayRequestPayload {
   request: OnlineRequest;
   canonicalBodyHash: string;
+  bodyBytes: number;
 }
 
 export async function readGatewayRequest(
@@ -83,6 +84,7 @@ export async function readGatewayRequest(
   return {
     request: onlineRequest,
     canonicalBodyHash: await sha256Hex(bytes),
+    bodyBytes: bytes.byteLength,
   };
 }
 

@@ -29,6 +29,11 @@ export interface GatewayDependencies {
   rateLimiter: RateLimiter;
   provider: SemanticProvider;
   replayProtector?: ReplayProtector;
+  quotaReservation?: {
+    poolId: string;
+    maxOutputTokens: number;
+    framingOverheadTokens: number;
+  };
   providerTimeoutMs?: number;
   now?: () => number;
 }
@@ -107,14 +112,31 @@ export async function handleGatewayRequest(
     }
     let decision;
     try {
+      const quotaReservation = dependencies.quotaReservation;
       decision = await dependencies.rateLimiter.admit({
         identity: identity.subject,
         now,
+        reservationId: crypto.randomUUID(),
+        poolId: quotaReservation?.poolId,
+        tokenReservation: quotaReservation
+          ? {
+              expectedInputTokens: payload.bodyBytes,
+              maxOutputTokens: quotaReservation.maxOutputTokens,
+              framingOverheadTokens:
+                quotaReservation.framingOverheadTokens,
+            }
+          : undefined,
       });
     } catch {
       throw new RateLimiterUnavailableError();
     }
-    if (!decision.allowed) {
+    const admitted =
+      decision.allowed === true &&
+      (decision.status === undefined || decision.status === 'admitted');
+    if (!admitted) {
+      if (decision.status === 'unavailable') {
+        throw new RateLimiterUnavailableError();
+      }
       const headers: Record<string, string> = {};
       if (decision.retryAfterSeconds !== undefined) {
         headers['retry-after'] = String(decision.retryAfterSeconds);
