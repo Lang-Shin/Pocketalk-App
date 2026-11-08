@@ -1,8 +1,9 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Tabs } from 'expo-router';
+import { isLoaded } from 'expo-font';
 import { StyleSheet } from 'react-native';
 
-import { useAppTheme } from '@/theme';
+import { typography, useAppTheme } from '@/theme';
 
 export default function TabsLayout() {
   const { theme } = useAppTheme();
@@ -23,7 +24,9 @@ export default function TabsLayout() {
         },
         tabBarLabelStyle: {
           fontSize: 11,
-          fontWeight: '600',
+          ...(isLoaded(typography.navigation)
+            ? { fontFamily: typography.navigation, fontWeight: 'normal' as const }
+            : { fontWeight: '600' as const }),
         },
         tabBarItemStyle: {
           minHeight: 48,

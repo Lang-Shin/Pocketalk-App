@@ -157,7 +157,12 @@ export function HomeScreen() {
               },
             ]}
           >
-            <Image source={require('../../../assets/branding/pocketalk.png')} style={styles.brandImage} accessible={false} />
+            <Image
+              source={require('../../../assets/branding/pocketalk.png')}
+              style={styles.brandImage}
+              resizeMode="contain"
+              accessible={false}
+            />
           </Pressable>
         }
       />
@@ -426,10 +431,9 @@ const styles = StyleSheet.create({
   avatar: {
     width: 46,
     height: 46,
-    borderRadius: 23,
+    borderRadius: radii.sm,
     alignItems: 'center',
     justifyContent: 'center',
-    overflow: 'hidden',
   },
   brandImage: {
     width: '100%',

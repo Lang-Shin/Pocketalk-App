@@ -1,5 +1,25 @@
 import type { TextStyle, ViewStyle } from 'react-native';
 
+// Static faces are used because this app targets Expo SDK 57.
+export const fontFamilies = {
+  regular: 'NunitoSans_400Regular',
+  medium: 'NunitoSans_500Medium',
+  semibold: 'NunitoSans_600SemiBold',
+  bold: 'NunitoSans_700Bold',
+  heavy: 'NunitoSans_800ExtraBold',
+} as const;
+
+export const typography = {
+  screenHeading: fontFamilies.bold,
+  sectionHeading: fontFamilies.semibold,
+  financialBalance: fontFamilies.heavy,
+  transactionAmount: fontFamilies.bold,
+  body: fontFamilies.regular,
+  button: fontFamilies.semibold,
+  caption: fontFamilies.medium,
+  navigation: fontFamilies.semibold,
+} as const;
+
 export const fontSizes = {
   display: 34,
   h1: 28,

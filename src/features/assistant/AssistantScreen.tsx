@@ -1,4 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
+import { isLoaded } from 'expo-font';
 import { useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
@@ -44,7 +45,7 @@ import {
 import type { ChatMessage } from '@/data/models';
 import { formatPeso } from '@/lib/money';
 import { formatDateKey, formatMonthKey } from '@/lib/period';
-import { useAppTheme, radii, spacing } from '@/theme';
+import { useAppTheme, radii, spacing, typography } from '@/theme';
 
 import { AssistantModeSelector } from './AssistantModeSelector';
 import {
@@ -520,7 +521,7 @@ export function AssistantScreen() {
               onSubmitEditing={() => void handleSend()}
               placeholder="Tell Pocketa what happened…"
               placeholderTextColor={theme.colors.textTertiary}
-              style={[styles.input, { color: theme.colors.text }]}
+              style={[styles.input, { color: theme.colors.text, fontFamily: isLoaded(typography.body) ? typography.body : undefined }]}
               multiline
               maxLength={500}
               accessibilityLabel="Message Pocketa"
