@@ -11,6 +11,7 @@ import { WalletCard } from '@/components/finance/WalletCard';
 import { AppButton } from '@/components/ui/AppButton';
 import { Card } from '@/components/ui/Card';
 import { Divider } from '@/components/ui/Divider';
+import { EmptyState } from '@/components/ui/EmptyState';
 import { NoticeBanner } from '@/components/ui/NoticeBanner';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { ErrorState, LoadingState } from '@/components/ui/QueryStates';
@@ -171,11 +172,11 @@ export function WalletScreen() {
           onAction={() => router.push('/history')}
         />
         {recentTransactions.length === 0 ? (
-          <Card>
-            <AppText variant="bodySmall" color={theme.colors.textSecondary}>
-              No wallet activity yet.
-            </AppText>
-          </Card>
+          <EmptyState
+            title="No wallet activity yet"
+            description="Your recorded wallet activity will appear here."
+            illustration={require('../../../assets/illustrations/wallet.png')}
+          />
         ) : (
           <Card padded={false} style={styles.listCard}>
             {recentTransactions.map((transaction, index) => (

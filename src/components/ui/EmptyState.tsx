@@ -1,5 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
-import { StyleSheet, View } from 'react-native';
+import { Image, StyleSheet, View, type ImageSourcePropType } from 'react-native';
 
 import type { IconName } from '@/lib/icons';
 import { useAppTheme, spacing } from '@/theme';
@@ -12,6 +12,7 @@ interface EmptyStateProps {
   icon?: IconName;
   actionLabel?: string;
   onAction?: () => void;
+  illustration?: ImageSourcePropType;
 }
 
 export function EmptyState({
@@ -20,16 +21,26 @@ export function EmptyState({
   icon = 'leaf-outline',
   actionLabel,
   onAction,
+  illustration,
 }: EmptyStateProps) {
   const { theme } = useAppTheme();
 
   return (
     <View style={styles.container}>
-      <View
-        style={[styles.iconCircle, { backgroundColor: theme.colors.primarySoft }]}
-      >
-        <Ionicons name={icon} size={26} color={theme.colors.primarySoftText} />
-      </View>
+      {illustration ? (
+        <Image
+          source={illustration}
+          style={styles.illustration}
+          resizeMode="contain"
+          accessible={false}
+        />
+      ) : (
+        <View
+          style={[styles.iconCircle, { backgroundColor: theme.colors.primarySoft }]}
+        >
+          <Ionicons name={icon} size={26} color={theme.colors.primarySoftText} />
+        </View>
+      )}
       <AppText variant="h3" align="center">
         {title}
       </AppText>
@@ -61,6 +72,11 @@ const styles = StyleSheet.create({
     borderRadius: 26,
     alignItems: 'center',
     justifyContent: 'center',
+    marginBottom: spacing.xs,
+  },
+  illustration: {
+    width: 80,
+    height: 80,
     marginBottom: spacing.xs,
   },
 });
