@@ -158,7 +158,7 @@ export function HomeScreen() {
             ]}
           >
             <Image
-              source={require('../../../assets/branding/pocketalk.png')}
+              source={require('../../../assets/branding/pocketa-header-208.png')}
               style={styles.brandImage}
               resizeMode="contain"
               accessible={false}
@@ -476,6 +476,7 @@ const styles = StyleSheet.create({
     width: 40,
     height: 40,
     opacity: 0.72,
+    flexShrink: 0,
   },
   goalHeader: {
     flexDirection: 'row',
@@ -484,6 +485,7 @@ const styles = StyleSheet.create({
   },
   goalCopy: {
     flex: 1,
+    minWidth: 0,
     gap: 2,
   },
   goalAmount: {
