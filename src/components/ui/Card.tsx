@@ -37,7 +37,7 @@ export function Card({
 const styles = StyleSheet.create({
   card: {
     borderWidth: StyleSheet.hairlineWidth,
-    borderRadius: radii.lg,
+    borderRadius: radii.md,
   },
   padded: {
     padding: spacing.lg,

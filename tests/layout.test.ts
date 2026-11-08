@@ -9,18 +9,18 @@ import {
 } from '../src/theme/tokens';
 
 test('content width accounts for phone and tablet padding', () => {
-  assert.equal(getContentWidth(320), 280);
-  assert.equal(getContentWidth(360), 320);
-  assert.equal(getContentWidth(390), 350);
-  assert.equal(getContentWidth(430), 390);
-  assert.equal(getContentWidth(768), 720);
+  assert.equal(getContentWidth(320), 288);
+  assert.equal(getContentWidth(360), 328);
+  assert.equal(getContentWidth(390), 358);
+  assert.equal(getContentWidth(430), 398);
+  assert.equal(getContentWidth(768), 728);
 });
 
 test('wide screens cap content without overflowing the viewport', () => {
-  assert.equal(getContentWidth(1280), 720);
-  assert.equal(getContentWidth(1280, true), 1000);
-  assert.equal(getContentWidth(1024, true), 984);
-  assert.equal(getContentWidth(900, true), 720);
+  assert.equal(getContentWidth(1280), 728);
+  assert.equal(getContentWidth(1280, true), 1008);
+  assert.equal(getContentWidth(1024, true), 992);
+  assert.equal(getContentWidth(900, true), 728);
   assert.equal(getContentMaxWidth(1280, true), layout.maxWideContentWidth);
   assert.equal(getContentMaxWidth(900, true), layout.maxContentWidth);
 });
@@ -56,12 +56,12 @@ test('target viewports keep content inside padded screen bounds', () => {
 
 test('container grids stay single-column until cards remain usable', () => {
   const expectedContent = new Map([
-    [320, 280],
-    [360, 320],
-    [390, 350],
-    [430, 390],
-    [768, 720],
-    [1280, 1000],
+    [320, 288],
+    [360, 328],
+    [390, 358],
+    [430, 398],
+    [768, 728],
+    [1280, 1008],
   ]);
 
   for (const [width, contentWidth] of expectedContent) {
@@ -78,7 +78,7 @@ test('container grids stay single-column until cards remain usable', () => {
     );
   }
 
-  assert.equal(getGridLayout(430, true).cardWidth, 390);
-  assert.equal(getGridLayout(768, true).cardWidth, 354);
-  assert.equal(getGridLayout(1280, true).cardWidth, 494);
+  assert.equal(getGridLayout(430, true).cardWidth, 398);
+  assert.equal(getGridLayout(768, true).cardWidth, 358);
+  assert.equal(getGridLayout(1280, true).cardWidth, 498);
 });

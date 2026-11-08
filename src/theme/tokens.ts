@@ -53,28 +53,28 @@ export const fontWeights = {
 } as const satisfies Record<string, TextStyle['fontWeight']>;
 
 export const spacing = {
-  xxs: 2,
+  xxs: 4,
   xs: 4,
   sm: 8,
   md: 12,
   lg: 16,
-  xl: 20,
+  xl: 24,
   xxl: 24,
   xxxl: 32,
-  huge: 40,
+  huge: 48,
 } as const;
 
 export const radii = {
-  sm: 10,
-  md: 14,
-  lg: 18,
+  sm: 8,
+  md: 12,
+  lg: 16,
   xl: 24,
-  xxl: 30,
+  xxl: 24,
   pill: 999,
 } as const;
 
 export const layout = {
-  screenPadding: 20,
+  screenPadding: 16,
   maxContentWidth: 760,
   maxWideContentWidth: 1040,
   wideBreakpoint: 1024,

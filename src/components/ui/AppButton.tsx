@@ -84,8 +84,8 @@ export function AppButton({
       style={({ pressed }) => [
         styles.button,
         {
-          minHeight: small ? 40 : layout.touchTarget,
-          paddingHorizontal: small ? 12 : 18,
+          minHeight: small ? 44 : layout.touchTarget,
+          paddingHorizontal: small ? 12 : 16,
           backgroundColor: colors.background,
           borderColor: colors.border,
           opacity: disabled ? 0.45 : pressed ? 0.78 : 1,
@@ -106,7 +106,8 @@ export function AppButton({
           variant="label"
           color={colors.text}
           weight="semibold"
-          numberOfLines={1}
+          align="center"
+          style={styles.label}
         >
           {label}
         </AppText>
@@ -117,7 +118,7 @@ export function AppButton({
 
 const styles = StyleSheet.create({
   button: {
-    borderRadius: radii.pill,
+    borderRadius: radii.md,
     borderWidth: StyleSheet.hairlineWidth,
     alignItems: 'center',
     justifyContent: 'center',
@@ -127,5 +128,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: 8,
+    flexShrink: 1,
+  },
+  label: {
+    flexShrink: 1,
   },
 });
