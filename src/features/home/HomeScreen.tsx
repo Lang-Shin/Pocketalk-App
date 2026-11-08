@@ -382,7 +382,7 @@ function QuickAction({ icon, label, tone, onPress }: QuickActionProps) {
       style={({ pressed }) => [
         styles.quickAction,
         !theme.isDark && {
-          backgroundColor: theme.colors.surface,
+          backgroundColor: theme.colors.background,
           borderRadius: radii.md,
         },
         {
@@ -391,10 +391,10 @@ function QuickAction({ icon, label, tone, onPress }: QuickActionProps) {
       ]}
     >
       {theme.isDark ? (
-        <IconBadge icon={icon} tone={tone} size={38} iconSize={18} />
+        <IconBadge icon={icon} tone={tone} size={38} iconSize={20} />
       ) : (
         <View style={[styles.quickActionIcon, { backgroundColor: theme.colors.primarySoft }]}>
-          <Ionicons name={icon} size={18} color={theme.colors.text} />
+          <Ionicons name={icon} size={20} color={theme.colors.text} />
         </View>
       )}
       <AppText
