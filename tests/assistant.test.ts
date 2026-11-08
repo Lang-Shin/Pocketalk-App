@@ -409,7 +409,7 @@ test('assistant asks for missing container transfer endpoints', () => {
   assert.equal(missingDestination.clarification.reason, 'container');
   assert.deepEqual(
     missingDestination.clarification.options?.map((option) => option.id),
-    ['container-transport'],
+    ['system-unallocated', 'container-transport'],
   );
 
   const missingSource = interpretAssistantMessage(
@@ -420,7 +420,7 @@ test('assistant asks for missing container transfer endpoints', () => {
   if (missingSource.kind !== 'clarification') return;
   assert.deepEqual(
     missingSource.clarification.options?.map((option) => option.id),
-    ['container-food'],
+    ['system-unallocated', 'container-food'],
   );
 });
 

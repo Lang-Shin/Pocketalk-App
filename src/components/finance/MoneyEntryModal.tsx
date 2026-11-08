@@ -26,11 +26,25 @@ import { formatMonthKey, isValidMonthKey } from '@/lib/period';
 import { useAppTheme, radii, spacing } from '@/theme';
 import { AppText } from '../AppText';
 import { AppButton } from '../ui/AppButton';
+import {
+  buildContainerTransferConfirmation,
+  isTransferConfirmationCurrent,
+  type ContainerTransferConfirmation,
+} from './transferConfirmation';
 
 interface MoneyEntryModalProps {
   visible: boolean;
   mode: EntryMode;
   onClose: () => void;
+  /**
+   * Optional context-specific endpoint. Only set this when the entry point
+   * makes the direction unambiguous (for example "Add to Savings" presets the
+   * destination). Generic transfers must leave both endpoints unselected.
+   */
+  containerTransferPreset?: {
+    sourceContainerId?: string;
+    destinationContainerId?: string;
+  };
 }
 
 interface TransferResult {
@@ -89,6 +103,7 @@ export function MoneyEntryModal({
   visible,
   mode,
   onClose,
+  containerTransferPreset,
 }: MoneyEntryModalProps) {
   const { theme } = useAppTheme();
   const { width } = useWindowDimensions();
@@ -117,7 +132,7 @@ export function MoneyEntryModal({
   const preferredWallet =
     wallets.find((wallet) => wallet.kind === 'virtual_gcash') ?? wallets[0];
   const defaultContainer =
-    mode === 'income' || mode === 'container_transfer'
+    mode === 'income'
       ? (containerOptions.find(
           (container) => container.systemKey === 'unallocated',
         ) ?? containerOptions[0])
@@ -127,27 +142,41 @@ export function MoneyEntryModal({
   const [title, setTitle] = useState('');
   const [effectiveDate, setEffectiveDate] = useState(todayDateKey);
   const [walletId, setWalletId] = useState('');
-  const [containerId, setContainerId] = useState('');
+  const [containerId, setContainerId] = useState(
+    mode === 'container_transfer'
+      ? (containerTransferPreset?.sourceContainerId ?? '')
+      : '',
+  );
   const [destinationWalletId, setDestinationWalletId] = useState('');
-  const [destinationContainerId, setDestinationContainerId] = useState('');
+  const [destinationContainerId, setDestinationContainerId] = useState(
+    mode === 'container_transfer'
+      ? (containerTransferPreset?.destinationContainerId ?? '')
+      : '',
+  );
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
+  const [confirmation, setConfirmation] =
+    useState<ContainerTransferConfirmation | null>(null);
   const [transferResult, setTransferResult] =
     useState<TransferResult | null>(null);
   const operationKey = useRef(createOperationKey(`entry-${mode}`));
 
   const selectedWalletId = walletId || preferredWallet?.id || '';
-  const selectedContainerId = containerId || defaultContainer?.id || '';
+  const selectedContainerId =
+    containerId ||
+    (mode === 'container_transfer' ? '' : (defaultContainer?.id ?? ''));
   const selectedDestinationWalletId =
     destinationWalletId ||
     wallets.find((wallet) => wallet.id !== selectedWalletId)?.id ||
     '';
   const selectedDestinationContainerId =
-    destinationContainerId ||
-    activeContainers.find(
-      (container) => container.id !== selectedContainerId,
-    )?.id ||
-    '';
+    mode === 'container_transfer'
+      ? destinationContainerId
+      : destinationContainerId ||
+        activeContainers.find(
+          (container) => container.id !== selectedContainerId,
+        )?.id ||
+        '';
 
   const selectedWallet = wallets.find(
     (wallet) => wallet.id === selectedWalletId,
@@ -192,27 +221,47 @@ export function MoneyEntryModal({
           )
         : Boolean(selectedWalletId && selectedContainerId));
 
-  const handleSubmit = async () => {
-    if (pending) return;
-    setError(null);
-    const amountMinor = parsePesoToMinor(amount);
-    if (amountMinor === null) {
-      setError('Enter a valid amount, such as 145 or 145.50.');
-      return;
-    }
+  const transferDraft = {
+    amountText: amount,
+    title,
+    effectiveDate,
+    sourceContainerId: selectedContainerId,
+    destinationContainerId: selectedDestinationContainerId,
+  };
+  // The confirmation panel is only shown while the form still matches the
+  // exact values that were confirmed.
+  const activeConfirmation =
+    confirmation && isTransferConfirmationCurrent(confirmation, transferDraft)
+      ? confirmation
+      : null;
 
+  // Any edit invalidates a previously shown confirmation.
+  const changeAmount = (value: string) => {
+    setAmount(value);
+    setConfirmation(null);
+  };
+  const changeTitle = (value: string) => {
+    setTitle(value);
+    setConfirmation(null);
+  };
+  const changeEffectiveDate = (value: string) => {
+    setEffectiveDate(value);
+    setConfirmation(null);
+  };
+  const changeSourceContainer = (value: string) => {
+    setContainerId(value);
+    setConfirmation(null);
+  };
+  const changeDestinationContainer = (value: string) => {
+    setDestinationContainerId(value);
+    setConfirmation(null);
+  };
+
+  const finishEntry = async (
+    entry: Parameters<typeof recordMoneyEntry>[0],
+  ) => {
     setPending(true);
-    const result = await recordMoneyEntry({
-      mode,
-      amountMinor,
-      title,
-      effectiveDate,
-      walletId: selectedWalletId,
-      containerId: selectedContainerId,
-      destinationWalletId: selectedDestinationWalletId,
-      destinationContainerId: selectedDestinationContainerId,
-      idempotencyKey: operationKey.current,
-    });
+    const result = await recordMoneyEntry(entry);
 
     if (!result.ok) {
       setPending(false);
@@ -220,18 +269,18 @@ export function MoneyEntryModal({
       return;
     }
 
-    if (mode === 'container_transfer' && service) {
+    if (entry.mode === 'container_transfer' && service) {
       try {
         const view = await service.getMonthView(activeMonthKey);
         const source = view.containers.find(
-          (container) => container.id === selectedContainerId,
+          (container) => container.id === entry.containerId,
         );
         const destination = view.containers.find(
-          (container) => container.id === selectedDestinationContainerId,
+          (container) => container.id === entry.destinationContainerId,
         );
         if (source && destination) {
           setTransferResult({
-            amountMinor,
+            amountMinor: entry.amountMinor,
             sourceName: source.name,
             sourceBalanceMinor: source.balanceMinor,
             destinationName: destination.name,
@@ -247,6 +296,61 @@ export function MoneyEntryModal({
 
     onClose();
   };
+
+  const handleSubmit = () => {
+    if (pending) return;
+    setError(null);
+
+    if (mode === 'container_transfer') {
+      const result = buildContainerTransferConfirmation(
+        transferDraft,
+        sourceContainer,
+        destinationContainer,
+      );
+      if (!result.ok) {
+        setError(result.message);
+        return;
+      }
+      // A fresh key per confirmation keeps duplicate taps on the same
+      // confirmation idempotent while allowing a corrected transfer to post.
+      operationKey.current = createOperationKey('entry-container_transfer');
+      setConfirmation(result.confirmation);
+      return;
+    }
+
+    const amountMinor = parsePesoToMinor(amount);
+    if (amountMinor === null) {
+      setError('Enter a valid amount, such as 145 or 145.50.');
+      return;
+    }
+
+    void finishEntry({
+      mode,
+      amountMinor,
+      title,
+      effectiveDate,
+      walletId: selectedWalletId,
+      containerId: selectedContainerId,
+      destinationWalletId: selectedDestinationWalletId,
+      destinationContainerId: selectedDestinationContainerId,
+      idempotencyKey: operationKey.current,
+    });
+  };
+
+  const handleConfirmTransfer = () => {
+    if (pending || !activeConfirmation) return;
+    const confirmed = activeConfirmation;
+    void finishEntry({
+      mode: 'container_transfer',
+      amountMinor: confirmed.amountMinor,
+      title: confirmed.title,
+      effectiveDate: confirmed.effectiveDate,
+      containerId: confirmed.sourceContainerId,
+      destinationContainerId: confirmed.destinationContainerId,
+      idempotencyKey: operationKey.current,
+    });
+  };
+
 
   return (
     <Modal
@@ -370,6 +474,47 @@ export function MoneyEntryModal({
                 history.
               </AppText>
             </ScrollView>
+          ) : activeConfirmation ? (
+            <ScrollView
+              style={styles.formScroll}
+              showsVerticalScrollIndicator={false}
+              contentContainerStyle={styles.form}
+            >
+              <View
+                style={[
+                  styles.preview,
+                  {
+                    backgroundColor: theme.colors.surfaceMuted,
+                    borderColor: theme.colors.border,
+                  },
+                ]}
+              >
+                <AppText
+                  variant="h3"
+                  accessibilityLabel={`Confirmation: ${activeConfirmation.summary}`}
+                >
+                  {activeConfirmation.summary}
+                </AppText>
+                <PreviewRow
+                  label="Effective date"
+                  value={activeConfirmation.effectiveDate}
+                />
+                <PreviewRow
+                  label={
+                    activeConfirmation.direction === 'savings_contribution'
+                      ? 'Savings contribution'
+                      : activeConfirmation.direction === 'savings_withdrawal'
+                        ? 'Savings withdrawal'
+                        : 'Container transfer'
+                  }
+                  value="Not income or an expense"
+                />
+              </View>
+              <AppText variant="caption" color={theme.colors.textSecondary}>
+                Check the direction before saving. Going back does not create a
+                transaction.
+              </AppText>
+            </ScrollView>
           ) : (
           <ScrollView style={styles.formScroll}
             showsVerticalScrollIndicator={false}
@@ -426,7 +571,7 @@ export function MoneyEntryModal({
                 </AppText>
                 <TextInput
                   value={amount}
-                  onChangeText={setAmount}
+                  onChangeText={changeAmount}
                   placeholder="0.00"
                   placeholderTextColor={theme.colors.textTertiary}
                   keyboardType="decimal-pad"
@@ -452,7 +597,7 @@ export function MoneyEntryModal({
             >
               <AppInput
                 value={title}
-                onChangeText={setTitle}
+                onChangeText={changeTitle}
                 placeholder={
                   mode === 'expense'
                     ? 'Lunch at the cafeteria'
@@ -474,7 +619,7 @@ export function MoneyEntryModal({
             <Field label="Effective date" hint="Use YYYY-MM-DD for a late entry">
               <AppInput
                 value={effectiveDate}
-                onChangeText={setEffectiveDate}
+                onChangeText={changeEffectiveDate}
                 placeholder={todayDateKey}
                 autoCapitalize="none"
                 maxLength={10}
@@ -581,9 +726,9 @@ export function MoneyEntryModal({
                   }))}
                   selectedId={selectedContainerId}
                   onSelect={(id) => {
-                    setContainerId(id);
+                    changeSourceContainer(id);
                     if (id === selectedDestinationContainerId) {
-                      setDestinationContainerId('');
+                      changeDestinationContainer('');
                     }
                   }}
                 />
@@ -604,7 +749,7 @@ export function MoneyEntryModal({
                     icon: container.icon,
                   }))}
                   selectedId={selectedDestinationContainerId}
-                  onSelect={setDestinationContainerId}
+                  onSelect={changeDestinationContainer}
                 />
                 {transferNote ? (
                   <AppText
@@ -677,6 +822,34 @@ export function MoneyEntryModal({
               onPress={onClose}
               fullWidth
             />
+          ) : activeConfirmation ? (
+            <View
+              style={[
+                styles.actions,
+                stackActions ? styles.actionsStacked : null,
+              ]}
+            >
+              <AppButton
+                label="Back"
+                variant="outline"
+                onPress={() => setConfirmation(null)}
+                disabled={pending}
+                style={[
+                  styles.action,
+                  stackActions ? styles.actionStacked : null,
+                ]}
+              />
+              <AppButton
+                label={pending ? 'Saving…' : 'Confirm transfer'}
+                icon="checkmark"
+                onPress={handleConfirmTransfer}
+                disabled={pending}
+                style={[
+                  styles.action,
+                  stackActions ? styles.actionStacked : null,
+                ]}
+              />
+            </View>
           ) : (
             <View
               style={[

@@ -371,10 +371,10 @@ test('revalidates the active period and current references before execution', as
       context,
       proposal: proposal({
         action: 'container_transfer',
-        containerId: 'system-unallocated',
+        containerId: 'system-savings',
         destinationContainerId: 'container-food',
       }),
-      message: /system container/i,
+      message: /Unallocated or budget containers/i,
     },
     {
       context,

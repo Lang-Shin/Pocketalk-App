@@ -185,9 +185,11 @@ export function validateAssistantExecutionEligibility(
   );
 
   if (action === 'container_transfer') {
-    if (source.systemKey || destination.systemKey) {
+    const allowed = (container: AssistantContainerOption) =>
+      container.systemKey == null || container.systemKey === 'unallocated';
+    if (!allowed(source) || !allowed(destination)) {
       throw new AssistantProposalEligibilityError(
-        'Use a Savings action for transfers involving a system container.',
+        'Container transfers may only use Unallocated or budget containers.',
       );
     }
     return;

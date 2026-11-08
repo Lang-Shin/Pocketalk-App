@@ -508,11 +508,12 @@ function resolveAssistantContainerChoiceBase(
   }
 
   if (pending.action === 'container_transfer') {
-    if (choice.systemKey != null) {
+    if (!isEligibleTransferContainer(choice)) {
       return {
         kind: 'refusal',
         intent: 'container_transfer',
-        message: 'Container transfers require active ordinary containers.',
+        message:
+          'Container transfers require Unallocated or an active budget container.',
       };
     }
     const sourceContainerId =
@@ -751,10 +752,10 @@ function interpretContainerTransfer(
 ): AssistantResultBase {
   const endpoints = extractTransferEndpoints(text);
   const sourceMatches = endpoints.sourceSegment
-    ? resolveOrdinaryContainerMatches(endpoints.sourceSegment, context)
+    ? resolveTransferContainerMatches(endpoints.sourceSegment, context)
     : [];
   const destinationMatches = endpoints.destinationSegment
-    ? resolveOrdinaryContainerMatches(endpoints.destinationSegment, context)
+    ? resolveTransferContainerMatches(endpoints.destinationSegment, context)
     : [];
   const source =
     sourceMatches.length === 1 ? sourceMatches[0] : undefined;
@@ -899,7 +900,7 @@ function containerTransferClarification(
     role === 'source'
       ? pending.destinationContainerId
       : pending.sourceContainerId;
-  const options = (matches ?? ordinaryContainers(context)).filter(
+  const options = (matches ?? transferContainers(context)).filter(
     (container) => container.id !== excludedId,
   );
   if (options.length === 0) {
@@ -946,21 +947,35 @@ function resolveWalletMatches(
   });
 }
 
-function resolveOrdinaryContainerMatches(
+function resolveTransferContainerMatches(
   text: string,
   context: AssistantContext,
 ): AssistantContainerOption[] {
-  return ordinaryContainers(context).filter((container) =>
+  return transferContainers(context).filter((container) =>
     mentionsContainer(text, container),
   );
 }
 
-function ordinaryContainers(
+/**
+ * Containers eligible for a generic container transfer. Unallocated is the
+ * only system container allowed here; Savings keeps its dedicated rules.
+ */
+function transferContainers(
   context: AssistantContext,
 ): AssistantContainerOption[] {
   return context.containers.filter(
     (container) =>
-      container.status === 'active' && container.systemKey == null,
+      container.status === 'active' &&
+      (container.systemKey == null || container.systemKey === 'unallocated'),
+  );
+}
+
+function isEligibleTransferContainer(
+  container: AssistantContainerOption,
+): boolean {
+  return (
+    container.status === 'active' &&
+    (container.systemKey == null || container.systemKey === 'unallocated')
   );
 }
 
@@ -984,6 +999,17 @@ function extractTransferEndpoints(text: string): {
     return {
       sourceSegment: cleanTransferSegment(fromTo[1]),
       destinationSegment: cleanTransferSegment(fromTo[2]),
+    };
+  }
+
+  const toFrom =
+    /\b(?:to|into|papunta sa)\s+(.+?)\s+(?:from|galing sa|mula sa)\s+(.+)$/i.exec(
+      cleaned,
+    );
+  if (toFrom) {
+    return {
+      sourceSegment: cleanTransferSegment(toFrom[2]),
+      destinationSegment: cleanTransferSegment(toFrom[1]),
     };
   }
 
@@ -1182,19 +1208,21 @@ function assembleProposal(
   }
 
   if (parts.action === 'container_transfer') {
+    const allowedEndpoint = (container: AssistantContainerOption) =>
+      container.systemKey == null || container.systemKey === 'unallocated';
     if (
       !source ||
       !destination ||
       source.status !== 'active' ||
       destination.status !== 'active' ||
-      source.systemKey != null ||
-      destination.systemKey != null
+      !allowedEndpoint(source) ||
+      !allowedEndpoint(destination)
     ) {
       return {
         kind: 'refusal',
         intent: intentForAction(parts.action),
         message:
-          'Choose two active ordinary containers for a container transfer.',
+          'Choose Unallocated or an active budget container for a container transfer.',
       };
     }
     if (source.id === destination.id) {
@@ -2199,13 +2227,23 @@ function detectAction(
   context: AssistantContext,
 ): AssistantAction | null {
   const lower = text.toLowerCase();
+  const savings = findSystemContainer(context, 'savings');
+  const endpoints = extractTransferEndpoints(text);
+  const sourceIsSavings =
+    savings && endpoints.sourceSegment
+      ? mentionsContainer(endpoints.sourceSegment, savings)
+      : false;
+  const destinationIsSavings =
+    savings && endpoints.destinationSegment
+      ? mentionsContainer(endpoints.destinationSegment, savings)
+      : false;
   const mentionsSavings = /\bsavings?\b|\bipon\b|\bimpok\b/.test(lower);
   const mentionsWithdrawal =
     /\b(withdraw|withdrew|withdrawal|take out|took out|kunin|bawi|bawas)\b/.test(
       lower,
     );
   const mentionsContribution =
-    /\b(save|saved|saving|move|moved|transfer|transferred|put|ilagay|ilipat|tabi|magtabi)\b/.test(
+    /\b(save|saved|saving|move|moved|transfer|transferred|put|add|added|ilagay|ilipat|tabi|magtabi)\b/.test(
       lower,
     );
   const mentionsExpense =
@@ -2217,8 +2255,45 @@ function detectAction(
       lower,
     );
 
+  // Explicit Savings endpoints always win over incidental keywords such as
+  // "allowance", and preserve the direction the user wrote.
+  if (sourceIsSavings && destinationIsSavings) return 'container_transfer';
+  if (sourceIsSavings) return 'savings_withdrawal';
+  if (destinationIsSavings) return 'savings_contribution';
   if (mentionsSavings && mentionsWithdrawal) return 'savings_withdrawal';
   if (mentionsSavings && mentionsContribution) return 'savings_contribution';
+
+  // A transfer with identifiable container endpoints must not be reclassified
+  // as income or expense just because a container is named like one of those
+  // keywords (for example a container named "Allowance").
+  const hasEndpointPair =
+    endpoints.sourceSegment !== null || endpoints.destinationSegment !== null;
+  const transferSyntax =
+    looksLikeTransfer(text) ||
+    (endpoints.sourceSegment !== null && endpoints.destinationSegment !== null);
+  const transferEndpointMentioned =
+    hasEndpointPair &&
+    [endpoints.sourceSegment, endpoints.destinationSegment].some(
+      (segment) =>
+        segment !== null &&
+        context.containers.some(
+          (container) =>
+            container.status === 'active' &&
+            (container.systemKey == null ||
+              container.systemKey === 'unallocated') &&
+            mentionsContainer(segment, container),
+        ),
+    );
+  const containerMentioned = context.containers.some(
+    (container) =>
+      container.status === 'active' &&
+      (container.systemKey == null || container.systemKey === 'unallocated') &&
+      mentionsContainer(text, container),
+  );
+  if (transferSyntax && (transferEndpointMentioned || containerMentioned)) {
+    return 'container_transfer';
+  }
+
   if (mentionsExpense && !mentionsIncome) return 'expense';
   if (mentionsIncome && !mentionsExpense) return 'income';
   if (looksLikeTransfer(text)) {

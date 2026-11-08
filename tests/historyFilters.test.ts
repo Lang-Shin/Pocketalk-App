@@ -152,3 +152,22 @@ test('history filter options use stable ids and user-facing labels', () => {
     { id: 'wallet-gcash', label: 'Virtual GCash' },
   ]);
 });
+
+test('all four history filters combine and clearing restores the complete list', () => {
+  const filters = {
+    ...EMPTY_TRANSACTION_FILTERS,
+    type: 'expenses' as const,
+    effectiveDate: '2026-10-20',
+    containerId: 'container-food',
+    walletId: 'wallet-cash',
+  };
+  assert.deepEqual(filterTransactions(transactions, filters).map((item) => item.id), ['expense']);
+  assert.deepEqual(
+    filterTransactions(transactions, { ...filters, walletId: 'wallet-gcash' }),
+    [],
+  );
+  assert.deepEqual(
+    filterTransactions(transactions, { ...EMPTY_TRANSACTION_FILTERS }).map((item) => item.id),
+    transactions.map((item) => item.id),
+  );
+});

@@ -1,12 +1,13 @@
+import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { useState, type ReactNode } from 'react';
-import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { useState } from 'react';
+import { Modal, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { AppText } from '@/components/AppText';
 import { TransactionDetailModal } from '@/components/finance/TransactionDetailModal';
 import { TransactionRow } from '@/components/finance/TransactionRow';
 import { Card } from '@/components/ui/Card';
-import { Chip } from '@/components/ui/Chip';
 import { Divider } from '@/components/ui/Divider';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { IconButton } from '@/components/ui/IconButton';
@@ -27,7 +28,7 @@ import {
   type TransactionFilters,
 } from '@/features/history/transactionFilters';
 import { formatDateKey, formatMonthKey } from '@/lib/period';
-import { useAppTheme, spacing } from '@/theme';
+import { useAppTheme, radii, spacing } from '@/theme';
 
 const FILTERS: { value: HistoryTypeFilter; label: string }[] = [
   { value: 'all', label: 'All' },
@@ -35,6 +36,9 @@ const FILTERS: { value: HistoryTypeFilter; label: string }[] = [
   { value: 'income', label: 'Income' },
   { value: 'transfers', label: 'Transfers' },
 ];
+
+type FilterKey = 'type' | 'date' | 'container' | 'wallet';
+type SelectOption = { value: string | null; label: string };
 
 export function HistoryScreen() {
   const { theme } = useAppTheme();
@@ -46,6 +50,7 @@ export function HistoryScreen() {
   });
   const [selectedTransaction, setSelectedTransaction] =
     useState<Transaction | null>(null);
+  const [openFilter, setOpenFilter] = useState<FilterKey | null>(null);
   const monthKey =
     selectedMonthKey && selectedMonthKey < activeMonthKey
       ? selectedMonthKey
@@ -102,6 +107,38 @@ export function HistoryScreen() {
   const containerOptions = getContainerFilterOptions(data);
   const walletOptions = getWalletFilterOptions(data);
   const filtered = filterTransactions(data, filters);
+  const selectors: {
+    key: FilterKey;
+    label: string;
+    value: string | null;
+    options: SelectOption[];
+    onSelect: (value: string | null) => void;
+  }[] = [
+    {
+      key: 'type', label: 'Transaction type', value: filters.type,
+      options: FILTERS.map((item) => ({ value: item.value, label: item.label })),
+      onSelect: (value) => {
+        const type = FILTERS.find((item) => item.value === value);
+        if (type) updateFilters({ type: type.value });
+      },
+    },
+    {
+      key: 'date', label: 'Date', value: filters.effectiveDate,
+      options: [{ value: null, label: 'All dates' }, ...dateOptions.map((date) => ({ value: date, label: formatDateKey(date) }))],
+      onSelect: (value) => updateFilters({ effectiveDate: value }),
+    },
+    {
+      key: 'container', label: 'Container', value: filters.containerId,
+      options: [{ value: null, label: 'All containers' }, ...containerOptions.map((item) => ({ value: item.id, label: item.label }))],
+      onSelect: (value) => updateFilters({ containerId: value }),
+    },
+    {
+      key: 'wallet', label: 'Wallet', value: filters.walletId,
+      options: [{ value: null, label: 'All wallets' }, ...walletOptions.map((item) => ({ value: item.id, label: item.label }))],
+      onSelect: (value) => updateFilters({ walletId: value }),
+    },
+  ];
+  const activeSelector = selectors.find((selector) => selector.key === openFilter);
   const hasFilters =
     filters.type !== 'all' ||
     filters.effectiveDate !== null ||
@@ -190,71 +227,56 @@ export function HistoryScreen() {
           ) : null}
         </View>
 
-        <FilterRow label="Type">
-          {FILTERS.map((item) => (
-            <Chip
-              key={item.value}
-              label={item.label}
-              selected={filters.type === item.value}
-              onPress={() => updateFilters({ type: item.value })}
-            />
-          ))}
-        </FilterRow>
-
-        {dateOptions.length > 0 ? (
-          <FilterRow label="Date">
-            <Chip
-              label="All dates"
-              selected={filters.effectiveDate === null}
-              onPress={() => updateFilters({ effectiveDate: null })}
-            />
-            {dateOptions.map((dateKey) => (
-              <Chip
-                key={dateKey}
-                label={formatDateKey(dateKey)}
-                selected={filters.effectiveDate === dateKey}
-                onPress={() => updateFilters({ effectiveDate: dateKey })}
-              />
-            ))}
-          </FilterRow>
-        ) : null}
-
-        {containerOptions.length > 0 ? (
-          <FilterRow label="Container">
-            <Chip
-              label="All containers"
-              selected={filters.containerId === null}
-              onPress={() => updateFilters({ containerId: null })}
-            />
-            {containerOptions.map((option) => (
-              <Chip
-                key={option.id}
-                label={option.label}
-                selected={filters.containerId === option.id}
-                onPress={() => updateFilters({ containerId: option.id })}
-              />
-            ))}
-          </FilterRow>
-        ) : null}
-
-        {walletOptions.length > 0 ? (
-          <FilterRow label="Wallet">
-            <Chip
-              label="All wallets"
-              selected={filters.walletId === null}
-              onPress={() => updateFilters({ walletId: null })}
-            />
-            {walletOptions.map((option) => (
-              <Chip
-                key={option.id}
-                label={option.label}
-                selected={filters.walletId === option.id}
-                onPress={() => updateFilters({ walletId: option.id })}
-              />
-            ))}
-          </FilterRow>
-        ) : null}
+        <View style={styles.filterGrid}>
+          {selectors.map((selector) => {
+            const selected = selector.options.find((option) => option.value === selector.value);
+            return (
+              <Pressable
+                key={selector.key}
+                accessibilityRole="button"
+                accessibilityLabel={`${selector.label}: ${selected?.label ?? selector.value}`}
+                accessibilityHint="Opens filter options"
+                onPress={() => setOpenFilter(selector.key)}
+                style={[styles.filterSelect, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border }]}
+              >
+                <View style={styles.filterCopy}>
+                  <AppText variant="micro" color={theme.colors.textTertiary}>{selector.label.toUpperCase()}</AppText>
+                  <AppText variant="caption" weight="semibold" numberOfLines={1}>{selected?.label ?? selector.value}</AppText>
+                </View>
+                <Ionicons name="chevron-down" size={18} color={theme.colors.textSecondary} />
+              </Pressable>
+            );
+          })}
+        </View>
       </View>
+
+      <Modal visible={activeSelector !== undefined} transparent animationType="fade" onRequestClose={() => setOpenFilter(null)}>
+        <SafeAreaView style={styles.modalOverlay}>
+          <View accessibilityViewIsModal style={[styles.modalCard, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border }]}>
+            <View style={styles.modalHeader}>
+              <AppText variant="h3" style={styles.filterCopy}>Select {activeSelector?.label.toLowerCase()}</AppText>
+              <IconButton icon="close" accessibilityLabel="Close filter options" onPress={() => setOpenFilter(null)} />
+            </View>
+            <ScrollView keyboardShouldPersistTaps="handled">
+              {activeSelector?.options.map((option) => {
+                const selected = option.value === activeSelector.value;
+                return (
+                  <Pressable
+                    key={option.value ?? '__all__'}
+                    accessibilityRole="radio"
+                    accessibilityState={{ checked: selected }}
+                    onPress={() => { activeSelector.onSelect(option.value); setOpenFilter(null); }}
+                    style={[styles.modalOption, { borderColor: theme.colors.border }]}
+                  >
+                    <AppText variant="bodySmall" style={styles.filterCopy}>{option.label}</AppText>
+                    {selected ? <Ionicons name="checkmark-circle" size={22} color={theme.colors.primary} /> : null}
+                  </Pressable>
+                );
+              })}
+            </ScrollView>
+          </View>
+        </SafeAreaView>
+      </Modal>
 
       <NoticeBanner
         title="Transfers are not spending"
@@ -316,35 +338,6 @@ export function HistoryScreen() {
   );
 }
 
-function FilterRow({
-  label,
-  children,
-}: {
-  label: string;
-  children: ReactNode;
-}) {
-  const { theme } = useAppTheme();
-
-  return (
-    <View style={styles.filterRow}>
-      <AppText
-        variant="caption"
-        color={theme.colors.textSecondary}
-        style={styles.filterLabel}
-      >
-        {label}
-      </AppText>
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={styles.filterOptions}
-      >
-        {children}
-      </ScrollView>
-    </View>
-  );
-}
-
 const styles = StyleSheet.create({
   summaryRow: {
     flexDirection: 'row',
@@ -370,17 +363,53 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingHorizontal: spacing.xs,
   },
-  filterRow: {
+  filterGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.sm,
+  },
+  filterSelect: {
+    flexBasis: 150,
+    flexGrow: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    minHeight: 56,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: radii.md,
+    padding: spacing.sm,
+  },
+  filterCopy: {
+    flex: 1,
+    minWidth: 0,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'center',
+    padding: spacing.lg,
+  },
+  modalCard: {
+    width: '100%',
+    maxWidth: 480,
+    maxHeight: '80%',
+    alignSelf: 'center',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: radii.lg,
+    padding: spacing.md,
+  },
+  modalHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.sm,
   },
-  filterLabel: {
-    width: 72,
-  },
-  filterOptions: {
-    gap: spacing.sm,
-    paddingRight: spacing.md,
+  modalOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    minHeight: 48,
+    gap: spacing.md,
+    paddingVertical: spacing.sm,
+    borderBottomWidth: StyleSheet.hairlineWidth,
   },
   groups: {
     gap: spacing.xl,

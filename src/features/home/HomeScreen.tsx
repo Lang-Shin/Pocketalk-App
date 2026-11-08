@@ -42,6 +42,22 @@ export function HomeScreen() {
   const monthQuery = useFinanceMonth(activeMonthKey);
   const walletQuery = useFinanceWallets();
   const [entryMode, setEntryMode] = useState<EntryMode | null>(null);
+  const [containerTransferPreset, setContainerTransferPreset] = useState<
+    { sourceContainerId?: string; destinationContainerId?: string } | undefined
+  >(undefined);
+
+  const openEntry = (
+    mode: EntryMode,
+    preset?: { sourceContainerId?: string; destinationContainerId?: string },
+  ) => {
+    setEntryMode(mode);
+    setContainerTransferPreset(preset);
+  };
+
+  const closeEntry = () => {
+    setEntryMode(null);
+    setContainerTransferPreset(undefined);
+  };
 
   if (monthQuery.status === 'loading' || walletQuery.status === 'loading') {
     return (
@@ -159,19 +175,19 @@ export function HomeScreen() {
           icon="arrow-up"
           label="Spend"
           tone="coral"
-          onPress={() => setEntryMode('expense')}
+          onPress={() => openEntry('expense')}
         />
         <QuickAction
           icon="arrow-down"
           label="Add income"
           tone="emerald"
-          onPress={() => setEntryMode('income')}
+          onPress={() => openEntry('income')}
         />
         <QuickAction
           icon="swap-horizontal"
           label="Move money"
           tone="blue"
-          onPress={() => setEntryMode('wallet_transfer')}
+          onPress={() => openEntry('wallet_transfer')}
         />
         <QuickAction
           icon="sparkles"
@@ -226,7 +242,19 @@ export function HomeScreen() {
           actionLabel="Review"
           onAction={() => router.push('/budgets')}
         />
-        <SavingsCard container={savingsContainer} />
+        <SavingsCard
+          container={savingsContainer}
+          onAddToSavings={() =>
+            openEntry('container_transfer', {
+              destinationContainerId: savingsContainer?.id,
+            })
+          }
+          onWithdrawFromSavings={() =>
+            openEntry('container_transfer', {
+              sourceContainerId: savingsContainer?.id,
+            })
+          }
+        />
       </View>
 
       <View style={styles.section}>
@@ -289,7 +317,8 @@ export function HomeScreen() {
         <MoneyEntryModal
           visible
           mode={entryMode}
-          onClose={() => setEntryMode(null)}
+          containerTransferPreset={containerTransferPreset}
+          onClose={closeEntry}
         />
       ) : null}
     </Screen>
@@ -298,8 +327,12 @@ export function HomeScreen() {
 
 function SavingsCard({
   container,
+  onAddToSavings,
+  onWithdrawFromSavings,
 }: {
   container: ContainerSnapshot | undefined;
+  onAddToSavings: () => void;
+  onWithdrawFromSavings: () => void;
 }) {
   const { theme } = useAppTheme();
   const savedMinor = container?.balanceMinor ?? 0;
@@ -333,6 +366,22 @@ function SavingsCard({
         This balance carries forward and stays separate from monthly net
         savings.
       </AppText>
+      <View style={styles.savingsActions}>
+        <AppButton
+          label="Add to Savings"
+          variant="secondary"
+          icon="arrow-down-circle-outline"
+          onPress={onAddToSavings}
+          style={styles.savingsAction}
+        />
+        <AppButton
+          label="Withdraw from Savings"
+          variant="outline"
+          icon="arrow-up-circle-outline"
+          onPress={onWithdrawFromSavings}
+          style={styles.savingsAction}
+        />
+      </View>
     </Card>
   );
 }
@@ -427,6 +476,15 @@ const styles = StyleSheet.create({
     flexShrink: 1,
     maxWidth: '45%',
     textAlign: 'right',
+  },
+  savingsActions: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.sm,
+  },
+  savingsAction: {
+    flexGrow: 1,
+    flexBasis: 140,
   },
   assistantCard: {
     gap: spacing.lg,

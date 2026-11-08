@@ -363,12 +363,12 @@ function validateProposal(
     assertNoRef(interpretation.sourceContainer, 'source container');
     assertNoRef(interpretation.destinationContainer, 'destination container');
   } else if (action === 'container_transfer') {
-    const source = requireActiveOrdinary(
+    const source = requireActiveTransferEndpoint(
       context,
       containerId,
       'source container',
     );
-    const destination = requireActiveOrdinary(
+    const destination = requireActiveTransferEndpoint(
       context,
       destinationContainerId,
       'destination container',
@@ -824,6 +824,20 @@ function requireActiveOrdinary(
   const container = requireActiveContainer(context, id, label);
   if (container.systemKey != null) {
     throw new AssistantValidationError(`${label} must be an ordinary container.`);
+  }
+  return container;
+}
+
+function requireActiveTransferEndpoint(
+  context: AssistantContext,
+  id: string | undefined,
+  label: string,
+): AssistantContainerOption {
+  const container = requireActiveContainer(context, id, label);
+  if (container.systemKey != null && container.systemKey !== 'unallocated') {
+    throw new AssistantValidationError(
+      `${label} must be Unallocated or an ordinary container.`,
+    );
   }
   return container;
 }

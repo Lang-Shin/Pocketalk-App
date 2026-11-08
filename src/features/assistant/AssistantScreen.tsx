@@ -370,32 +370,13 @@ export function AssistantScreen() {
 
   return (
     <Screen scroll={false}>
-      <PageHeader
-        title="Pocketa assistant"
-        subtitle="Interpret money messages and answer local questions offline."
-        preview={false}
-      />
-
       <KeyboardAvoidingView
-        style={styles.flex}
+        style={styles.conversation}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
-        <View style={styles.modeArea}>
-          <AssistantModeSelector mode={modeSelection.mode} />
-          <NoticeBanner
-            title={activeProvider.info.displayName}
-            message={`${activeProvider.info.description} ${
-              activeProvider.info.isRealModel
-                ? 'This development build uses the explicitly configured on-device model.'
-                : 'No model is installed or downloaded.'
-            } Drafts stay on this device and are written only after you confirm them.`}
-            icon="hardware-chip-outline"
-          />
-        </View>
-
         <ScrollView
           ref={scrollRef}
-          style={styles.flex}
+          style={styles.conversation}
           contentContainerStyle={styles.messages}
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
@@ -403,6 +384,23 @@ export function AssistantScreen() {
             scrollRef.current?.scrollToEnd({ animated: true })
           }
         >
+          <PageHeader
+            title="Pocketa assistant"
+            subtitle="Interpret money messages and answer local questions offline."
+            preview={false}
+          />
+          <View style={styles.modeArea}>
+            <AssistantModeSelector mode={modeSelection.mode} />
+            <NoticeBanner
+              title={activeProvider.info.displayName}
+              message={`${activeProvider.info.description} ${
+                activeProvider.info.isRealModel
+                  ? 'This development build uses the explicitly configured on-device model.'
+                  : 'No model is installed or downloaded.'
+              } Drafts stay on this device and are written only after you confirm them.`}
+              icon="hardware-chip-outline"
+            />
+          </View>
           {messages.map((message) => (
             <ChatBubble key={message.id} message={message}>
               {message.interpretation && !message.proposal ? (
@@ -1093,6 +1091,10 @@ function actionIcon(
 const styles = StyleSheet.create({
   flex: {
     flex: 1,
+  },
+  conversation: {
+    flex: 1,
+    minHeight: 0,
   },
   flexShrink: {
     flexShrink: 1,

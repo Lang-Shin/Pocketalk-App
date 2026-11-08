@@ -45,3 +45,10 @@ yarn-error.*
 *.gguf
 *.litertlm
 /artifacts/executorch-smoke/
+
+
+# Ignore Android APK files
+*.apk
+
+# Ignore Android App Bundles
+*.aab
