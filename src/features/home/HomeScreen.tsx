@@ -344,10 +344,11 @@ function SavingsCard({
   return (
     <Card style={styles.goalCard}>
       <View style={styles.goalHeader}>
-        <IconBadge
-          icon={container?.icon ?? 'wallet-outline'}
-          tone={container?.tone ?? 'emerald'}
-          size={44}
+        <Image
+          source={require('../../../assets/decorations/shinecoin.png')}
+          style={styles.savingsDecoration}
+          resizeMode="contain"
+          accessible={false}
         />
         <View style={styles.goalCopy}>
           <AppText variant="h3">{container?.name ?? 'Savings'}</AppText>
@@ -470,6 +471,11 @@ const styles = StyleSheet.create({
   },
   goalCard: {
     gap: spacing.md,
+  },
+  savingsDecoration: {
+    width: 40,
+    height: 40,
+    opacity: 0.72,
   },
   goalHeader: {
     flexDirection: 'row',
