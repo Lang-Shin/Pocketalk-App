@@ -1,3 +1,4 @@
+import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
 import {
@@ -173,6 +174,7 @@ export function HomeScreen() {
       <BalanceCard
         label="Total recorded funds"
         amountMinor={totalBalanceMinor}
+        headingImage={require('../../../assets/illustrations/wallet.png')}
         caption={`${wallets.length} wallets \u00B7 ${activeContainers.length} active containers`}
         wallets={wallets}
       />
@@ -379,15 +381,25 @@ function QuickAction({ icon, label, tone, onPress }: QuickActionProps) {
       onPress={onPress}
       style={({ pressed }) => [
         styles.quickAction,
+        !theme.isDark && {
+          backgroundColor: theme.colors.surface,
+          borderRadius: radii.md,
+        },
         {
           opacity: pressed ? 0.72 : 1,
         },
       ]}
     >
-      <IconBadge icon={icon} tone={tone} size={38} iconSize={18} />
+      {theme.isDark ? (
+        <IconBadge icon={icon} tone={tone} size={38} iconSize={18} />
+      ) : (
+        <View style={[styles.quickActionIcon, { backgroundColor: theme.colors.primarySoft }]}>
+          <Ionicons name={icon} size={18} color={theme.colors.text} />
+        </View>
+      )}
       <AppText
         variant="micro"
-        color={theme.colors.textSecondary}
+        color={theme.isDark ? theme.colors.textSecondary : theme.colors.text}
         align="center"
         numberOfLines={2}
       >
@@ -422,6 +434,13 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
     paddingVertical: spacing.md,
     paddingHorizontal: 4,
+  },
+  quickActionIcon: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   section: {
     gap: spacing.md,

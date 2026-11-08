@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import type { ReactNode } from 'react';
-import { StyleSheet, useWindowDimensions, View } from 'react-native';
+import { Image, StyleSheet, useWindowDimensions, View, type ImageSourcePropType } from 'react-native';
 
 import type { WalletSnapshot } from '@/data/models';
 import { formatPeso } from '@/lib/money';
@@ -13,6 +13,7 @@ interface BalanceCardProps {
   caption?: string;
   wallets?: WalletSnapshot[];
   footer?: ReactNode;
+  headingImage?: ImageSourcePropType;
 }
 
 export function BalanceCard({
@@ -21,6 +22,7 @@ export function BalanceCard({
   caption,
   wallets,
   footer,
+  headingImage,
 }: BalanceCardProps) {
   const { theme } = useAppTheme();
   const { width } = useWindowDimensions();
@@ -40,12 +42,16 @@ export function BalanceCard({
     >
       <View style={styles.header}>
         <View style={styles.labelRow}>
-          <Ionicons
-            name="wallet-outline"
-            size={16}
-            color={theme.colors.heroMuted}
-          />
-          <AppText variant="label" color={theme.colors.heroMuted}>
+          {headingImage ? (
+            <Image source={headingImage} style={styles.headingImage} resizeMode="contain" accessible={false} />
+          ) : (
+            <Ionicons
+              name="wallet-outline"
+              size={16}
+              color={theme.colors.heroMuted}
+            />
+          )}
+          <AppText variant="label" color={theme.colors.heroMuted} style={styles.labelText}>
             {label}
           </AppText>
         </View>
@@ -134,6 +140,15 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
+    flexShrink: 1,
+  },
+  labelText: {
+    flexShrink: 1,
+  },
+  headingImage: {
+    width: 28,
+    height: 28,
+    flexShrink: 0,
   },
   livePill: {
     flexDirection: 'row',
