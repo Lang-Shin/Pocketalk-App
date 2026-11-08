@@ -58,36 +58,13 @@ export function WalletCard({ wallet }: WalletCardProps) {
         </View>
       </View>
 
-      <AppText
-        variant="amount"
-        numberOfLines={1}
-        adjustsFontSizeToFit
-        minimumFontScale={0.7}
-      >
-        {formatPeso(wallet.balanceMinor)}
-      </AppText>
-      <View
-        style={[styles.rule, { backgroundColor: theme.colors.border }]}
-      />
       <View style={styles.footer}>
         <AppText variant="micro" color={theme.colors.textTertiary}>
           AVAILABLE BALANCE
         </AppText>
-        <View style={styles.manualNote}>
-          <View
-            style={[
-              styles.statusDot,
-              {
-                backgroundColor: isManual
-                  ? theme.colors.warning
-                  : theme.colors.success,
-              },
-            ]}
-          />
-          <AppText variant="micro" color={theme.colors.textSecondary}>
-            {isManual ? 'MANUAL TRACKING' : 'CASH'}
-          </AppText>
-        </View>
+        <AppText variant="amount" numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.7} style={styles.balance}>
+          {formatPeso(wallet.balanceMinor)}
+        </AppText>
       </View>
     </Card>
   );
@@ -119,23 +96,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: 7,
     paddingVertical: 2,
   },
-  rule: {
-    height: StyleSheet.hairlineWidth,
-  },
   footer: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     gap: spacing.sm,
   },
-  manualNote: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-  },
-  statusDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
+  balance: {
+    flexShrink: 1,
+    textAlign: 'right',
   },
 });

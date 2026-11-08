@@ -139,10 +139,8 @@ export function HomeScreen() {
     <Screen wide>
       <PageHeader
         eyebrow={formatLongDate()}
-        title="Your money, at a glance"
-        subtitle={`${formatMonthKey(
-          activeMonthKey,
-        )} \u00B7 ${formatMonthPeriod(activeMonthKey)} is the active calendar month.`}
+        title="Welcome back"
+        subtitle={`${formatMonthKey(activeMonthKey)} · ${formatMonthPeriod(activeMonthKey)}`}
         preview={false}
         right={
           <Pressable
@@ -285,38 +283,6 @@ export function HomeScreen() {
         )}
       </View>
 
-      <Card
-        style={[
-          styles.assistantCard,
-          {
-            backgroundColor: theme.colors.primarySoft,
-            borderColor: theme.colors.primarySoft,
-          },
-        ]}
-      >
-        <View style={styles.assistantHeader}>
-          <IconBadge icon="sparkles" tone="emerald" size={42} />
-          <View style={styles.assistantCopy}>
-            <AppText variant="h3" color={theme.colors.primarySoftText}>
-              Just say what happened
-            </AppText>
-            <AppText
-              variant="bodySmall"
-              color={theme.colors.primarySoftText}
-            >
-              Try {'\u201CI spent \u20B1120 on lunch.\u201D'} Pocketa interprets
-              a draft for you to review and confirm.
-            </AppText>
-          </View>
-        </View>
-        <AppButton
-          label="Open assistant"
-          icon="chatbubble-ellipses-outline"
-          onPress={() => router.push('/assistant')}
-          fullWidth
-        />
-      </Card>
-
       {entryMode ? (
         <MoneyEntryModal
           visible
@@ -409,8 +375,6 @@ function QuickAction({ icon, label, tone, onPress }: QuickActionProps) {
       style={({ pressed }) => [
         styles.quickAction,
         {
-          backgroundColor: theme.colors.surface,
-          borderColor: theme.colors.border,
           opacity: pressed ? 0.72 : 1,
         },
       ]}
@@ -422,7 +386,7 @@ function QuickAction({ icon, label, tone, onPress }: QuickActionProps) {
         align="center"
         numberOfLines={2}
       >
-        {label.toUpperCase()}
+        {label}
       </AppText>
     </Pressable>
   );
@@ -447,9 +411,7 @@ const styles = StyleSheet.create({
   },
   quickAction: {
     flex: 1,
-    minHeight: 84,
-    borderRadius: radii.lg,
-    borderWidth: StyleSheet.hairlineWidth,
+    minHeight: 76,
     alignItems: 'center',
     justifyContent: 'center',
     gap: spacing.sm,
@@ -501,18 +463,5 @@ const styles = StyleSheet.create({
   savingsAction: {
     flexGrow: 1,
     flexBasis: 140,
-  },
-  assistantCard: {
-    gap: spacing.lg,
-    marginTop: spacing.xxxl,
-  },
-  assistantHeader: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: spacing.md,
-  },
-  assistantCopy: {
-    flex: 1,
-    gap: 4,
   },
 });

@@ -33,7 +33,6 @@ import {
 import { AppButton } from '@/components/ui/AppButton';
 import { Chip } from '@/components/ui/Chip';
 import { IconButton } from '@/components/ui/IconButton';
-import { NoticeBanner } from '@/components/ui/NoticeBanner';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { ErrorState, LoadingState } from '@/components/ui/QueryStates';
 import { Screen } from '@/components/ui/Screen';
@@ -387,20 +386,16 @@ export function AssistantScreen() {
         >
           <PageHeader
             title="Pocketa assistant"
-            subtitle="Interpret money messages and answer local questions offline."
+            subtitle="A little help with your money, right here on your device."
             preview={false}
           />
           <View style={styles.modeArea}>
             <AssistantModeSelector mode={modeSelection.mode} />
-            <NoticeBanner
-              title={activeProvider.info.displayName}
-              message={`${activeProvider.info.description} ${
-                activeProvider.info.isRealModel
-                  ? 'This development build uses the explicitly configured on-device model.'
-                  : 'No model is installed or downloaded.'
-              } Drafts stay on this device and are written only after you confirm them.`}
-              icon="hardware-chip-outline"
-            />
+            <AppText variant="caption" color={theme.colors.textSecondary}>
+              {activeProvider.info.isRealModel
+                ? 'On-device model · review every draft before saving.'
+                : 'Offline rules, not a language model · review every draft before saving.'}
+            </AppText>
           </View>
           {messages.map((message) => (
             <ChatBubble key={message.id} message={message}>

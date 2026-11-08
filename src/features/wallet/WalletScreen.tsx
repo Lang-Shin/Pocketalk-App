@@ -89,7 +89,7 @@ export function WalletScreen() {
       <View style={styles.notice}>
         <NoticeBanner
           title="No bank or GCash connection"
-          message="Pocketa never asks for a GCash PIN, password, or OTP. You update this balance yourself."
+          message="Cash and virtual GCash are updated by you, without connecting an account."
           tone="warning"
           icon="shield-checkmark-outline"
         />
@@ -131,7 +131,7 @@ export function WalletScreen() {
       <View style={styles.section}>
         <SectionHeader
           title="Your wallets"
-          subtitle="These balances are the wallet side of recorded funds."
+          subtitle="Balances tracked by you."
         />
         {wallets.map((wallet) => (
           <WalletCard key={wallet.id} wallet={wallet} />

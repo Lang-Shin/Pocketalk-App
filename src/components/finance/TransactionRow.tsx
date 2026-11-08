@@ -55,9 +55,9 @@ export function TransactionRow({
       <IconBadge icon={transaction.icon} tone={transaction.tone} size={42} />
       <View style={styles.copy}>
         <AppText
-          variant="bodySmall"
+          variant="label"
           weight="semibold"
-          numberOfLines={1}
+          numberOfLines={2}
           style={isReversed ? styles.struck : undefined}
         >
           {transaction.title}
@@ -72,7 +72,7 @@ export function TransactionRow({
       </View>
       <View style={styles.amountCopy}>
         <AppText
-          variant="bodySmall"
+          variant="amount"
           weight="bold"
           color={amountColor}
           numberOfLines={1}
@@ -157,14 +157,15 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.md,
-    minHeight: 62,
-    paddingVertical: spacing.sm,
+    minHeight: 68,
+    paddingVertical: spacing.md,
     marginHorizontal: -spacing.sm,
     paddingHorizontal: spacing.sm,
     borderRadius: radii.md,
   },
   copy: {
     flex: 1,
+    minWidth: 0,
     gap: 2,
   },
   amountCopy: {

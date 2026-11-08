@@ -114,7 +114,7 @@ export function BudgetsScreen() {
     <Screen wide>
       <PageHeader
         title="Budget containers"
-        subtitle="Give every peso a purpose without confusing plans with balances."
+        subtitle="Give every peso a purpose."
         preview={false}
         right={
           <IconButton
@@ -152,7 +152,7 @@ export function BudgetsScreen() {
             <AppText variant="micro" color={theme.colors.textTertiary}>
               {formatMonthKey(monthKey).toUpperCase()}
             </AppText>
-            <AppText variant="h2">Monthly plan</AppText>
+            <AppText variant="h2">Your monthly plan</AppText>
           </View>
           <AppText variant="h3" color={theme.colors.primary}>
             {Math.round(overallRatio * 100)}% used
@@ -198,8 +198,7 @@ export function BudgetsScreen() {
           <View style={styles.placementCopy}>
             <AppText variant="h3">Money placement</AppText>
             <AppText variant="caption" color={theme.colors.textSecondary}>
-              Unallocated is recorded money waiting for a purpose. Savings stays
-              permanent and outside monthly spending.
+              Actual funds, separate from monthly limits.
             </AppText>
           </View>
         </View>
@@ -227,13 +226,9 @@ export function BudgetsScreen() {
         />
       </Card>
 
-      <View style={styles.notice}>
-        <NoticeBanner
-          title="A limit is not money"
-          message="Monthly limits guide spending. Actual container balances are the money currently assigned to each container."
-          icon="leaf-outline"
-        />
-      </View>
+      <AppText variant="caption" color={theme.colors.textSecondary} style={styles.notice}>
+        Monthly limits are plans. Actual balances are funds assigned to containers.
+      </AppText>
 
       <View style={styles.filters}>
         <Chip

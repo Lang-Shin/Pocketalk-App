@@ -165,7 +165,11 @@ export function BudgetCard({
         ) : null}
       </View>
 
-      {narrow ? <View style={styles.statusRow}>{statusBadge}</View> : null}
+      {narrow ? (
+        <AppText variant="caption" color={statusPalette.foreground}>
+          {statusPalette.label}
+        </AppText>
+      ) : null}
 
       <View style={styles.balanceRow}>
         <View style={styles.balanceCopy}>
@@ -291,9 +295,6 @@ const styles = StyleSheet.create({
     borderRadius: radii.pill,
     paddingHorizontal: 8,
     paddingVertical: 4,
-  },
-  statusRow: {
-    alignItems: 'flex-start',
   },
   balanceRow: {
     flexDirection: 'row',

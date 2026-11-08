@@ -12,7 +12,6 @@ import { Divider } from '@/components/ui/Divider';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { IconButton } from '@/components/ui/IconButton';
 import { MonthNavigator } from '@/components/ui/MonthNavigator';
-import { NoticeBanner } from '@/components/ui/NoticeBanner';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { ErrorState, LoadingState } from '@/components/ui/QueryStates';
 import { Screen } from '@/components/ui/Screen';
@@ -182,7 +181,7 @@ export function HistoryScreen() {
       />
 
       <View style={styles.summaryRow}>
-        <Card style={styles.summaryCard}>
+        <View style={styles.summaryCard}>
           <AppText variant="micro" color={theme.colors.textTertiary}>
             {hasFilters ? 'MATCHING RECORDS' : 'RECORDS'}
           </AppText>
@@ -192,8 +191,8 @@ export function HistoryScreen() {
               ? `of ${data.length} in ${formatMonthKey(monthKey)}`
               : `in ${formatMonthKey(monthKey)}`}
           </AppText>
-        </Card>
-        <Card style={styles.summaryCard}>
+        </View>
+        <View style={styles.summaryCard}>
           <AppText variant="micro" color={theme.colors.textTertiary}>
             REVERSED
           </AppText>
@@ -201,7 +200,7 @@ export function HistoryScreen() {
           <AppText variant="caption" color={theme.colors.textSecondary}>
             kept for history
           </AppText>
-        </Card>
+        </View>
       </View>
 
       <View style={styles.filterBlock}>
@@ -278,11 +277,9 @@ export function HistoryScreen() {
         </SafeAreaView>
       </Modal>
 
-      <NoticeBanner
-        title="Transfers are not spending"
-        message="Internal transfers carry a TRANSFER label and never count as income, expenses, or net savings. Reversed records stay visible with their status intact."
-        icon="git-compare-outline"
-      />
+      <AppText variant="caption" color={theme.colors.textSecondary}>
+        Transfers are not spending. Reversed records remain visible.
+      </AppText>
 
       <View style={styles.groups}>
         {groups.size === 0 ? (
