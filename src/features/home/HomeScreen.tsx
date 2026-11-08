@@ -29,6 +29,7 @@ import {
   type EntryMode,
 } from '@/data/financeStore';
 import type { ContainerSnapshot } from '@/data/models';
+import { useProfileData } from '@/data/hooks';
 import { formatLongDate } from '@/lib/date';
 import type { IconName } from '@/lib/icons';
 import { formatPeso } from '@/lib/money';
@@ -42,6 +43,10 @@ export function HomeScreen() {
   const { activeMonthKey } = useFinance();
   const monthQuery = useFinanceMonth(activeMonthKey);
   const walletQuery = useFinanceWallets();
+  const profileQuery = useProfileData();
+  const greeting = profileQuery.data?.firstName
+    ? `Welcome back, ${profileQuery.data.firstName}`
+    : 'Welcome back';
   const [entryMode, setEntryMode] = useState<EntryMode | null>(null);
   const [containerTransferPreset, setContainerTransferPreset] = useState<
     { sourceContainerId?: string; destinationContainerId?: string } | undefined
@@ -65,7 +70,7 @@ export function HomeScreen() {
       <Screen wide>
         <PageHeader
           eyebrow={formatLongDate()}
-          title="Welcome back, Alex"
+          title={greeting}
           subtitle="Opening this month from your saved ledger."
           preview={false}
         />
@@ -79,7 +84,7 @@ export function HomeScreen() {
       <Screen wide>
         <PageHeader
           eyebrow={formatLongDate()}
-          title="Welcome back, Alex"
+          title={greeting}
           subtitle="Your saved ledger could not be opened."
           preview={false}
         />
@@ -103,7 +108,7 @@ export function HomeScreen() {
       <Screen wide>
         <PageHeader
           eyebrow={formatLongDate()}
-          title="Welcome back, Alex"
+          title={greeting}
           preview={false}
         />
         <ErrorState
@@ -139,8 +144,8 @@ export function HomeScreen() {
     <Screen wide>
       <PageHeader
         eyebrow={formatLongDate()}
-        title="Welcome back"
-        subtitle={`${formatMonthKey(activeMonthKey)} · ${formatMonthPeriod(activeMonthKey)}`}
+        title={greeting}
+        subtitle={`${formatMonthKey(activeMonthKey)} · ${formatMonthPeriod(activeMonthKey)}${profileQuery.data ? ' · Sample profile' : ''}`}
         preview={false}
         right={
           <Pressable
