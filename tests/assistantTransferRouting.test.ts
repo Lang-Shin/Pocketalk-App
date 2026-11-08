@@ -627,12 +627,37 @@ test('parsed proposals execute with correct accounting deltas', async () => {
       const walletsBefore = await service.getWalletView();
       const proposal = proposalFrom(step.text, assistantContext);
       const input = assistantProposalToMoneyEntry(proposal);
+      assert.equal(proposal.amountMinor, step.amount, step.text);
+      assert.equal(proposal.containerId, step.source, step.text);
+      assert.equal(proposal.destinationContainerId, step.destination, step.text);
+      assert.equal(input.containerId, step.source, step.text);
+      assert.equal(input.destinationContainerId, step.destination, step.text);
+      assert.equal(input.amountMinor, step.amount, step.text);
       validateAssistantExecutionEligibility(
         proposal.action,
         input,
         assistantContext,
       );
-      await service.recordMoneyEntry(input);
+      const coordinator = createAssistantExecutionCoordinator({
+        executeMoneyEntry: async (entry) => ({
+          ok: true,
+          transactionId: (await service.recordMoneyEntry(entry)).transactionId,
+        }),
+      });
+      const unconfirmed = await coordinator.execute({
+        proposal,
+        context: assistantContext,
+        confirmed: false,
+      });
+      assert.equal(unconfirmed.ok, false, step.text);
+      const beforeConfirmation = await service.getMonthView('2026-10');
+      assert.equal(beforeConfirmation.transactions.length, before.transactions.length, step.text);
+      const confirmed = await coordinator.execute({
+        proposal,
+        context: assistantContext,
+        confirmed: true,
+      });
+      assert.equal(confirmed.ok, true, step.text);
       const after = await service.getMonthView('2026-10');
       const walletsAfter = await service.getWalletView();
 
