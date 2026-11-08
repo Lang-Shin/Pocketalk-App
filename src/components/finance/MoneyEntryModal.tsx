@@ -26,6 +26,7 @@ import { formatMonthKey, isValidMonthKey } from '@/lib/period';
 import { useAppTheme, radii, spacing } from '@/theme';
 import { AppText } from '../AppText';
 import { AppButton } from '../ui/AppButton';
+import { formStyles } from '../ui/formStyles';
 import {
   buildContainerTransferConfirmation,
   isTransferConfirmationCurrent,
@@ -1123,14 +1124,7 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     paddingVertical: 12,
   },
-  input: {
-    minHeight: 50,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderRadius: radii.md,
-    paddingHorizontal: spacing.md,
-    paddingVertical: 12,
-    fontSize: 15,
-  },
+  input: formStyles.input,
   options: {
     gap: spacing.sm,
   },

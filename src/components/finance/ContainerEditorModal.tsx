@@ -22,6 +22,7 @@ import { formatMonthKey } from '@/lib/period';
 import { useAppTheme, layout, radii, spacing, type Tone } from '@/theme';
 import { AppText } from '../AppText';
 import { AppButton } from '../ui/AppButton';
+import { formStyles } from '../ui/formStyles';
 import { NoticeBanner } from '../ui/NoticeBanner';
 
 interface ContainerEditorModalProps {
@@ -661,14 +662,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     gap: spacing.sm,
   },
-  input: {
-    minHeight: 50,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderRadius: radii.md,
-    paddingHorizontal: spacing.md,
-    paddingVertical: 12,
-    fontSize: 15,
-  },
+  input: formStyles.input,
   limitBox: {
     minHeight: 52,
     flexDirection: 'row',
