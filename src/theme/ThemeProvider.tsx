@@ -21,7 +21,7 @@ const ThemeContext = createContext<ThemeContextValue | null>(null);
 
 export function PocketaThemeProvider({ children }: PropsWithChildren) {
   const systemScheme = useColorScheme();
-  const [preference, setPreference] = useState<ThemePreference>('system');
+  const [preference, setPreference] = useState<ThemePreference>('dark');
 
   const value = useMemo<ThemeContextValue>(() => {
     const mode =

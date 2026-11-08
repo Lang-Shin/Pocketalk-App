@@ -1,5 +1,4 @@
 import { Ionicons } from '@expo/vector-icons';
-import { LinearGradient } from 'expo-linear-gradient';
 import type { ReactNode } from 'react';
 import { StyleSheet, useWindowDimensions, View } from 'react-native';
 
@@ -32,19 +31,13 @@ export function BalanceCard({
     .join('. ');
 
   return (
-    <LinearGradient
-      colors={[theme.colors.heroStart, theme.colors.heroEnd]}
-      start={{ x: 0, y: 0 }}
-      end={{ x: 1, y: 1 }}
-      style={styles.card}
+    <View
+      style={[styles.card, { backgroundColor: theme.colors.heroStart }]}
       accessible
       accessibilityLabel={`${label}: ${formatPeso(amountMinor)}. ${
         caption ?? ''
       }${walletSummary ? `. ${walletSummary}` : ''}`}
     >
-      <View pointerEvents="none" style={styles.glowOne} />
-      <View pointerEvents="none" style={styles.glowTwo} />
-
       <View style={styles.header}>
         <View style={styles.labelRow}>
           <Ionicons
@@ -120,7 +113,7 @@ export function BalanceCard({
       ) : null}
 
       {footer}
-    </LinearGradient>
+    </View>
   );
 }
 
@@ -130,24 +123,6 @@ const styles = StyleSheet.create({
     padding: spacing.xl,
     gap: spacing.sm,
     overflow: 'hidden',
-  },
-  glowOne: {
-    position: 'absolute',
-    width: 190,
-    height: 190,
-    borderRadius: 95,
-    backgroundColor: 'rgba(255,255,255,0.08)',
-    top: -80,
-    right: -50,
-  },
-  glowTwo: {
-    position: 'absolute',
-    width: 120,
-    height: 120,
-    borderRadius: 60,
-    backgroundColor: 'rgba(255,255,255,0.05)',
-    bottom: -50,
-    left: -30,
   },
   header: {
     flexDirection: 'row',
@@ -173,7 +148,7 @@ const styles = StyleSheet.create({
     width: 6,
     height: 6,
     borderRadius: 3,
-    backgroundColor: '#B9F5DF',
+    backgroundColor: '#D3B88D',
   },
   wallets: {
     flexDirection: 'row',

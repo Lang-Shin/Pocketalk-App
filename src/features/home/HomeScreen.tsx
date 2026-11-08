@@ -1,6 +1,7 @@
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
 import {
+  Image,
   Pressable,
   StyleSheet,
   useWindowDimensions,
@@ -138,7 +139,7 @@ export function HomeScreen() {
     <Screen wide>
       <PageHeader
         eyebrow={formatLongDate()}
-        title={`Welcome back, Alex`}
+        title="Your money, at a glance"
         subtitle={`${formatMonthKey(
           activeMonthKey,
         )} \u00B7 ${formatMonthPeriod(activeMonthKey)} is the active calendar month.`}
@@ -156,9 +157,7 @@ export function HomeScreen() {
               },
             ]}
           >
-            <AppText variant="h3" color={theme.colors.primarySoftText}>
-              A
-            </AppText>
+            <Image source={require('../../../assets/branding/pocketalk.png')} style={styles.brandImage} accessible={false} />
           </Pressable>
         }
       />
@@ -301,7 +300,7 @@ export function HomeScreen() {
               color={theme.colors.primarySoftText}
             >
               Try {'\u201CI spent \u20B1120 on lunch.\u201D'} Pocketa interprets
-              a draft. Saving is not part of this prototype.
+              a draft for you to review and confirm.
             </AppText>
           </View>
         </View>
@@ -430,6 +429,11 @@ const styles = StyleSheet.create({
     borderRadius: 23,
     alignItems: 'center',
     justifyContent: 'center',
+    overflow: 'hidden',
+  },
+  brandImage: {
+    width: '100%',
+    height: '100%',
   },
   quickActions: {
     flexDirection: 'row',
