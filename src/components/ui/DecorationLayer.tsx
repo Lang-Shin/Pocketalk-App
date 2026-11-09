@@ -12,6 +12,10 @@ const sources = {
   coin: require('../../../assets/decorations/shinecoin.png'),
   cards: require('../../../assets/decorations/cards.png'),
   money: require('../../../assets/decorations/spongemoney.png'),
+  cashbag: require('../../../assets/decorations/cashbag.png'),
+  fourleaf: require('../../../assets/decorations/fourleaf.png'),
+  moneybottle: require('../../../assets/decorations/moneybottle.png'),
+  tororo: require('../../../assets/decorations/tororo.png'),
 } satisfies Record<DecorationAsset, unknown>;
 
 export function ScreenDecorations({
