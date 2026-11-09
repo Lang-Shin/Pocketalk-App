@@ -162,7 +162,7 @@ export function HomeScreen() {
             ]}
           >
             <Image
-              source={require('../../../assets/branding/pocketa-header-208.png')}
+              source={require('../../../assets/branding/profile.png')}
               style={styles.brandImage}
               resizeMode="contain"
               accessible={false}
