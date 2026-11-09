@@ -4,12 +4,14 @@ import { isLoaded } from 'expo-font';
 import { StyleSheet } from 'react-native';
 
 import { typography, useAppTheme } from '@/theme';
+import { CurvedTabBar } from '@/components/navigation/CurvedTabBar';
 
 export default function TabsLayout() {
   const { theme } = useAppTheme();
 
   return (
     <Tabs
+      tabBar={(props) => <CurvedTabBar {...props} />}
       screenOptions={{
         headerShown: false,
         tabBarActiveTintColor: theme.colors.primary,
