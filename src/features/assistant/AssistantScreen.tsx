@@ -1,6 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { isLoaded } from 'expo-font';
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import Animated, { FadeIn, useReducedMotion } from 'react-native-reanimated';
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
@@ -48,6 +49,8 @@ import { formatDateKey, formatMonthKey } from '@/lib/period';
 import { useAppTheme, radii, spacing, typography } from '@/theme';
 
 import { AssistantModeSelector } from './AssistantModeSelector';
+import { AssistantThinkingIndicator } from './AssistantThinkingIndicator';
+import { ResponsePresentation } from './responsePresentation';
 import {
   ASSISTANT_KEYBOARD_BEHAVIOR,
   assistantInputPalette,
@@ -121,6 +124,8 @@ export function AssistantScreen() {
   ]);
   const [input, setInput] = useState('');
   const [isResponding, setIsResponding] = useState(false);
+  const [presentation] = useState(() => new ResponsePresentation());
+  const reduceMotion = useReducedMotion();
   const [pendingConfirmation, setPendingConfirmation] =
     useState<PendingConfirmation | null>(null);
   const scrollRef = useRef<ScrollView>(null);
@@ -129,6 +134,10 @@ export function AssistantScreen() {
     () => createAssistantExecutionCoordinator({ executeMoneyEntry }),
     [executeMoneyEntry],
   );
+  useEffect(() => {
+    presentation.activate();
+    return () => presentation.dispose();
+  }, [presentation]);
 
   const context = useMemo<AssistantContext | null>(() => {
     if (!monthQuery.data || !walletQuery.data) return null;
@@ -225,19 +234,13 @@ export function AssistantScreen() {
     ]);
   };
 
-  const requestInterpretation = async (text: string) => {
-    setIsResponding(true);
-    try {
-      const result = await activeProvider.interpret(text, context);
-      setMessages((current) => [
-        ...current,
-        createThreadMessage(result),
-      ]);
-    } catch {
-      appendProviderError(text);
-    } finally {
-      setIsResponding(false);
-    }
+  const requestInterpretation = async (text: string, onStart?: () => void) => {
+    await presentation.run(() => activeProvider.interpret(text, context), {
+      start: () => { onStart?.(); setIsResponding(true); },
+      success: (result) => setMessages((current) => [...current, createThreadMessage(result)]),
+      error: () => appendProviderError(text),
+      finish: () => setIsResponding(false),
+    }, activeProvider.info.kind === 'offline' ? 500 : 0);
   };
 
   const handleSend = async () => {
@@ -251,17 +254,17 @@ export function AssistantScreen() {
       createdAt: new Date().toISOString(),
     };
 
-    setInput('');
-    setMessages((current) => [...current, userMessage]);
-    await requestInterpretation(text);
+    await requestInterpretation(text, () => {
+      setInput('');
+      setMessages((current) => [...current, userMessage]);
+    });
   };
 
   const retryMessage = async (message: ThreadMessage) => {
     if (!message.retryText || isResponding) return;
-    setMessages((current) =>
-      current.filter((candidate) => candidate.id !== message.id),
-    );
-    await requestInterpretation(message.retryText);
+    await requestInterpretation(message.retryText, () => {
+      setMessages((current) => current.filter((candidate) => candidate.id !== message.id));
+    });
   };
 
   const appendChoiceResult = (
@@ -283,14 +286,12 @@ export function AssistantScreen() {
     resolve: () => Promise<AssistantResult>,
   ) => {
     if (isResponding) return;
-    setIsResponding(true);
-    try {
-      appendChoiceResult(message, await resolve());
-    } catch {
-      appendProviderError();
-    } finally {
-      setIsResponding(false);
-    }
+    await presentation.run(resolve, {
+      start: () => setIsResponding(true),
+      success: (result) => appendChoiceResult(message, result),
+      error: () => appendProviderError(),
+      finish: () => setIsResponding(false),
+    }, 0);
   };
 
   const handleContainerChoice = (
@@ -407,7 +408,8 @@ export function AssistantScreen() {
             </AppText>
           </View>
           {messages.map((message) => (
-            <ChatBubble key={message.id} message={message}>
+            <Animated.View key={message.id} entering={message.role === 'assistant' && !reduceMotion ? FadeIn.duration(180) : undefined}>
+            <ChatBubble message={message}>
               {message.interpretation && !message.proposal ? (
                 <IntentLine interpretation={message.interpretation} />
               ) : null}
@@ -462,31 +464,9 @@ export function AssistantScreen() {
                 </View>
               ) : null}
             </ChatBubble>
+            </Animated.View>
           ))}
-          {isResponding ? (
-            <View
-              style={[
-                styles.loadingRow,
-                {
-                  backgroundColor: theme.colors.surface,
-                  borderColor: theme.colors.border,
-                },
-              ]}
-            >
-              <ActivityIndicator
-                size="small"
-                color={theme.colors.primary}
-              />
-              <View style={styles.loadingCopy}>
-                <AppText variant="caption" weight="semibold">
-                  Interpreting your message…
-                </AppText>
-                <AppText variant="caption" color={theme.colors.textSecondary}>
-                  No transaction is being saved.
-                </AppText>
-              </View>
-            </View>
-          ) : null}
+          {isResponding ? <AssistantThinkingIndicator /> : null}
         </ScrollView>
 
         <View

@@ -7,6 +7,7 @@ import {
   isAssistantSendEnabled,
 } from '../src/features/assistant/composerConfig';
 import { createTheme } from '../src/theme/tokens';
+import { ResponsePresentation, type PresentationScheduler } from '../src/features/assistant/responsePresentation';
 
 function channel(value: number): number {
   const normalized = value / 255;
@@ -69,4 +70,81 @@ test('typed text uses the primary text token, not the placeholder token', () => 
   assert.equal(palette.text, theme.colors.text);
   assert.equal(palette.placeholder, theme.colors.textTertiary);
   assert.equal(palette.selection, theme.colors.primary);
+});
+
+class FakeClock implements PresentationScheduler {
+  time = 0;
+  private next = 0;
+  private tasks = new Map<number, { at: number; callback: () => void }>();
+  now = () => this.time;
+  schedule = (callback: () => void, delay: number) => {
+    const id = ++this.next;
+    this.tasks.set(id, { at: this.time + delay, callback });
+    return id as unknown as ReturnType<typeof setTimeout>;
+  };
+  cancel = (timer: ReturnType<typeof setTimeout>) => {
+    this.tasks.delete(timer as unknown as number);
+  };
+  advance(ms: number) {
+    this.time += ms;
+    for (const [id, task] of this.tasks) {
+      if (task.at <= this.time) { this.tasks.delete(id); task.callback(); }
+    }
+  }
+  get pending() { return this.tasks.size; }
+}
+
+test('fast response shows user message and thinking immediately, then reveals unchanged content at 500 ms', async () => {
+  const clock = new FakeClock();
+  const presenter = new ResponsePresentation(clock);
+  const events: string[] = [];
+  const run = presenter.run(async () => { clock.advance(50); return 'original response'; }, {
+    start: () => { events.push('user message', 'thinking'); },
+    success: (value) => events.push(value),
+    error: () => events.push('error'),
+    finish: () => events.push('finished'),
+  });
+  assert.deepEqual(events, ['user message', 'thinking']);
+  await Promise.resolve();
+  clock.advance(449);
+  await Promise.resolve();
+  assert.deepEqual(events, ['user message', 'thinking']);
+  clock.advance(1);
+  await run;
+  assert.deepEqual(events, ['user message', 'thinking', 'original response', 'finished']);
+});
+
+test('slow successful responses are not delayed further; failures finish promptly', async () => {
+  const clock = new FakeClock();
+  const presenter = new ResponsePresentation(clock);
+  const events: string[] = [];
+  await presenter.run(async () => { clock.advance(800); return 'done'; }, {
+    start: () => events.push('thinking'), success: (value) => events.push(value),
+    error: () => events.push('error'), finish: () => events.push('finished'),
+  });
+  assert.deepEqual(events, ['thinking', 'done', 'finished']);
+  assert.equal(clock.pending, 0);
+  events.length = 0;
+  await presenter.run(async () => { throw new Error('failed'); }, {
+    start: () => events.push('thinking'), success: () => events.push('success'),
+    error: () => events.push('error'), finish: () => events.push('finished'),
+  });
+  assert.deepEqual(events, ['thinking', 'error', 'finished']);
+  assert.equal(clock.pending, 0);
+});
+
+test('duplicate submissions are locked and unmount clears pending timers and callbacks', async () => {
+  const clock = new FakeClock();
+  const presenter = new ResponsePresentation(clock);
+  const events: string[] = [];
+  const callbacks = { start: () => events.push('start'), success: () => events.push('success'), error: () => events.push('error'), finish: () => events.push('finish') };
+  const first = presenter.run(async () => 'response', callbacks);
+  assert.equal(await presenter.run(async () => 'duplicate', callbacks), false);
+  await Promise.resolve();
+  assert.equal(clock.pending, 1);
+  presenter.dispose();
+  assert.equal(clock.pending, 0);
+  clock.advance(500);
+  await first;
+  assert.deepEqual(events, ['start']);
 });
