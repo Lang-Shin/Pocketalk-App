@@ -1,9 +1,12 @@
+import { memo } from 'react';
 import { Image, StyleSheet, View } from 'react-native';
 
 import { useAppTheme } from '@/theme';
 
 import {
   SCREEN_DECORATIONS,
+  decorationHorizontalPosition,
+  decorationOpacity,
   type DecorationAsset,
   type ScreenDecorationPreset,
 } from './screenDecorations';
@@ -18,7 +21,7 @@ const sources = {
   tororo: require('../../../assets/decorations/tororo.png'),
 } satisfies Record<DecorationAsset, unknown>;
 
-export function ScreenDecorations({
+export const ScreenDecorations = memo(function ScreenDecorations({
   preset,
   width,
 }: {
@@ -49,21 +52,17 @@ export function ScreenDecorations({
                 width: size,
                 height: size,
                 top: placement.top,
-                opacity: theme.isDark
-                  ? placement.darkOpacity
-                  : placement.lightOpacity,
+                opacity: decorationOpacity(placement, preset, theme.isDark),
                 transform: [{ rotate: `${placement.rotation}deg` }],
               },
-              placement.side === 'left'
-                ? { left: placement.offset }
-                : { right: placement.offset },
+              decorationHorizontalPosition(placement.side, placement.offset, size),
             ]}
           />
         );
       })}
     </View>
   );
-}
+});
 
 const styles = StyleSheet.create({
   artwork: {

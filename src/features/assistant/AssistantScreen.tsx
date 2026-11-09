@@ -7,6 +7,7 @@ import {
   ScrollView,
   StyleSheet,
   TextInput,
+  useWindowDimensions,
   View,
 } from 'react-native';
 
@@ -31,6 +32,7 @@ import {
 } from '@/components/feedback/ConfirmationDialog';
 import { AppButton } from '@/components/ui/AppButton';
 import { Chip } from '@/components/ui/Chip';
+import { ScreenDecorations } from '@/components/ui/DecorationLayer';
 import { IconButton } from '@/components/ui/IconButton';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { ErrorState, LoadingState } from '@/components/ui/QueryStates';
@@ -107,6 +109,7 @@ let messageSequence = 0;
 
 export function AssistantScreen() {
   const { theme } = useAppTheme();
+  const { width } = useWindowDimensions();
   const inputPalette = assistantInputPalette(theme.colors);
   const { activeMonthKey, todayDateKey, executeMoneyEntry } = useFinance();
   const monthQuery = useFinanceMonth(activeMonthKey);
@@ -389,6 +392,7 @@ export function AssistantScreen() {
             scrollRef.current?.scrollToEnd({ animated: true })
           }
         >
+          <ScreenDecorations preset="assistant" width={width} />
           <PageHeader
             title="Pocketa assistant"
             subtitle="A little help with your money, right here on your device."

@@ -6,10 +6,12 @@ import test from 'node:test';
 import {
   DECORATION_ASSETS,
   SCREEN_DECORATIONS,
+  decorationHorizontalPosition,
+  decorationOpacity,
   type ScreenDecorationPreset,
 } from '../src/components/ui/screenDecorations';
 
-const PRESETS: ScreenDecorationPreset[] = ['home', 'budgets', 'wallet', 'history'];
+const PRESETS = ['home', 'budgets', 'wallet', 'history'] as const;
 const DECORATION_DIR = join(process.cwd(), 'assets', 'decorations');
 const ASSET_KEYS = Object.keys(DECORATION_ASSETS);
 
@@ -71,11 +73,14 @@ test('compositions vary positions, sizes, rotations, and sides', () => {
     assert.equal(new Set(placements.map((item) => item.scale)).size, 7);
     assert.ok(placements.some((item) => item.side === 'left'));
     assert.ok(placements.some((item) => item.side === 'right'));
+    assert.ok(placements.some((item) => item.side === 'center'));
     assert.ok(placements.some((item) => item.offset < 0));
     for (const item of placements) {
       assert.ok(item.rotation >= -15 && item.rotation <= 15);
       assert.ok(item.darkOpacity >= 0.05 && item.darkOpacity <= 0.15);
       assert.ok(item.lightOpacity >= 0.042 && item.lightOpacity <= 0.13);
+      assert.ok(decorationOpacity(item, preset, true) <= 0.16);
+      assert.ok(decorationOpacity(item, preset, false) <= 0.145);
       assert.ok(item.scale >= 0.23 && item.scale <= 0.38);
       assert.ok(item.maxSize >= 120 && item.maxSize <= 190);
     }
@@ -97,10 +102,31 @@ test('History remains the quietest composition in both themes', () => {
   }
 });
 
-test('Assistant remains free of decorative backgrounds', () => {
+test('Assistant has four unique restrained decorations in its conversation', () => {
+  const placements = SCREEN_DECORATIONS.assistant;
+  assert.equal(placements.length, 4);
+  assert.equal(new Set(placements.map((item) => item.asset)).size, 4);
+  assert.ok(placements.every((item) => item.darkOpacity <= 0.065 && item.lightOpacity <= 0.055));
   const assistantSource = readFileSync(
     join(process.cwd(), 'src', 'features', 'assistant', 'AssistantScreen.tsx'),
     'utf8',
   );
-  assert.doesNotMatch(assistantSource, /decoration=/);
+  assert.match(assistantSource, /<ScreenDecorations preset="assistant"/);
+  assert.match(assistantSource, /behavior=\{ASSISTANT_KEYBOARD_BEHAVIOR\}/);
+});
+
+test('centered decorations track the available content width', () => {
+  for (const width of [360, 390]) {
+    const size = Math.min(width * 0.2, 88);
+    const position = decorationHorizontalPosition('center', 0, size);
+    assert.equal(position.left, '50%');
+    assert.equal(position.marginLeft, -size / 2);
+    assert.equal(width / 2 + position.marginLeft! + size / 2, width / 2);
+  }
+});
+
+test('decorative layer is excluded from touch and accessibility', () => {
+  const source = readFileSync(join(process.cwd(), 'src', 'components', 'ui', 'DecorationLayer.tsx'), 'utf8');
+  assert.match(source, /pointerEvents="none"/);
+  assert.match(source, /importantForAccessibility="no-hide-descendants"/);
 });
