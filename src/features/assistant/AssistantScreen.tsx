@@ -4,7 +4,6 @@ import { useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
-  Platform,
   ScrollView,
   StyleSheet,
   TextInput,
@@ -47,6 +46,11 @@ import { formatDateKey, formatMonthKey } from '@/lib/period';
 import { useAppTheme, radii, spacing, typography } from '@/theme';
 
 import { AssistantModeSelector } from './AssistantModeSelector';
+import {
+  ASSISTANT_KEYBOARD_BEHAVIOR,
+  assistantInputPalette,
+  isAssistantSendEnabled,
+} from './composerConfig';
 import {
   claimExecution,
   createPendingConfirmation,
@@ -103,6 +107,7 @@ let messageSequence = 0;
 
 export function AssistantScreen() {
   const { theme } = useAppTheme();
+  const inputPalette = assistantInputPalette(theme.colors);
   const { activeMonthKey, todayDateKey, executeMoneyEntry } = useFinance();
   const monthQuery = useFinanceMonth(activeMonthKey);
   const walletQuery = useFinanceWallets();
@@ -372,7 +377,7 @@ export function AssistantScreen() {
     <Screen scroll={false}>
       <KeyboardAvoidingView
         style={styles.conversation}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        behavior={ASSISTANT_KEYBOARD_BEHAVIOR}
       >
         <ScrollView
           ref={scrollRef}
@@ -515,8 +520,19 @@ export function AssistantScreen() {
               onChangeText={setInput}
               onSubmitEditing={() => void handleSend()}
               placeholder="Tell Pocketa what happened…"
-              placeholderTextColor={theme.colors.textTertiary}
-              style={[styles.input, { color: theme.colors.text, fontFamily: isLoaded(typography.body) ? typography.body : undefined }]}
+              placeholderTextColor={inputPalette.placeholder}
+              selectionColor={inputPalette.selection}
+              cursorColor={inputPalette.cursor}
+              textAlignVertical="top"
+              style={[
+                styles.input,
+                {
+                  color: inputPalette.text,
+                  fontFamily: isLoaded(typography.body)
+                    ? typography.body
+                    : undefined,
+                },
+              ]}
               multiline
               maxLength={500}
               accessibilityLabel="Message Pocketa"
@@ -529,7 +545,7 @@ export function AssistantScreen() {
               variant="primary"
               size={42}
               onPress={() => void handleSend()}
-              disabled={!input.trim() || isResponding}
+              disabled={!isAssistantSendEnabled(input, isResponding)}
             />
           </View>
           <AppText

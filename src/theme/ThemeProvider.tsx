@@ -1,5 +1,6 @@
 import {
   createContext,
+  useCallback,
   useContext,
   useMemo,
   useState,
@@ -7,9 +8,15 @@ import {
 } from 'react';
 import { useColorScheme } from 'react-native';
 
+import {
+  readThemePreference,
+  saveThemePreference,
+  type ThemePreference,
+} from './themePreference';
+import { themePreferenceStorage } from './themePreferenceStore';
 import { createTheme, type AppTheme } from './tokens';
 
-export type ThemePreference = 'system' | 'light' | 'dark';
+export type { ThemePreference } from './themePreference';
 
 interface ThemeContextValue {
   theme: AppTheme;
@@ -21,7 +28,14 @@ const ThemeContext = createContext<ThemeContextValue | null>(null);
 
 export function PocketaThemeProvider({ children }: PropsWithChildren) {
   const systemScheme = useColorScheme();
-  const [preference, setPreference] = useState<ThemePreference>('dark');
+  const [preference, setPreferenceState] = useState<ThemePreference>(() =>
+    readThemePreference(themePreferenceStorage),
+  );
+
+  const setPreference = useCallback((next: ThemePreference) => {
+    setPreferenceState(next);
+    void saveThemePreference(themePreferenceStorage, next);
+  }, []);
 
   const value = useMemo<ThemeContextValue>(() => {
     const mode =
@@ -36,7 +50,7 @@ export function PocketaThemeProvider({ children }: PropsWithChildren) {
       preference,
       setPreference,
     };
-  }, [preference, systemScheme]);
+  }, [preference, setPreference, systemScheme]);
 
   return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>;
 }
