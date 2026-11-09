@@ -1,6 +1,5 @@
 import type { PropsWithChildren } from 'react';
 import {
-  Image,
   ScrollView,
   StyleSheet,
   View,
@@ -16,6 +15,9 @@ import {
 
 import { getContentMaxWidth, useAppTheme, layout } from '@/theme';
 
+import { ScreenDecorations } from './DecorationLayer';
+import type { ScreenDecorationPreset } from './screenDecorations';
+
 interface ScreenProps {
   scroll?: boolean;
   edges?: Edge[];
@@ -23,14 +25,8 @@ interface ScreenProps {
   contentContainerStyle?: StyleProp<ViewStyle>;
   style?: StyleProp<ViewStyle>;
   keyboardShouldPersistTaps?: ScrollViewProps['keyboardShouldPersistTaps'];
-  decoration?: 'coin' | 'cards' | 'history';
+  decoration?: ScreenDecorationPreset;
 }
-
-const decorations = {
-  coin: require('../../../assets/decorations/shinecoin.png'),
-  cards: require('../../../assets/decorations/cards.png'),
-  history: require('../../../assets/decorations/shinecoin.png'),
-} as const;
 
 export function Screen({
   children,
@@ -52,32 +48,11 @@ export function Screen({
         edges={edges}
         style={[styles.safeArea, { backgroundColor: theme.colors.background }]}
       >
-        {decoration ? (
-          <View
-            pointerEvents="none"
-            accessible={false}
-            accessibilityElementsHidden
-            importantForAccessibility="no-hide-descendants"
-            style={styles.decorationLayer}
-          >
-            <Image
-              source={decorations[decoration]}
-              resizeMode="contain"
-              accessible={false}
-              style={{
-                width: Math.min(width * 0.36, 152),
-                height: Math.min(width * 0.36, 152),
-                opacity: decoration === 'history'
-                  ? (theme.isDark ? 0.055 : 0.045)
-                  : (theme.isDark ? 0.09 : 0.07),
-              }}
-            />
-          </View>
-        ) : null}
         <ScrollView
           style={styles.flex}
           contentContainerStyle={[
             styles.scrollContent,
+            styles.decorationParent,
             {
               paddingHorizontal: layout.screenPadding,
               maxWidth: contentMaxWidth,
@@ -87,6 +62,9 @@ export function Screen({
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps={keyboardShouldPersistTaps}
         >
+          {decoration ? (
+            <ScreenDecorations preset={decoration} width={width} />
+          ) : null}
           {children}
         </ScrollView>
       </SafeAreaView>
@@ -101,6 +79,7 @@ export function Screen({
       <View
         style={[
           styles.staticContent,
+          styles.decorationParent,
           {
             paddingHorizontal: layout.screenPadding,
             maxWidth: contentMaxWidth,
@@ -109,6 +88,7 @@ export function Screen({
           contentContainerStyle,
         ]}
       >
+        {decoration ? <ScreenDecorations preset={decoration} width={width} /> : null}
         {children}
       </View>
     </SafeAreaView>
@@ -122,10 +102,8 @@ const styles = StyleSheet.create({
   flex: {
     flex: 1,
   },
-  decorationLayer: {
-    position: 'absolute',
-    top: 48,
-    right: 16,
+  decorationParent: {
+    position: 'relative',
   },
   scrollContent: {
     width: '100%',

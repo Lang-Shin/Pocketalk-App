@@ -111,7 +111,7 @@ export function BudgetsScreen() {
   );
 
   return (
-    <Screen wide decoration="coin">
+    <Screen wide decoration="budgets">
       <PageHeader
         title="Budget containers"
         subtitle="Give every peso a purpose."

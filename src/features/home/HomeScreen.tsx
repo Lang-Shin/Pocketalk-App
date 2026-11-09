@@ -142,7 +142,7 @@ export function HomeScreen() {
   const cardWidth = grid.cardWidth;
 
   return (
-    <Screen wide decoration="coin">
+    <Screen wide decoration="home">
       <PageHeader
         eyebrow={formatLongDate()}
         title={greeting}
