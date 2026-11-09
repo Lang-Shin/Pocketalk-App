@@ -1,5 +1,6 @@
 import type { PropsWithChildren } from 'react';
 import {
+  Image,
   ScrollView,
   StyleSheet,
   View,
@@ -22,7 +23,14 @@ interface ScreenProps {
   contentContainerStyle?: StyleProp<ViewStyle>;
   style?: StyleProp<ViewStyle>;
   keyboardShouldPersistTaps?: ScrollViewProps['keyboardShouldPersistTaps'];
+  decoration?: 'coin' | 'cards' | 'history';
 }
+
+const decorations = {
+  coin: require('../../../assets/decorations/shinecoin.png'),
+  cards: require('../../../assets/decorations/cards.png'),
+  history: require('../../../assets/decorations/shinecoin.png'),
+} as const;
 
 export function Screen({
   children,
@@ -32,6 +40,7 @@ export function Screen({
   contentContainerStyle,
   style,
   keyboardShouldPersistTaps = 'handled',
+  decoration,
 }: PropsWithChildren<ScreenProps>) {
   const { theme } = useAppTheme();
   const { width } = useWindowDimensions();
@@ -43,6 +52,28 @@ export function Screen({
         edges={edges}
         style={[styles.safeArea, { backgroundColor: theme.colors.background }]}
       >
+        {decoration ? (
+          <View
+            pointerEvents="none"
+            accessible={false}
+            accessibilityElementsHidden
+            importantForAccessibility="no-hide-descendants"
+            style={styles.decorationLayer}
+          >
+            <Image
+              source={decorations[decoration]}
+              resizeMode="contain"
+              accessible={false}
+              style={{
+                width: Math.min(width * 0.36, 152),
+                height: Math.min(width * 0.36, 152),
+                opacity: decoration === 'history'
+                  ? (theme.isDark ? 0.055 : 0.045)
+                  : (theme.isDark ? 0.09 : 0.07),
+              }}
+            />
+          </View>
+        ) : null}
         <ScrollView
           style={styles.flex}
           contentContainerStyle={[
@@ -90,6 +121,11 @@ const styles = StyleSheet.create({
   },
   flex: {
     flex: 1,
+  },
+  decorationLayer: {
+    position: 'absolute',
+    top: 48,
+    right: 16,
   },
   scrollContent: {
     width: '100%',

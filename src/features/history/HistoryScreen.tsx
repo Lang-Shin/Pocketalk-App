@@ -159,7 +159,7 @@ export function HistoryScreen() {
   ).length;
 
   return (
-    <Screen>
+    <Screen decoration="history">
       <PageHeader
         title="Transaction history"
         subtitle="Activity is grouped by the date it actually happened."

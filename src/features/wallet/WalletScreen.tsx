@@ -73,7 +73,7 @@ export function WalletScreen() {
     .slice(0, 6);
 
   return (
-    <Screen>
+    <Screen decoration="cards">
       <PageHeader
         title="Virtual wallet"
         subtitle="Cash and a GCash balance you track yourself."
