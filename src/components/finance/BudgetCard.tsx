@@ -7,6 +7,11 @@ import {
 } from 'react-native';
 
 import type { ContainerSnapshot } from '@/data/models';
+import {
+  budgetProgress,
+  budgetSpendingStatus,
+  budgetStatusPresentation,
+} from './budgetStatus';
 import { formatPercent, formatPeso } from '@/lib/money';
 import { useAppTheme, radii, spacing } from '@/theme';
 import { AppText } from '../AppText';
@@ -20,22 +25,6 @@ interface BudgetCardProps {
   onPress?: () => void;
 }
 
-type SpendingStatus =
-  | 'archived'
-  | 'no-limit'
-  | 'on-track'
-  | 'near-limit'
-  | 'over-budget';
-
-function getStatus(container: ContainerSnapshot): SpendingStatus {
-  if (container.status === 'archived') return 'archived';
-  if (container.limitMinor <= 0) return 'no-limit';
-  const ratio = container.spentMinor / container.limitMinor;
-  if (ratio > 1) return 'over-budget';
-  if (ratio >= 0.85) return 'near-limit';
-  return 'on-track';
-}
-
 export function BudgetCard({
   container,
   compact = false,
@@ -44,49 +33,31 @@ export function BudgetCard({
   const { theme } = useAppTheme();
   const { width } = useWindowDimensions();
   const narrow = width < 480 || compact;
-  const ratio =
-    container.limitMinor > 0
-      ? container.spentMinor / container.limitMinor
-      : 0;
-  const status = getStatus(container);
+  const ratio = budgetProgress(container);
+  const status = budgetSpendingStatus(container);
+  const presentation = budgetStatusPresentation(status);
 
   const statusPalette = {
-    archived: {
-      background: theme.colors.surfaceAlt,
-      foreground: theme.colors.textSecondary,
-      label: 'Archived',
-      icon: 'archive-outline' as const,
-      progress: 'primary' as const,
-    },
-    'no-limit': {
-      background: theme.colors.surfaceAlt,
-      foreground: theme.colors.textSecondary,
-      label: 'No limit',
-      icon: 'remove-circle-outline' as const,
-      progress: 'primary' as const,
-    },
-    'on-track': {
-      background: theme.colors.successSoft,
-      foreground: theme.colors.success,
-      label: 'On track',
-      icon: 'checkmark-circle-outline' as const,
-      progress: 'success' as const,
-    },
-    'near-limit': {
-      background: theme.colors.warningSoft,
-      foreground: theme.colors.warning,
-      label: 'Near limit',
-      icon: 'alert-circle-outline' as const,
-      progress: 'warning' as const,
-    },
-    'over-budget': {
-      background: theme.colors.dangerSoft,
-      foreground: theme.colors.danger,
-      label: 'Over budget',
-      icon: 'warning-outline' as const,
-      progress: 'danger' as const,
-    },
-  }[status];
+    background:
+      presentation.semantic === 'success'
+        ? theme.colors.successSoft
+        : presentation.semantic === 'warning'
+          ? theme.colors.warningSoft
+          : presentation.semantic === 'danger'
+            ? theme.colors.dangerSoft
+            : theme.colors.surfaceAlt,
+    foreground:
+      presentation.semantic === 'success'
+        ? theme.colors.success
+        : presentation.semantic === 'warning'
+          ? theme.colors.warning
+          : presentation.semantic === 'danger'
+            ? theme.colors.danger
+            : theme.colors.textSecondary,
+    label: presentation.label,
+    icon: presentation.icon,
+    progress: presentation.progressTone,
+  };
 
   const planLabel =
     container.limitMinor > 0

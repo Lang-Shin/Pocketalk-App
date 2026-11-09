@@ -7,7 +7,8 @@ import {
   isAssistantSendEnabled,
 } from '../src/features/assistant/composerConfig';
 import { createTheme } from '../src/theme/tokens';
-import { ResponsePresentation, type PresentationScheduler } from '../src/features/assistant/responsePresentation';
+import { ResponsePresentation } from '../src/features/assistant/responsePresentation';
+import { FakePresentationClock } from './helpers/fakePresentationClock';
 
 function channel(value: number): number {
   const normalized = value / 255;
@@ -72,30 +73,8 @@ test('typed text uses the primary text token, not the placeholder token', () => 
   assert.equal(palette.selection, theme.colors.primary);
 });
 
-class FakeClock implements PresentationScheduler {
-  time = 0;
-  private next = 0;
-  private tasks = new Map<number, { at: number; callback: () => void }>();
-  now = () => this.time;
-  schedule = (callback: () => void, delay: number) => {
-    const id = ++this.next;
-    this.tasks.set(id, { at: this.time + delay, callback });
-    return id as unknown as ReturnType<typeof setTimeout>;
-  };
-  cancel = (timer: ReturnType<typeof setTimeout>) => {
-    this.tasks.delete(timer as unknown as number);
-  };
-  advance(ms: number) {
-    this.time += ms;
-    for (const [id, task] of this.tasks) {
-      if (task.at <= this.time) { this.tasks.delete(id); task.callback(); }
-    }
-  }
-  get pending() { return this.tasks.size; }
-}
-
 test('fast response shows user message and thinking immediately, then reveals unchanged content at 500 ms', async () => {
-  const clock = new FakeClock();
+  const clock = new FakePresentationClock();
   const presenter = new ResponsePresentation(clock);
   const events: string[] = [];
   const run = presenter.run(async () => { clock.advance(50); return 'original response'; }, {
@@ -115,7 +94,7 @@ test('fast response shows user message and thinking immediately, then reveals un
 });
 
 test('slow successful responses are not delayed further; failures finish promptly', async () => {
-  const clock = new FakeClock();
+  const clock = new FakePresentationClock();
   const presenter = new ResponsePresentation(clock);
   const events: string[] = [];
   await presenter.run(async () => { clock.advance(800); return 'done'; }, {
@@ -134,7 +113,7 @@ test('slow successful responses are not delayed further; failures finish promptl
 });
 
 test('duplicate submissions are locked and unmount clears pending timers and callbacks', async () => {
-  const clock = new FakeClock();
+  const clock = new FakePresentationClock();
   const presenter = new ResponsePresentation(clock);
   const events: string[] = [];
   const callbacks = { start: () => events.push('start'), success: () => events.push('success'), error: () => events.push('error'), finish: () => events.push('finish') };

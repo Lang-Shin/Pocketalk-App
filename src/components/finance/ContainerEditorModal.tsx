@@ -1,5 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
-import { useRef, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import {
   KeyboardAvoidingView,
   Modal,
@@ -13,11 +13,14 @@ import {
 } from 'react-native';
 
 import { ConfirmationDialog } from '@/components/feedback/ConfirmationDialog';
+import { ResponsePresentation } from '@/features/assistant/responsePresentation';
+import { CreatingContainerIndicator } from './CreatingContainerIndicator';
+import { parseContainerLimit, presentContainerCreation } from './containerCreation';
 import type { ContainerSnapshot } from '@/data/models';
 import { useFinance } from '@/data/financeStore';
 import { createOperationKey } from '@/data/financeService';
 import type { IconName } from '@/lib/icons';
-import { formatPeso, formatPesoInput, parsePesoToMinor } from '@/lib/money';
+import { formatPeso, formatPesoInput } from '@/lib/money';
 import { formatMonthKey } from '@/lib/period';
 import { useAppTheme, layout, radii, spacing, type Tone } from '@/theme';
 import { AppText } from '../AppText';
@@ -90,41 +93,73 @@ export function ContainerEditorModal({
   const [error, setError] = useState<string | null>(null);
   const [pendingAction, setPendingAction] = useState<PendingAction>(null);
   const [pending, setPending] = useState(false);
+  const [creating, setCreating] = useState(false);
+  const [presentation] = useState(() => new ResponsePresentation());
   const operationKey = useRef(createOperationKey('container-save'));
   const archiveKey = useRef(createOperationKey('container-archive'));
   const deleteKey = useRef(createOperationKey('container-delete'));
   const reactivateKey = useRef(createOperationKey('container-reactivate'));
 
-  const handleSave = async () => {
-    if (pending || isArchived) return;
+  useEffect(() => {
+    presentation.activate();
+    return () => presentation.dispose();
+  }, [presentation]);
+
+  const busy = pending || creating;
+
+  const handleSave = () => {
+    if (pending || creating || isArchived) return;
     setError(null);
-    const limitMinor = limit.trim() ? parsePesoToMinor(limit) : 0;
-    if (limitMinor === null) {
-      setError('Enter a valid monthly limit, such as 1200 or 1200.50.');
+
+    if (container) {
+      const parsedLimit = parseContainerLimit(limit);
+      if (!parsedLimit.ok) {
+        setError(parsedLimit.message);
+        return;
+      }
+      void (async () => {
+        setPending(true);
+        const result = await updateContainer({
+          id: container.id,
+          name,
+          description,
+          icon,
+          tone,
+          limitMinor: parsedLimit.limitMinor,
+          monthKey,
+          idempotencyKey: operationKey.current,
+        });
+        setPending(false);
+        if (!result.ok) {
+          setError(result.message ?? 'Check the details and try again.');
+          return;
+        }
+        onClose();
+      })();
       return;
     }
 
-    const input = {
-      name,
-      description,
-      icon,
-      tone,
-      limitMinor,
-      monthKey,
-      idempotencyKey: operationKey.current,
-    };
-    setPending(true);
-    const result = container
-      ? await updateContainer({ ...input, id: container.id })
-      : await createContainer(input);
-    setPending(false);
-
-    if (!result.ok) {
-      setError(result.message ?? 'Check the details and try again.');
-      return;
-    }
-
-    onClose();
+    void presentContainerCreation({
+      presentation,
+      limitText: limit,
+      save: (limitMinor) =>
+        createContainer({
+          name,
+          description,
+          icon,
+          tone,
+          limitMinor,
+          monthKey,
+          idempotencyKey: operationKey.current,
+        }),
+      callbacks: {
+        onStart: () => setCreating(true),
+        onFinish: () => setCreating(false),
+        onSuccess: () => onClose(),
+        onError: (message) => setError(message),
+        onValidationError: (message) => setError(message),
+      },
+    });
   };
 
   const handleArchive = async () => {
@@ -172,7 +207,7 @@ export function ContainerEditorModal({
         transparent
         animationType="fade"
         statusBarTranslucent
-        onRequestClose={onClose}
+        onRequestClose={() => { if (!busy) onClose(); }}
       >
         <KeyboardAvoidingView
           style={[styles.overlay, { backgroundColor: theme.colors.overlay }]}
@@ -181,7 +216,9 @@ export function ContainerEditorModal({
           <Pressable
             accessibilityRole="button"
             accessibilityLabel="Close container editor"
-            onPress={onClose}
+            onPress={() => {
+              if (!busy) onClose();
+            }}
             style={StyleSheet.absoluteFill}
           />
           <View
@@ -222,7 +259,9 @@ export function ContainerEditorModal({
               <Pressable
                 accessibilityRole="button"
                 accessibilityLabel="Close"
-                onPress={onClose}
+                onPress={() => {
+                  if (!busy) onClose();
+                }}
                 hitSlop={8}
                 style={styles.close}
               >
@@ -518,34 +557,45 @@ export function ContainerEditorModal({
               ) : null}
             </ScrollView>
 
-            <View
-              style={[styles.actions, stackActions ? styles.actionsStacked : null]}
-            >
-              <AppButton
-                label="Cancel"
-                variant="outline"
-                onPress={onClose}
+            <View style={styles.footer}>
+              {creating ? <CreatingContainerIndicator /> : null}
+              <View
                 style={[
-                  styles.action,
-                  stackActions ? styles.actionStacked : null,
+                  styles.actions,
+                  stackActions ? styles.actionsStacked : null,
                 ]}
-              />
-              <AppButton
-                label={
-                  pending
-                    ? 'Saving…'
-                    : isEditing
-                      ? 'Save changes'
-                      : 'Create container'
-                }
-                icon="checkmark"
-                onPress={handleSave}
-                disabled={pending || isArchived}
-                style={[
-                  styles.action,
-                  stackActions ? styles.actionStacked : null,
-                ]}
-              />
+              >
+                <AppButton
+                  label="Cancel"
+                  variant="outline"
+                  onPress={() => {
+                    if (!busy) onClose();
+                  }}
+                  disabled={busy}
+                  style={[
+                    styles.action,
+                    stackActions ? styles.actionStacked : null,
+                  ]}
+                />
+                <AppButton
+                  label={
+                    creating
+                      ? 'Creating…'
+                      : pending
+                        ? 'Saving…'
+                        : isEditing
+                          ? 'Save changes'
+                          : 'Create container'
+                  }
+                  icon="checkmark"
+                  onPress={handleSave}
+                  disabled={busy || isArchived}
+                  style={[
+                    styles.action,
+                    stackActions ? styles.actionStacked : null,
+                  ]}
+                />
+              </View>
             </View>
           </View>
         </KeyboardAvoidingView>
@@ -738,6 +788,9 @@ const styles = StyleSheet.create({
   },
   flex: {
     flex: 1,
+  },
+  footer: {
+    gap: spacing.sm,
   },
   actions: {
     flexDirection: 'row',
