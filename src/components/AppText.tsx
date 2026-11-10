@@ -1,6 +1,7 @@
 import type { PropsWithChildren } from 'react';
 import { isLoaded } from 'expo-font';
 import {
+  Platform,
   Text,
   type TextProps,
   type TextStyle,
@@ -9,8 +10,8 @@ import {
 
 import {
   fontSizes,
-  fontFamilies,
   fontWeights,
+  getFontFamilies,
   lineHeights,
   useAppTheme,
 } from '@/theme';
@@ -55,6 +56,7 @@ const variantStyles: Record<TextVariant, TextStyle> = {
     lineHeight: lineHeights.h2,
     fontWeight: fontWeights.bold,
     letterSpacing: -0.4,
+    fontVariant: ['tabular-nums'],
   },
   h3: {
     fontSize: fontSizes.h3,
@@ -75,6 +77,7 @@ const variantStyles: Record<TextVariant, TextStyle> = {
     fontSize: fontSizes.label,
     lineHeight: lineHeights.label,
     fontWeight: fontWeights.semibold,
+    fontVariant: ['tabular-nums'],
   },
   caption: {
     fontSize: fontSizes.caption,
@@ -113,6 +116,7 @@ export function AppText({
   ...props
 }: PropsWithChildren<AppTextProps>) {
   const { theme } = useAppTheme();
+  const fontFamilies = getFontFamilies(Platform.OS);
   const resolvedWeight = weight ? fontWeights[weight] : variantStyles[variant].fontWeight;
   const family = resolvedWeight === '800' || resolvedWeight === '900'
     ? fontFamilies.heavy
@@ -123,7 +127,8 @@ export function AppText({
         : resolvedWeight === '500'
           ? fontFamilies.medium
           : fontFamilies.regular;
-  const customFontLoaded = isLoaded(family);
+  const customFontLoaded =
+    Platform.OS !== 'ios' && isLoaded(family);
 
   return (
     <Text

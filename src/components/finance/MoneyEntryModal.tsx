@@ -1,4 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
+import { isLoaded } from 'expo-font';
 import { useRef, useState, type ReactNode } from 'react';
 import {
   KeyboardAvoidingView,
@@ -23,9 +24,10 @@ import type { ContainerSnapshot } from '@/data/models';
 import type { IconName } from '@/lib/icons';
 import { formatPeso, parsePesoToMinor } from '@/lib/money';
 import { formatMonthKey, isValidMonthKey } from '@/lib/period';
-import { useAppTheme, radii, spacing } from '@/theme';
+import { useAppTheme, radii, spacing, typography } from '@/theme';
 import { AppText } from '../AppText';
 import { AppButton } from '../ui/AppButton';
+import { ModalBackdrop } from '../ui/ModalBackdrop';
 import { formStyles } from '../ui/formStyles';
 import {
   buildContainerTransferConfirmation,
@@ -362,25 +364,17 @@ export function MoneyEntryModal({
       onRequestClose={onClose}
     >
       <KeyboardAvoidingView
-        style={[
-          styles.overlay,
-          { backgroundColor: theme.colors.overlay },
-        ]}
-          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        style={styles.overlay}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       >
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Close entry form"
-          onPress={onClose}
-          style={StyleSheet.absoluteFill}
-        />
+        <ModalBackdrop onDismiss={onClose} dismissLabel="Close entry form" />
         <View
           accessibilityViewIsModal
           style={[
             styles.sheet,
             {
-              backgroundColor: theme.colors.surface,
-              borderColor: theme.colors.border,
+              backgroundColor: theme.glass.sheet,
+              borderColor: theme.glass.border,
               ...theme.shadows.floating,
             },
           ]}
@@ -576,7 +570,18 @@ export function MoneyEntryModal({
                   placeholder="0.00"
                   placeholderTextColor={theme.colors.textTertiary}
                   keyboardType="decimal-pad"
-                  style={[styles.amountInput, { color: theme.colors.text }]}
+                  style={[
+                    styles.amountInput,
+                    {
+                      color: theme.colors.text,
+                      fontFamily: isLoaded(typography.financialBalance)
+                        ? typography.financialBalance
+                        : undefined,
+                      fontWeight: isLoaded(typography.financialBalance)
+                        ? 'normal'
+                        : '700',
+                    },
+                  ]}
                   accessibilityLabel="Amount in Philippine pesos"
                 />
               </View>
@@ -945,6 +950,9 @@ function AppInput({
           color: theme.colors.text,
           backgroundColor: theme.colors.surfaceMuted,
           borderColor: theme.colors.border,
+          fontFamily: isLoaded(typography.body)
+            ? typography.body
+            : undefined,
         },
       ]}
     />
@@ -1123,6 +1131,7 @@ const styles = StyleSheet.create({
     fontSize: 26,
     fontWeight: '700',
     paddingVertical: 12,
+    fontVariant: ['tabular-nums'],
   },
   input: formStyles.input,
   options: {

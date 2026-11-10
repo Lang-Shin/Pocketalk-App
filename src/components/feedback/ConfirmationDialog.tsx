@@ -1,6 +1,5 @@
 import {
   Modal,
-  Pressable,
   ScrollView,
   StyleSheet,
   useWindowDimensions,
@@ -10,6 +9,7 @@ import {
 import { useAppTheme, radii, spacing } from '@/theme';
 import { AppText } from '../AppText';
 import { AppButton } from '../ui/AppButton';
+import { ModalBackdrop } from '../ui/ModalBackdrop';
 
 export interface ConfirmationDetail {
   label: string;
@@ -51,20 +51,15 @@ export function ConfirmationDialog({
       statusBarTranslucent
       onRequestClose={onCancel}
     >
-      <View style={[styles.overlay, { backgroundColor: theme.colors.overlay }]}>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Dismiss dialog"
-          onPress={onCancel}
-          style={StyleSheet.absoluteFill}
-        />
+      <View style={styles.overlay}>
+        <ModalBackdrop onDismiss={onCancel} dismissLabel="Dismiss dialog" />
         <View
           accessibilityViewIsModal
           style={[
             styles.dialog,
             {
-              backgroundColor: theme.colors.surface,
-              borderColor: theme.colors.border,
+              backgroundColor: theme.glass.sheet,
+              borderColor: theme.glass.border,
               ...theme.shadows.floating,
             },
           ]}

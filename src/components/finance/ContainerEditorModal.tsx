@@ -1,4 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
+import { isLoaded } from 'expo-font';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import {
   KeyboardAvoidingView,
@@ -22,9 +23,10 @@ import { createOperationKey } from '@/data/financeService';
 import type { IconName } from '@/lib/icons';
 import { formatPeso, formatPesoInput } from '@/lib/money';
 import { formatMonthKey } from '@/lib/period';
-import { useAppTheme, layout, radii, spacing, type Tone } from '@/theme';
+import { useAppTheme, layout, radii, spacing, typography, type Tone } from '@/theme';
 import { AppText } from '../AppText';
 import { AppButton } from '../ui/AppButton';
+import { ModalBackdrop } from '../ui/ModalBackdrop';
 import { formStyles } from '../ui/formStyles';
 import { NoticeBanner } from '../ui/NoticeBanner';
 
@@ -210,24 +212,22 @@ export function ContainerEditorModal({
         onRequestClose={() => { if (!busy) onClose(); }}
       >
         <KeyboardAvoidingView
-          style={[styles.overlay, { backgroundColor: theme.colors.overlay }]}
+          style={styles.overlay}
           behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         >
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Close container editor"
-            onPress={() => {
+          <ModalBackdrop
+            onDismiss={() => {
               if (!busy) onClose();
             }}
-            style={StyleSheet.absoluteFill}
+            dismissLabel="Close container editor"
           />
           <View
             accessibilityViewIsModal
             style={[
               styles.sheet,
               {
-                backgroundColor: theme.colors.surface,
-                borderColor: theme.colors.border,
+                backgroundColor: theme.glass.sheet,
+                borderColor: theme.glass.border,
                 ...theme.shadows.floating,
               },
             ]}
@@ -338,6 +338,9 @@ export function ContainerEditorModal({
                       color: theme.colors.text,
                       backgroundColor: theme.colors.surfaceMuted,
                       borderColor: theme.colors.border,
+                      fontFamily: isLoaded(typography.body)
+                        ? typography.body
+                        : undefined,
                     },
                   ]}
                 />
@@ -357,6 +360,9 @@ export function ContainerEditorModal({
                       color: theme.colors.text,
                       backgroundColor: theme.colors.surfaceMuted,
                       borderColor: theme.colors.border,
+                      fontFamily: isLoaded(typography.body)
+                        ? typography.body
+                        : undefined,
                     },
                   ]}
                 />
@@ -392,7 +398,15 @@ export function ContainerEditorModal({
                       accessibilityLabel="Optional monthly limit"
                       style={[
                         styles.limitInput,
-                        { color: theme.colors.text },
+                        {
+                          color: theme.colors.text,
+                          fontFamily: isLoaded(typography.financialBalance)
+                            ? typography.financialBalance
+                            : undefined,
+                          fontWeight: isLoaded(typography.financialBalance)
+                            ? 'normal'
+                            : '600',
+                        },
                       ]}
                     />
                   </View>
@@ -727,6 +741,7 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     fontSize: 18,
     fontWeight: '600',
+    fontVariant: ['tabular-nums'],
   },
   balanceBox: {
     flexDirection: 'row',

@@ -44,8 +44,10 @@ export function ChatBubble({ message, children }: ChatBubbleProps) {
           {
             backgroundColor: isUser
               ? theme.colors.primary
-              : theme.colors.surface,
-            borderColor: isUser ? theme.colors.primary : theme.colors.border,
+              : theme.glass.surface,
+            borderColor: isUser
+              ? theme.colors.primary
+              : theme.glass.border,
           },
           isUser ? styles.userBubble : theme.shadows.card,
         ]}

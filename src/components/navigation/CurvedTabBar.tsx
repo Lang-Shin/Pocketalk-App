@@ -55,9 +55,9 @@ export function CurvedTabBar({ state, descriptors, navigation, insets }: TabBarP
         {width > 0 ? (
           <>
             <Svg width={width} height={BAR_TOP + BAR_HEIGHT} style={StyleSheet.absoluteFill} pointerEvents="none">
-              <AnimatedPath animatedProps={pathProps} fill={theme.colors.surface} stroke={theme.colors.border} strokeWidth={1} />
+              <AnimatedPath animatedProps={pathProps} fill={theme.glass.navSurface} stroke={theme.glass.border} strokeWidth={1} />
             </Svg>
-            <Animated.View pointerEvents="none" style={[styles.indicator, { backgroundColor: theme.colors.primary }, indicatorStyle]} />
+            <Animated.View pointerEvents="none" style={[styles.indicator, { backgroundColor: theme.colors.primary, borderColor: theme.glass.highlight }, indicatorStyle]} />
           </>
         ) : null}
         <View style={styles.tabs}>
@@ -126,7 +126,7 @@ function TabIcon({ index, progress, renderIcon, activeColor, inactiveColor }: {
 const styles = StyleSheet.create({
   outer: { paddingHorizontal: spacing.lg },
   bar: { height: BAR_TOP + BAR_HEIGHT, width: '100%' },
-  indicator: { position: 'absolute', top: 0, left: 0, width: INDICATOR_SIZE, height: INDICATOR_SIZE, borderRadius: INDICATOR_SIZE / 2 },
+  indicator: { position: 'absolute', top: 0, left: 0, width: INDICATOR_SIZE, height: INDICATOR_SIZE, borderRadius: INDICATOR_SIZE / 2, borderWidth: StyleSheet.hairlineWidth },
   tabs: { position: 'absolute', left: 0, right: 0, top: BAR_TOP, bottom: 0, flexDirection: 'row' },
   tab: { flex: 1, minHeight: 48, alignItems: 'center', paddingTop: 16, gap: 2 },
   icon: { width: 26, height: 26 },

@@ -33,7 +33,7 @@ export function MonthSummaryCard({
       : 0;
 
   return (
-    <Card style={styles.card}>
+    <Card variant="glass" style={styles.card}>
       <View style={styles.header}>
         <View style={styles.headerCopy}>
           <AppText variant="micro" color={theme.colors.textTertiary}>

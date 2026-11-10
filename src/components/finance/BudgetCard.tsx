@@ -22,12 +22,14 @@ import { ProgressBar } from '../ui/ProgressBar';
 interface BudgetCardProps {
   container: ContainerSnapshot;
   compact?: boolean;
+  glass?: boolean;
   onPress?: () => void;
 }
 
 export function BudgetCard({
   container,
   compact = false,
+  glass = false,
   onPress,
 }: BudgetCardProps) {
   const { theme } = useAppTheme();
@@ -92,6 +94,7 @@ export function BudgetCard({
 
   const content = (
     <Card
+      variant={glass ? 'glass' : 'solid'}
       accessible={!onPress}
       accessibilityLabel={
         onPress

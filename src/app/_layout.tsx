@@ -3,10 +3,22 @@ import { Stack } from 'expo-router';
 import { useFonts } from 'expo-font';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect } from 'react';
+import { Platform } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { FinanceProvider } from '@/data/financeStore';
 import { PocketaThemeProvider, useAppTheme } from '@/theme';
+
+const interFonts =
+  Platform.OS === 'ios'
+    ? {}
+    : {
+        Inter_400Regular: require('../../node_modules/@expo-google-fonts/inter/400Regular/Inter_400Regular.ttf'),
+        Inter_500Medium: require('../../node_modules/@expo-google-fonts/inter/500Medium/Inter_500Medium.ttf'),
+        Inter_600SemiBold: require('../../node_modules/@expo-google-fonts/inter/600SemiBold/Inter_600SemiBold.ttf'),
+        Inter_700Bold: require('../../node_modules/@expo-google-fonts/inter/700Bold/Inter_700Bold.ttf'),
+        Inter_800ExtraBold: require('../../node_modules/@expo-google-fonts/inter/800ExtraBold/Inter_800ExtraBold.ttf'),
+      };
 
 function RootNavigator() {
   const { theme } = useAppTheme();
@@ -40,16 +52,16 @@ function RootNavigator() {
 }
 
 export default function RootLayout() {
-  const [fontsLoaded, fontError] = useFonts({
-    NunitoSans_400Regular: require('../../node_modules/@expo-google-fonts/nunito-sans/400Regular/NunitoSans_400Regular.ttf'),
-    NunitoSans_500Medium: require('../../node_modules/@expo-google-fonts/nunito-sans/500Medium/NunitoSans_500Medium.ttf'),
-    NunitoSans_600SemiBold: require('../../node_modules/@expo-google-fonts/nunito-sans/600SemiBold/NunitoSans_600SemiBold.ttf'),
-    NunitoSans_700Bold: require('../../node_modules/@expo-google-fonts/nunito-sans/700Bold/NunitoSans_700Bold.ttf'),
-    NunitoSans_800ExtraBold: require('../../node_modules/@expo-google-fonts/nunito-sans/800ExtraBold/NunitoSans_800ExtraBold.ttf'),
-  });
+  const [interLoaded, fontError] = useFonts(interFonts);
+  const fontsLoaded = Platform.OS === 'ios' || interLoaded;
 
   useEffect(() => {
-    if (fontError) console.warn('Nunito Sans could not be loaded; using system fonts.', fontError);
+    if (fontError) {
+      console.warn(
+        'Inter could not be loaded; using the platform system font.',
+        fontError,
+      );
+    }
   }, [fontError]);
 
   if (!fontsLoaded && !fontError) return null;

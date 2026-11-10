@@ -494,8 +494,8 @@ export function AssistantScreen() {
             style={[
               styles.composer,
               {
-                backgroundColor: theme.colors.surface,
-                borderColor: theme.colors.border,
+                backgroundColor: theme.glass.surface,
+                borderColor: theme.glass.border,
               },
             ]}
           >

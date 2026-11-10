@@ -236,6 +236,7 @@ export function HomeScreen() {
                 <BudgetCard
                   container={container}
                   compact
+                  glass
                   onPress={() => router.push('/budgets')}
                 />
               </View>

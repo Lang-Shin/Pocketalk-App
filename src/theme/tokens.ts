@@ -1,13 +1,36 @@
 import type { TextStyle, ViewStyle } from 'react-native';
 
-// Static faces are used because this app targets Expo SDK 57.
-export const fontFamilies = {
-  regular: 'NunitoSans_400Regular',
-  medium: 'NunitoSans_500Medium',
-  semibold: 'NunitoSans_600SemiBold',
-  bold: 'NunitoSans_700Bold',
-  heavy: 'NunitoSans_800ExtraBold',
-} as const;
+interface FontFamilySet {
+  regular: string;
+  medium: string;
+  semibold: string;
+  bold: string;
+  heavy: string;
+}
+
+const systemFontFamilies: FontFamilySet = {
+  regular: 'System',
+  medium: 'System',
+  semibold: 'System',
+  bold: 'System',
+  heavy: 'System',
+};
+
+const interFontFamilies: FontFamilySet = {
+  regular: 'Inter_400Regular',
+  medium: 'Inter_500Medium',
+  semibold: 'Inter_600SemiBold',
+  bold: 'Inter_700Bold',
+  heavy: 'Inter_800ExtraBold',
+};
+
+export function getFontFamilies(platform: string): FontFamilySet {
+  return platform === 'ios' || platform === 'macos'
+    ? systemFontFamilies
+    : interFontFamilies;
+}
+
+export const fontFamilies = interFontFamilies;
 
 export const typography = {
   screenHeading: fontFamilies.bold,
@@ -163,10 +186,24 @@ export interface AppColors {
   categories: Record<Tone, ToneColors>;
 }
 
+export interface GlassColors {
+  surface: string;
+  surfaceStrong: string;
+  border: string;
+  highlight: string;
+  navSurface: string;
+  heroSurface: string;
+  heroBorder: string;
+  sheet: string;
+  input: string;
+  modalOverlay: string;
+}
+
 export interface AppTheme {
   mode: 'light' | 'dark';
   isDark: boolean;
   colors: AppColors;
+  glass: GlassColors;
   shadows: {
     card: ViewStyle;
     floating: ViewStyle;
@@ -253,6 +290,32 @@ const darkColors: AppColors = {
   },
 };
 
+const lightGlass: GlassColors = {
+  surface: 'rgba(255, 251, 245, 0.78)',
+  surfaceStrong: 'rgba(255, 251, 245, 0.91)',
+  border: 'rgba(118, 90, 51, 0.18)',
+  highlight: 'rgba(255, 255, 255, 0.64)',
+  navSurface: 'rgba(255, 251, 245, 0.9)',
+  heroSurface: 'rgba(48, 47, 50, 0.94)',
+  heroBorder: 'rgba(211, 184, 141, 0.3)',
+  sheet: 'rgba(255, 251, 245, 0.97)',
+  input: 'rgba(245, 239, 231, 0.78)',
+  modalOverlay: 'rgba(30, 25, 20, 0.34)',
+};
+
+const darkGlass: GlassColors = {
+  surface: 'rgba(57, 55, 59, 0.72)',
+  surfaceStrong: 'rgba(57, 55, 59, 0.88)',
+  border: 'rgba(211, 184, 141, 0.18)',
+  highlight: 'rgba(255, 255, 255, 0.08)',
+  navSurface: 'rgba(48, 47, 50, 0.9)',
+  heroSurface: 'rgba(57, 55, 59, 0.88)',
+  heroBorder: 'rgba(211, 184, 141, 0.24)',
+  sheet: 'rgba(48, 47, 50, 0.98)',
+  input: 'rgba(57, 55, 59, 0.64)',
+  modalOverlay: 'rgba(0, 0, 0, 0.38)',
+};
+
 export function createTheme(mode: 'light' | 'dark'): AppTheme {
   const isDark = mode === 'dark';
   const colors = isDark ? darkColors : lightColors;
@@ -261,6 +324,7 @@ export function createTheme(mode: 'light' | 'dark'): AppTheme {
     mode,
     isDark,
     colors,
+    glass: isDark ? darkGlass : lightGlass,
     shadows: {
       card: {
         shadowColor: colors.shadow,

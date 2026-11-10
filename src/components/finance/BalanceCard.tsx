@@ -34,12 +34,23 @@ export function BalanceCard({
 
   return (
     <View
-      style={[styles.card, { backgroundColor: theme.colors.heroStart }]}
+      style={[
+        styles.card,
+        {
+          backgroundColor: theme.glass.heroSurface,
+          borderColor: theme.glass.heroBorder,
+        },
+      ]}
       accessible
       accessibilityLabel={`${label}: ${formatPeso(amountMinor)}. ${
         caption ?? ''
       }${walletSummary ? `. ${walletSummary}` : ''}`}
     >
+      <View
+        pointerEvents="none"
+        accessible={false}
+        style={[styles.highlight, { backgroundColor: theme.glass.highlight }]}
+      />
       <View style={styles.header}>
         <View style={styles.labelRow}>
           {headingImage ? (
@@ -126,9 +137,18 @@ export function BalanceCard({
 const styles = StyleSheet.create({
   card: {
     borderRadius: radii.xxl,
+    borderWidth: StyleSheet.hairlineWidth,
     padding: spacing.xl,
     gap: spacing.sm,
     overflow: 'hidden',
+  },
+  highlight: {
+    position: 'absolute',
+    top: 0,
+    left: spacing.xl,
+    right: spacing.xl,
+    height: StyleSheet.hairlineWidth,
+    borderRadius: radii.pill,
   },
   header: {
     flexDirection: 'row',

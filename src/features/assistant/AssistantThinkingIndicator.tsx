@@ -23,7 +23,7 @@ export function AssistantThinkingIndicator() {
   const { theme } = useAppTheme();
   const reduced = useReducedMotion();
   return (
-    <View accessibilityRole="text" accessibilityLabel="Assistant is thinking" accessibilityLiveRegion="polite" style={[styles.container, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border }]}>
+    <View accessibilityRole="text" accessibilityLabel="Assistant is thinking" accessibilityLiveRegion="polite" style={[styles.container, { backgroundColor: theme.glass.surface, borderColor: theme.glass.border }]}>
       <View style={styles.dots} accessible={false}>
         {[0, 130, 260].map((delay) => <ThinkingDot key={delay} delay={delay} color={theme.colors.primary} reduced={reduced} />)}
       </View>

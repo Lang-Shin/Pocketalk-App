@@ -10,13 +10,14 @@
     "web": "expo start --web",
     "typecheck": "tsc --noEmit",
     "lint": "expo lint",
-    "test": "tsx --test tests/finance.test.ts tests/layout.test.ts tests/tabGeometry.test.ts tests/screenDecorations.test.ts tests/budgetStatus.test.ts tests/containerCreation.test.ts tests/database.test.ts tests/financeEngine.test.ts tests/reporting.test.ts tests/unallocated.test.ts tests/savingsRollover.test.ts tests/monthEndClosureVerification.test.ts tests/financeService.test.ts tests/transferConfirmation.test.ts tests/historyFilters.test.ts tests/themePreference.test.ts tests/financeIntegration.test.ts tests/assistantMode.test.ts tests/assistant.test.ts tests/assistantTransferRouting.test.ts tests/assistantComposer.test.ts tests/assistantProvider.test.ts tests/assistantValidation.test.ts tests/assistantExecution.test.ts tests/assistantConfirmation.test.ts tests/onlineAssistant.test.ts tests/onlineGatewayClient.test.ts tests/onlineAssistantProvider.test.ts tests/localPromptBuilder.test.ts tests/localResponseParser.test.ts tests/deviceCapability.test.ts tests/modelManifest.test.ts tests/localAiEvaluation.test.ts tests/localAiInstrumentation.test.ts tests/minimalSchemaStrategy.test.ts tests/evaluationStrategies.test.ts tests/localLlmProvider.test.ts tests/executorchRuntimeConfig.test.ts tests/executorchLifecycle.test.ts"
+    "test": "tsx --test tests/finance.test.ts tests/layout.test.ts tests/visualRefinement.test.ts tests/tabGeometry.test.ts tests/screenDecorations.test.ts tests/budgetStatus.test.ts tests/containerCreation.test.ts tests/database.test.ts tests/financeEngine.test.ts tests/reporting.test.ts tests/unallocated.test.ts tests/savingsRollover.test.ts tests/monthEndClosureVerification.test.ts tests/financeService.test.ts tests/transferConfirmation.test.ts tests/historyFilters.test.ts tests/themePreference.test.ts tests/financeIntegration.test.ts tests/assistantMode.test.ts tests/assistant.test.ts tests/assistantTransferRouting.test.ts tests/assistantComposer.test.ts tests/assistantProvider.test.ts tests/assistantValidation.test.ts tests/assistantExecution.test.ts tests/assistantConfirmation.test.ts tests/onlineAssistant.test.ts tests/onlineGatewayClient.test.ts tests/onlineAssistantProvider.test.ts tests/localPromptBuilder.test.ts tests/localResponseParser.test.ts tests/deviceCapability.test.ts tests/modelManifest.test.ts tests/localAiEvaluation.test.ts tests/localAiInstrumentation.test.ts tests/minimalSchemaStrategy.test.ts tests/evaluationStrategies.test.ts tests/localLlmProvider.test.ts tests/executorchRuntimeConfig.test.ts tests/executorchLifecycle.test.ts"
   },
   "dependencies": {
-    "@expo-google-fonts/nunito-sans": "^0.4.2",
+    "@expo-google-fonts/inter": "^0.4.2",
     "@expo/metro-runtime": "~57.0.17",
     "@expo/vector-icons": "^15.0.2",
     "expo": "~57.0.31",
+    "expo-blur": "~57.0.3",
     "expo-build-properties": "~57.0.22",
     "expo-constants": "~57.0.22",
     "expo-dev-client": "~57.0.20",

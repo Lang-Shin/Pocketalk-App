@@ -6,6 +6,7 @@ export {
   fontWeights,
   getContentMaxWidth,
   getContentWidth,
+  getFontFamilies,
   getGridLayout,
   layout,
   lineHeights,
@@ -16,6 +17,7 @@ export {
 export type {
   AppColors,
   AppTheme,
+  GlassColors,
   GridLayout,
   Tone,
   ToneColors,

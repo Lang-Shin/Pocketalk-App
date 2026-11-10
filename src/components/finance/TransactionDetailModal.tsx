@@ -8,6 +8,7 @@ import { formatDateKey } from '@/lib/period';
 import { useAppTheme, radii, spacing } from '@/theme';
 import { AppText } from '../AppText';
 import { IconBadge } from '../ui/IconBadge';
+import { ModalBackdrop } from '../ui/ModalBackdrop';
 
 interface TransactionDetailModalProps {
   transaction: Transaction | null;
@@ -69,22 +70,18 @@ export function TransactionDetailModal({
       statusBarTranslucent
       onRequestClose={onClose}
     >
-      <View
-        style={[styles.overlay, { backgroundColor: theme.colors.overlay }]}
-      >
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Close transaction details"
-          onPress={onClose}
-          style={StyleSheet.absoluteFill}
+      <View style={styles.overlay}>
+        <ModalBackdrop
+          onDismiss={onClose}
+          dismissLabel="Close transaction details"
         />
         <View
           accessibilityViewIsModal
           style={[
             styles.sheet,
             {
-              backgroundColor: theme.colors.surface,
-              borderColor: theme.colors.border,
+              backgroundColor: theme.glass.sheet,
+              borderColor: theme.glass.border,
               ...theme.shadows.floating,
             },
           ]}
