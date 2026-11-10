@@ -282,11 +282,11 @@ const darkColors: AppColors = {
   shadow: '#000000',
   skeleton: '#49464A',
   categories: {
-    emerald: { background: '#484034', foreground: '#EBD5B2' },
-    amber: { background: '#484034', foreground: '#EBD5B2' },
-    coral: { background: '#493B38', foreground: '#E6C3B7' },
-    blue: { background: '#414044', foreground: '#DDD6CE' },
-    violet: { background: '#443C40', foreground: '#E4D1D2' },
+    emerald: { background: '#173D31', foreground: '#7BE0AD' },
+    amber: { background: '#493817', foreground: '#F4C875' },
+    coral: { background: '#4C2D30', foreground: '#F5A6A0' },
+    blue: { background: '#20394D', foreground: '#9ACAF4' },
+    violet: { background: '#3B3050', foreground: '#D1B5F4' },
   },
 };
 

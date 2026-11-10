@@ -1,4 +1,5 @@
 import type { ContainerSnapshot } from '@/data/models';
+import type { AppTheme, Tone } from '@/theme/tokens';
 
 export type BudgetSpendingStatus =
   | 'archived'
@@ -8,6 +9,15 @@ export type BudgetSpendingStatus =
   | 'near-limit'
   | 'at-limit'
   | 'over-budget';
+
+/** Preserve warning/danger and inactive status semantics while tinting normal progress. */
+export function budgetProgressAccent(
+  theme: AppTheme,
+  tone: Tone,
+  status: BudgetSpendingStatus,
+): string | undefined {
+  return status === 'on-track' ? theme.colors.categories[tone].foreground : undefined;
+}
 
 export interface BudgetStatusPresentation {
   label: string;

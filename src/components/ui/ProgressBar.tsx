@@ -9,6 +9,7 @@ type ProgressTone = 'primary' | 'success' | 'warning' | 'danger';
 interface ProgressBarProps {
   value: number;
   tone?: ProgressTone;
+  accentColor?: string;
   height?: number;
   accessibilityLabel: string;
 }
@@ -16,6 +17,7 @@ interface ProgressBarProps {
 export function ProgressBar({
   value,
   tone = 'primary',
+  accentColor,
   height = 8,
   accessibilityLabel,
 }: ProgressBarProps) {
@@ -37,14 +39,14 @@ export function ProgressBar({
     }).start();
   }, [animatedValue, progress, reducedMotion]);
 
-  const color =
+  const color = accentColor ?? (
     tone === 'success'
       ? theme.colors.success
       : tone === 'warning'
         ? theme.colors.warning
         : tone === 'danger'
           ? theme.colors.danger
-          : theme.colors.primary;
+          : theme.colors.primary);
 
   return (
     <View

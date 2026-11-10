@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { FinanceError } from '../src/db/errors';
+import { createTheme, type Tone } from '../src/theme/tokens';
 import {
   createHarness,
   seedStandardAccounts,
@@ -23,6 +24,33 @@ function balance(
 ): number {
   return balances[accountId] ?? 0;
 }
+
+test('all selected container tones survive SQLite persistence and resolve by identity', async () => {
+  const harness = await createHarness();
+  try {
+    const tones: Tone[] = ['emerald', 'amber', 'coral', 'blue', 'violet'];
+    for (const tone of tones) {
+      await harness.engine.createContainer({
+        id: `tone-${tone}`,
+        name: `Tone ${tone}`,
+        icon: 'wallet-outline',
+        tone,
+        limitMinor: 10000,
+        idempotencyKey: `create-${tone}`,
+      });
+    }
+    const snapshots = await harness.engine.getContainerSnapshots('2026-10');
+    for (const tone of tones) {
+      const stored = snapshots.find((item) => item.id === `tone-${tone}`);
+      assert.equal(stored?.tone, tone);
+      for (const mode of ['light', 'dark'] as const) {
+        assert.deepEqual(createTheme(mode).colors.categories[stored!.tone], createTheme(mode).colors.categories[tone]);
+      }
+    }
+  } finally {
+    harness.database.close();
+  }
+});
 
 test('income increases both wallet and container funds', async () => {
   const { harness, accounts } = await setup();

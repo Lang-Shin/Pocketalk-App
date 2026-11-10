@@ -9,6 +9,7 @@ import {
 import type { ContainerSnapshot } from '@/data/models';
 import {
   budgetProgress,
+  budgetProgressAccent,
   budgetSpendingStatus,
   budgetStatusPresentation,
 } from './budgetStatus';
@@ -201,6 +202,7 @@ export function BudgetCard({
           <ProgressBar
             value={ratio}
             tone={statusPalette.progress}
+            accentColor={budgetProgressAccent(theme, container.tone, status)}
             height={compact ? 6 : 8}
             accessibilityLabel={`${container.name} monthly spending progress`}
           />

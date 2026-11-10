@@ -1,19 +1,26 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Tabs } from 'expo-router';
 import { isLoaded } from 'expo-font';
-import { StyleSheet } from 'react-native';
+import { Easing, StyleSheet } from 'react-native';
 
 import { typography, useAppTheme } from '@/theme';
 import { CurvedTabBar } from '@/components/navigation/CurvedTabBar';
+import { useReducedMotion } from '@/lib/useReducedMotion';
 
 export default function TabsLayout() {
   const { theme } = useAppTheme();
+  const reducedMotion = useReducedMotion();
 
   return (
     <Tabs
       tabBar={(props) => <CurvedTabBar {...props} />}
       screenOptions={{
         headerShown: false,
+        animation: reducedMotion ? 'none' : 'fade',
+        transitionSpec: {
+          animation: 'timing',
+          config: { duration: 200, easing: Easing.inOut(Easing.ease) },
+        },
         tabBarActiveTintColor: theme.colors.primary,
         tabBarInactiveTintColor: theme.colors.tabInactive,
         tabBarHideOnKeyboard: true,

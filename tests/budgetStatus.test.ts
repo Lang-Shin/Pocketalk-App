@@ -4,10 +4,11 @@ import test from 'node:test';
 import type { ContainerSnapshot } from '../src/data/models';
 import {
   budgetProgress,
+  budgetProgressAccent,
   budgetSpendingStatus,
   budgetStatusPresentation,
 } from '../src/components/finance/budgetStatus';
-import { createTheme } from '../src/theme/tokens';
+import { createTheme, type Tone } from '../src/theme/tokens';
 
 function container(
   overrides: Partial<ContainerSnapshot> = {},
@@ -51,6 +52,24 @@ function contrast(a: string, b: string): number {
   const dark = Math.min(lum(a), lum(b));
   return (light + 0.05) / (dark + 0.05);
 }
+
+test('each selected tone has a distinct readable badge and normal progress in both themes', () => {
+  const tones: Tone[] = ['emerald', 'amber', 'coral', 'blue', 'violet'];
+  for (const mode of ['light', 'dark'] as const) {
+    const theme = createTheme(mode);
+    assert.equal(new Set(tones.map((tone) => theme.colors.categories[tone].foreground)).size, 5);
+    assert.equal(new Set(tones.map((tone) => theme.colors.categories[tone].background)).size, 5);
+    for (const tone of tones) {
+      const palette = theme.colors.categories[tone];
+      assert.ok(contrast(palette.foreground, palette.background) >= 4.5, `${mode} ${tone}`);
+      assert.equal(budgetProgressAccent(theme, tone, 'on-track'), palette.foreground);
+      assert.equal(budgetProgressAccent(theme, tone, 'at-limit'), undefined);
+      assert.equal(budgetProgressAccent(theme, tone, 'over-budget'), undefined);
+      assert.equal(budgetProgressAccent(theme, tone, 'archived'), undefined);
+      assert.equal(budgetProgressAccent(theme, tone, 'closed'), undefined);
+    }
+  }
+});
 
 test('zero remaining is Limit, not Near limit', () => {
   const status = budgetSpendingStatus(
