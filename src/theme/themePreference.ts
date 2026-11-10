@@ -1,7 +1,7 @@
 export type ThemePreference = 'system' | 'light' | 'dark';
 
 export const THEME_PREFERENCE_KEY = 'pocketa.theme.preference';
-export const DEFAULT_THEME_PREFERENCE: ThemePreference = 'dark';
+export const DEFAULT_THEME_PREFERENCE: ThemePreference = 'light';
 
 export interface ThemePreferenceStorage {
   getItemSync(key: string): string | null;

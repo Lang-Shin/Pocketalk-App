@@ -3,10 +3,11 @@ import { Stack } from 'expo-router';
 import { useFonts } from 'expo-font';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect } from 'react';
-import { Platform } from 'react-native';
+import { Platform, View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { FinanceProvider } from '@/data/financeStore';
+import { LaunchExperience } from '@/features/launch/LaunchExperience';
 import { PocketaThemeProvider, useAppTheme } from '@/theme';
 
 const interFonts =
@@ -52,8 +53,7 @@ function RootNavigator() {
 }
 
 export default function RootLayout() {
-  const [interLoaded, fontError] = useFonts(interFonts);
-  const fontsLoaded = Platform.OS === 'ios' || interLoaded;
+  const [, fontError] = useFonts(interFonts);
 
   useEffect(() => {
     if (fontError) {
@@ -64,15 +64,16 @@ export default function RootLayout() {
     }
   }, [fontError]);
 
-  if (!fontsLoaded && !fontError) return null;
-
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
         <PocketaThemeProvider>
-          <FinanceProvider>
-            <RootNavigator />
-          </FinanceProvider>
+          <View style={{ flex: 1 }}>
+            <FinanceProvider>
+              <RootNavigator />
+            </FinanceProvider>
+            <LaunchExperience />
+          </View>
         </PocketaThemeProvider>
       </SafeAreaProvider>
     </GestureHandlerRootView>
