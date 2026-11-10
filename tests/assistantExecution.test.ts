@@ -315,6 +315,13 @@ test('revalidates the active period and current references before execution', as
         : item,
     ),
   });
+  const closed = createContext({
+    containers: context.containers.map((item) =>
+      item.id === 'container-food'
+        ? { ...item, status: 'closed' as const }
+        : item,
+    ),
+  });
 
   const cases = [
     {
@@ -349,6 +356,11 @@ test('revalidates the active period and current references before execution', as
       context: archived,
       proposal: proposal({ containerId: 'container-food' }),
       message: /archived/i,
+    },
+    {
+      context: closed,
+      proposal: proposal({ containerId: 'container-food' }),
+      message: /closed|archived/i,
     },
     {
       context,

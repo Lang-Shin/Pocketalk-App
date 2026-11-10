@@ -572,6 +572,28 @@ test('assistant rejects archived containers and offers active choices', () => {
   );
 });
 
+test('assistant rejects closed containers and offers active choices', () => {
+  const context = createContext();
+  context.containers = context.containers.map((container) =>
+    container.id === 'container-food'
+      ? { ...container, status: 'closed' as const }
+      : container,
+  );
+
+  const result = interpretAssistantMessage(
+    'Spent 50 on lunch from Food & drinks',
+    context,
+  );
+
+  assert.equal(result.kind, 'clarification');
+  if (result.kind !== 'clarification') return;
+  assert.match(result.message, /closed/i);
+  assert.deepEqual(
+    result.clarification.options?.map((option) => option.id),
+    ['container-transport'],
+  );
+});
+
 test('assistant refuses amounts above recorded balances', () => {
   const result = interpretAssistantMessage(
     'Spent ₱500 on lunch from Food & drinks',

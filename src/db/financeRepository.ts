@@ -424,6 +424,22 @@ export class FinanceRepository {
     return row?.found === 1;
   }
 
+  async getPostedRolloverReturnedMinor(
+    containerId: string,
+    fromDateKey: string,
+  ): Promise<number> {
+    const row = await this.database.getFirstAsync<{ total: number }>(
+      `SELECT COALESCE(SUM(amount_minor), 0) AS total
+       FROM transactions
+       WHERE source_container_id = ?
+         AND category = 'Monthly rollover'
+         AND status = 'posted'
+         AND effective_date >= ?`,
+      [containerId, fromDateKey],
+    );
+    return row?.total ?? 0;
+  }
+
   async setContainerDeleted(containerId: string, deletedAt: string): Promise<void> {
     await this.database.runAsync(
       'UPDATE containers SET deleted_at = ? WHERE id = ?',

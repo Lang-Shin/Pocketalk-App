@@ -1373,6 +1373,12 @@ export class FinanceEngine {
         transactionIds.push(settlementTransactionId);
       }
 
+      const rolloverReturnedMinor =
+        await this.repository.getPostedRolloverReturnedMinor(
+          container.id,
+          getCalendarMonth(shiftMonthKey(archiveMonthKey, 1)).startDateKey,
+        );
+
       await this.repository.setContainerClosed(
         container.id,
         context.recordedAt,
@@ -1385,7 +1391,8 @@ export class FinanceEngine {
         recordedAt: context.recordedAt,
         detailsJson: JSON.stringify({
           archiveMonthKey,
-          returnedMinor: Math.max(amountMinor, 0),
+          settledByRolloverMinor: rolloverReturnedMinor,
+          returnedMinor: rolloverReturnedMinor + amountMinor,
           ...(settlementTransactionId ? { settlementTransactionId } : {}),
         }),
       });
