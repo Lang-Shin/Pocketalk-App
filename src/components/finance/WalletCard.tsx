@@ -18,6 +18,7 @@ export function WalletCard({ wallet }: WalletCardProps) {
   return (
     <Card
       variant="glass"
+      frosted
       accessible
       accessibilityLabel={`${wallet.name}, balance ${formatPeso(
         wallet.balanceMinor,

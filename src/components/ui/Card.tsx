@@ -1,11 +1,13 @@
 import type { PropsWithChildren } from 'react';
-import { StyleSheet, View, type ViewProps } from 'react-native';
+import { Platform, StyleSheet, View, type ViewProps } from 'react-native';
 
 import { useAppTheme, radii, spacing } from '@/theme';
+import { FrostedBackground } from './FrostedBackground';
 
 interface CardProps extends ViewProps {
   padded?: boolean;
   variant?: 'solid' | 'glass';
+  frosted?: boolean;
 }
 
 export function Card({
@@ -13,6 +15,7 @@ export function Card({
   style,
   padded = true,
   variant = 'solid',
+  frosted = false,
   ...props
 }: PropsWithChildren<CardProps>) {
   const { theme } = useAppTheme();
@@ -24,7 +27,9 @@ export function Card({
       style={[
         styles.card,
         {
-          backgroundColor: isGlass
+          backgroundColor: isGlass && frosted && Platform.OS === 'ios'
+            ? 'transparent'
+            : isGlass
             ? theme.glass.surface
             : theme.colors.surface,
           borderColor: isGlass ? theme.glass.border : theme.colors.border,
@@ -34,6 +39,9 @@ export function Card({
         style,
       ]}
     >
+      {isGlass && frosted ? (
+        <FrostedBackground color={theme.glass.surface} radius={radii.md} />
+      ) : null}
       {isGlass ? (
         <View
           pointerEvents="none"

@@ -1,11 +1,12 @@
 import { Ionicons } from '@expo/vector-icons';
 import type { ReactNode } from 'react';
-import { Image, StyleSheet, useWindowDimensions, View, type ImageSourcePropType } from 'react-native';
+import { Image, Platform, StyleSheet, useWindowDimensions, View, type ImageSourcePropType } from 'react-native';
 
 import type { WalletSnapshot } from '@/data/models';
 import { formatPeso } from '@/lib/money';
 import { useAppTheme, radii, spacing } from '@/theme';
 import { AppText } from '../AppText';
+import { FrostedBackground } from '../ui/FrostedBackground';
 
 interface BalanceCardProps {
   label: string;
@@ -37,7 +38,7 @@ export function BalanceCard({
       style={[
         styles.card,
         {
-          backgroundColor: theme.glass.heroSurface,
+          backgroundColor: Platform.OS === 'ios' ? 'transparent' : theme.glass.heroSurface,
           borderColor: theme.glass.heroBorder,
         },
       ]}
@@ -46,6 +47,7 @@ export function BalanceCard({
         caption ?? ''
       }${walletSummary ? `. ${walletSummary}` : ''}`}
     >
+      <FrostedBackground color={theme.glass.heroSurface} radius={radii.xxl} />
       <View
         pointerEvents="none"
         accessible={false}
