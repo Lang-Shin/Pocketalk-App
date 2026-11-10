@@ -2,8 +2,9 @@ import { useEffect, useState } from 'react';
 import { Animated, Easing, Image, StyleSheet, useWindowDimensions, View } from 'react-native';
 import { useReducedMotion } from 'react-native-reanimated';
 
+import { AppText } from '@/components/AppText';
 import { ScreenDecorations } from '@/components/ui/DecorationLayer';
-import { radii, useAppTheme } from '@/theme';
+import { spacing, useAppTheme } from '@/theme';
 import { LAUNCH_FADE_MS, launchExitDuration, scheduleLaunchExit } from './launchTiming';
 
 export function LaunchExperience() {
@@ -58,13 +59,18 @@ export function LaunchExperience() {
       <View pointerEvents="none" accessible={false} style={styles.decorations}>
         <ScreenDecorations preset="home" width={width} />
       </View>
-      <Animated.View style={[styles.logoSurface, { backgroundColor: theme.glass.surfaceStrong, borderColor: theme.glass.border, opacity: logoOpacity }]}>
-        <Image
-          source={require('../../../assets/branding/Pocketa.png')}
-          style={styles.logo}
-          resizeMode="contain"
-          accessibilityLabel="Pocketa"
-        />
+      <Animated.View style={[styles.logoGroup, { opacity: logoOpacity }]}>
+        <View style={[styles.logoFrame, { backgroundColor: theme.colors.background }]}>
+          <Image
+            source={require('../../../assets/branding/Pocketa.png')}
+            style={styles.logo}
+            resizeMode="contain"
+            accessibilityLabel="Pocketa"
+          />
+        </View>
+        <AppText variant="bodySmall" color={theme.colors.textSecondary} align="center" style={styles.tagline}>
+          Your money, organized.
+        </AppText>
       </Animated.View>
     </Animated.View>
   );
@@ -73,6 +79,8 @@ export function LaunchExperience() {
 const styles = StyleSheet.create({
   overlay: { position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, zIndex: 100, alignItems: 'center', justifyContent: 'center' },
   decorations: { position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, opacity: 0.3 },
-  logoSurface: { width: '76%', maxWidth: 300, aspectRatio: 1, alignItems: 'center', justifyContent: 'center', borderRadius: radii.xxl, borderWidth: StyleSheet.hairlineWidth },
+  logoGroup: { width: '100%', alignItems: 'center' },
+  logoFrame: { width: '76%', maxWidth: 300, aspectRatio: 1, alignItems: 'center', justifyContent: 'center' },
   logo: { width: '88%', height: '88%' },
+  tagline: { marginTop: spacing.sm },
 });
