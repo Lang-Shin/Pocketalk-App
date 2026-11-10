@@ -769,22 +769,22 @@ function interpretContainerTransfer(
   };
 
   const archivedSource = endpoints.sourceSegment
-    ? findArchivedMention(endpoints.sourceSegment, context)
+    ? findInactiveMention(endpoints.sourceSegment, context)
     : undefined;
   if (archivedSource) {
     return containerTransferClarification(
-      `${archivedSource.name} is archived. Choose an active source container.`,
+      `${inactiveContainerMessage(archivedSource)}. Choose an active source container.`,
       pending,
       context,
       'source',
     );
   }
   const archivedDestination = endpoints.destinationSegment
-    ? findArchivedMention(endpoints.destinationSegment, context)
+    ? findInactiveMention(endpoints.destinationSegment, context)
     : undefined;
   if (archivedDestination) {
     return containerTransferClarification(
-      `${archivedDestination.name} is archived. Choose an active destination container.`,
+      `${inactiveContainerMessage(archivedDestination)}. Choose an active destination container.`,
       pending,
       context,
       'destination',
@@ -1345,11 +1345,11 @@ function resolveExpenseContainer(
     (container) =>
       container.status === 'active' && container.systemKey == null,
   );
-  const archived = findArchivedMention(text, context);
+  const archived = findInactiveMention(text, context);
   if (archived) {
     return {
       result: containerClarification(
-        `${archived.name} is archived. Choose an active container instead.`,
+        `${inactiveContainerMessage(archived)}. Choose an active container instead.`,
         context,
         candidates,
         pendingBase,
@@ -1437,11 +1437,11 @@ function resolveIncomeContainer(
     (container) =>
       container.status === 'active' && container.systemKey !== 'savings',
   );
-  const archived = findArchivedMention(text, context);
+  const archived = findInactiveMention(text, context);
   if (archived) {
     return {
       result: containerClarification(
-        `${archived.name} is archived. Choose an active container instead.`,
+        `${inactiveContainerMessage(archived)}. Choose an active container instead.`,
         context,
         candidates,
         pendingBase,
@@ -1539,12 +1539,12 @@ function resolveSavingsSource(
   );
   const sourceSegment = extractTransferEndpoints(text).sourceSegment;
   const archived = sourceSegment
-    ? findArchivedMention(sourceSegment, context)
+    ? findInactiveMention(sourceSegment, context)
     : undefined;
   if (archived) {
     return {
       result: containerClarification(
-        `${archived.name} is archived. Choose an active source instead.`,
+        `${inactiveContainerMessage(archived)}. Choose an active source instead.`,
         context,
         candidates,
         pendingBase,
@@ -1615,11 +1615,11 @@ function resolveSavingsDestination(
     (container) =>
       container.status === 'active' && container.systemKey !== 'savings',
   );
-  const archived = findArchivedMention(text, context);
+  const archived = findInactiveMention(text, context);
   if (archived) {
     return {
       result: containerClarification(
-        `${archived.name} is archived. Choose an active destination instead.`,
+        `${inactiveContainerMessage(archived)}. Choose an active destination instead.`,
         context,
         candidates,
         pendingBase,
@@ -1725,15 +1725,21 @@ function findSystemContainer(
   );
 }
 
-function findArchivedMention(
+function findInactiveMention(
   text: string,
   context: AssistantContext,
 ): AssistantContainerOption | undefined {
   return context.containers.find(
     (container) =>
-      container.status === 'archived' &&
+      container.status !== 'active' &&
       mentionsContainerName(text, container),
   );
+}
+
+function inactiveContainerMessage(container: AssistantContainerOption): string {
+  return `${container.name} is ${
+    container.status === 'closed' ? 'closed' : 'archived'
+  }`;
 }
 
 function needsWallet(action: AssistantAction): boolean {

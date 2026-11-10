@@ -140,3 +140,11 @@ test('Limit status uses readable danger text on its soft background in both them
     );
   }
 });
+
+test('closed containers present a distinct neutral status', () => {
+  const status = budgetSpendingStatus(container({ status: 'closed' }));
+  assert.equal(status, 'closed');
+  const presentation = budgetStatusPresentation(status);
+  assert.equal(presentation.label, 'Closed');
+  assert.equal(presentation.semantic, 'neutral');
+});

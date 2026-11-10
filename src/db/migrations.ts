@@ -631,6 +631,70 @@ CREATE TABLE IF NOT EXISTS month_rollover_runs (
 );
 `;
 
+const ARCHIVED_CONTAINER_CLOSURE_SQL = `
+ALTER TABLE containers ADD COLUMN archive_month_key TEXT
+  CHECK (
+    archive_month_key IS NULL
+    OR archive_month_key GLOB '[0-9][0-9][0-9][0-9]-[0-1][0-9]'
+  );
+
+ALTER TABLE containers ADD COLUMN closed_at TEXT;
+
+CREATE INDEX IF NOT EXISTS idx_containers_archive_month
+  ON containers(archive_month_key)
+  WHERE archive_month_key IS NOT NULL;
+
+DROP TRIGGER IF EXISTS container_events_no_update;
+DROP TRIGGER IF EXISTS container_events_no_delete;
+DROP INDEX IF EXISTS idx_lifecycle_container;
+
+CREATE TABLE container_lifecycle_events_new (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  container_id TEXT NOT NULL REFERENCES containers(id) ON DELETE RESTRICT,
+  event_type TEXT NOT NULL CHECK (
+    event_type IN (
+      'created',
+      'metadata_changed',
+      'limit_changed',
+      'archived',
+      'reactivated',
+      'closed',
+      'closure_failed',
+      'deleted'
+    )
+  ),
+  effective_month_key TEXT NOT NULL
+    CHECK (effective_month_key GLOB '[0-9][0-9][0-9][0-9]-[0-1][0-9]'),
+  recorded_at TEXT NOT NULL,
+  details_json TEXT NOT NULL DEFAULT '{}'
+);
+
+INSERT INTO container_lifecycle_events_new (
+  id, container_id, event_type, effective_month_key, recorded_at, details_json
+)
+SELECT
+  id, container_id, event_type, effective_month_key, recorded_at, details_json
+FROM container_lifecycle_events;
+
+DROP TABLE container_lifecycle_events;
+ALTER TABLE container_lifecycle_events_new RENAME TO container_lifecycle_events;
+
+CREATE INDEX IF NOT EXISTS idx_lifecycle_container
+  ON container_lifecycle_events(container_id, recorded_at);
+
+CREATE TRIGGER IF NOT EXISTS container_events_no_update
+BEFORE UPDATE ON container_lifecycle_events
+BEGIN
+  SELECT RAISE(ABORT, 'Container lifecycle events are immutable');
+END;
+
+CREATE TRIGGER IF NOT EXISTS container_events_no_delete
+BEFORE DELETE ON container_lifecycle_events
+BEGIN
+  SELECT RAISE(ABORT, 'Container lifecycle events cannot be deleted');
+END;
+`;
+
 export const MIGRATIONS: readonly Migration[] = [
   {
     version: 1,
@@ -651,6 +715,12 @@ export const MIGRATIONS: readonly Migration[] = [
     version: 4,
     name: 'system_savings_and_month_rollover',
     sql: SYSTEM_SAVINGS_AND_ROLLOVER_SQL,
+    disableForeignKeys: true,
+  },
+  {
+    version: 5,
+    name: 'archived_container_closure',
+    sql: ARCHIVED_CONTAINER_CLOSURE_SQL,
     disableForeignKeys: true,
   },
 ] as const;

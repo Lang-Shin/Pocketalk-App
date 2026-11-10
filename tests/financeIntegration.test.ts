@@ -281,7 +281,7 @@ test('startup initializes a fresh database and exposes a ready session', async (
     const version = await database.getFirstAsync<{ user_version: number }>(
       'PRAGMA user_version',
     );
-    assert.equal(version?.user_version, 4);
+    assert.equal(version?.user_version, 5);
 
     const service = session.getState().service;
     assert.ok(service);

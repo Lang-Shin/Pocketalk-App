@@ -51,11 +51,11 @@ test('fresh initialization creates the finance schema and enables foreign keys',
         'SELECT version FROM schema_migrations ORDER BY version ASC',
       );
 
-    assert.equal(version?.user_version, 4);
+    assert.equal(version?.user_version, 5);
     assert.equal(foreignKeys?.foreign_keys, 1);
     assert.deepEqual(
       migrations.map((row) => row.version),
-      [1, 2, 3, 4],
+      [1, 2, 3, 4, 5],
     );
   } finally {
     database.close();
@@ -83,7 +83,7 @@ test('repeated initialization preserves data and does not duplicate migration re
     );
 
     assert.equal(value?.value, 'preserved');
-    assert.equal(count?.count, 4);
+    assert.equal(count?.count, 5);
   } finally {
     database.close();
   }
@@ -120,7 +120,7 @@ test('a version 1 database upgrades to the full schema without losing records', 
       'PRAGMA table_info(containers)',
     );
 
-    assert.equal(after?.user_version, 4);
+    assert.equal(after?.user_version, 5);
     assert.equal(value?.value, 'kept');
     assert.equal(receipts?.name, 'operation_receipts');
     assert.ok(columns.some((column) => column.name === 'system_key'));
@@ -129,7 +129,7 @@ test('a version 1 database upgrades to the full schema without losing records', 
   }
 });
 
-test('a version 2 database upgrades to version 4 without losing financial records', async () => {
+test('a version 2 database upgrades to the full schema without losing financial records', async () => {
   const database = new NodeSqlDatabase();
   try {
     await migrateDatabase(database, MIGRATIONS.slice(0, 2));
@@ -231,7 +231,7 @@ test('a version 2 database upgrades to version 4 without losing financial record
       'SELECT COUNT(*) AS count FROM postings',
     );
 
-    assert.equal(after?.user_version, 4);
+    assert.equal(after?.user_version, 5);
     assert.equal(container?.id, 'container-food');
     assert.equal(container?.system_key, null);
     assert.equal(transactionCount?.count, 1);
@@ -241,7 +241,7 @@ test('a version 2 database upgrades to version 4 without losing financial record
   }
 });
 
-test('a version 3 database upgrades to version 4 and preserves container history', async () => {
+test('a version 3 database upgrades to the full schema and preserves container history', async () => {
   const database = new NodeSqlDatabase();
   try {
     await migrateDatabase(database, MIGRATIONS.slice(0, 3));
@@ -329,6 +329,86 @@ test('a version 3 database upgrades to version 4 and preserves container history
     ]);
     assert.equal(savingsRow?.kind, 'savings');
     assert.equal(savingsRow?.system_key, 'savings');
+  } finally {
+    database.close();
+  }
+});
+
+test('a version 4 database upgrades without losing lifecycle history and supports closure events', async () => {
+  const database = new NodeSqlDatabase();
+  try {
+    await migrateDatabase(database, MIGRATIONS.slice(0, 4));
+    await database.runAsync(
+      `INSERT INTO containers (
+         id, kind, status, sort_order, created_month_key, created_at,
+         archived_at, deleted_at, system_key
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        'container-archived',
+        'budget',
+        'archived',
+        1,
+        '2026-09',
+        '2026-09-20T00:00:00.000Z',
+        '2026-10-20T00:00:00.000Z',
+        null,
+        null,
+      ],
+    );
+    await database.runAsync(
+      `INSERT INTO container_lifecycle_events (
+         container_id, event_type, effective_month_key, recorded_at, details_json
+       ) VALUES (?, 'archived', '2026-10', ?, ?)`,
+      [
+        'container-archived',
+        '2026-10-20T00:00:00.000Z',
+        '{"reason":"fixture"}',
+      ],
+    );
+
+    await migrateDatabase(database);
+    const container = await database.getFirstAsync<{
+      status: string;
+      archive_month_key: string | null;
+      closed_at: string | null;
+    }>(
+      `SELECT status, archive_month_key, closed_at
+       FROM containers WHERE id = ?`,
+      ['container-archived'],
+    );
+    const events = await database.getAllAsync<{
+      event_type: string;
+      details_json: string;
+    }>(
+      `SELECT event_type, details_json
+       FROM container_lifecycle_events
+       WHERE container_id = ?
+       ORDER BY id ASC`,
+      ['container-archived'],
+    );
+
+    assert.equal(container?.status, 'archived');
+    assert.equal(container?.archive_month_key, null);
+    assert.equal(container?.closed_at, null);
+    assert.equal(events.length, 1);
+    assert.equal(events[0]?.details_json, '{"reason":"fixture"}');
+
+    await database.runAsync(
+      `INSERT INTO container_lifecycle_events (
+         container_id, event_type, effective_month_key, recorded_at, details_json
+       ) VALUES (?, 'closed', '2026-10', ?, '{}')`,
+      ['container-archived', '2026-10-21T00:00:00.000Z'],
+    );
+    assert.equal(
+      (
+        await database.getAllAsync<{ event_type: string }>(
+          `SELECT event_type FROM container_lifecycle_events
+           WHERE container_id = ?`,
+          ['container-archived'],
+        )
+      ).length,
+      2,
+    );
   } finally {
     database.close();
   }

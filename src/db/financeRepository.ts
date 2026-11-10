@@ -41,6 +41,8 @@ export interface ContainerRow {
   createdAt: string;
   archivedAt: string | null;
   deletedAt: string | null;
+  archiveMonthKey?: string | null;
+  closedAt?: string | null;
   systemKey: SystemContainerKey | null;
 }
 
@@ -145,6 +147,8 @@ interface ContainerRowResult {
   created_at: string;
   archived_at: string | null;
   deleted_at: string | null;
+  archive_month_key?: string | null;
+  closed_at?: string | null;
   system_key: SystemContainerKey | null;
 }
 
@@ -299,7 +303,7 @@ export class FinanceRepository {
     }
     const rows = await this.database.getAllAsync<ContainerRowResult>(
       `SELECT id, kind, status, sort_order, created_month_key, created_at,
-              archived_at, deleted_at, system_key
+              archived_at, deleted_at, archive_month_key, closed_at, system_key
        FROM containers
        ${clauses.length > 0 ? `WHERE ${clauses.join(' AND ')}` : ''}
        ORDER BY sort_order ASC, created_at ASC`,
@@ -313,7 +317,7 @@ export class FinanceRepository {
   ): Promise<ContainerRow | null> {
     const row = await this.database.getFirstAsync<ContainerRowResult>(
       `SELECT id, kind, status, sort_order, created_month_key, created_at,
-              archived_at, deleted_at, system_key
+              archived_at, deleted_at, archive_month_key, closed_at, system_key
        FROM containers
        WHERE id = ? ${includeDeleted ? '' : 'AND deleted_at IS NULL'}`,
       [containerId],
@@ -326,7 +330,7 @@ export class FinanceRepository {
   ): Promise<ContainerRow | null> {
     const row = await this.database.getFirstAsync<ContainerRowResult>(
       `SELECT id, kind, status, sort_order, created_month_key, created_at,
-              archived_at, deleted_at, system_key
+              archived_at, deleted_at, archive_month_key, closed_at, system_key
        FROM containers
        WHERE system_key = ?`,
       [systemKey],
@@ -335,20 +339,23 @@ export class FinanceRepository {
   }
 
   async insertContainer(container: ContainerRow): Promise<void> {
+    const status = container.status === 'closed' ? 'archived' : container.status;
     await this.database.runAsync(
       `INSERT INTO containers (
          id, kind, status, sort_order, created_month_key, created_at,
-         archived_at, deleted_at, system_key
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         archived_at, deleted_at, archive_month_key, closed_at, system_key
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         container.id,
         container.kind,
-        container.status,
+        status,
         container.sortOrder,
         container.createdMonthKey,
         container.createdAt,
         container.archivedAt,
         container.deletedAt,
+        container.archiveMonthKey ?? null,
+        container.closedAt ?? null,
         container.systemKey,
       ],
     );
@@ -357,13 +364,64 @@ export class FinanceRepository {
   async setContainerArchived(
     containerId: string,
     archivedAt: string | null,
+    archiveMonthKey: string | null = null,
   ): Promise<void> {
     await this.database.runAsync(
       `UPDATE containers
-       SET status = ?, archived_at = ?
+       SET status = ?, archived_at = ?, archive_month_key = ?, closed_at = NULL
        WHERE id = ? AND deleted_at IS NULL`,
-      [archivedAt ? 'archived' : 'active', archivedAt, containerId],
+      [
+        archivedAt ? 'archived' : 'active',
+        archivedAt,
+        archivedAt ? archiveMonthKey : null,
+        containerId,
+      ],
     );
+  }
+
+  async setContainerClosed(
+    containerId: string,
+    closedAt: string,
+  ): Promise<void> {
+    await this.database.runAsync(
+      `UPDATE containers
+       SET status = 'archived', closed_at = ?
+       WHERE id = ? AND status = 'archived' AND closed_at IS NULL
+         AND deleted_at IS NULL`,
+      [closedAt, containerId],
+    );
+  }
+
+  async listArchivedContainersEligibleForClosure(
+    closedMonthKey: string,
+  ): Promise<ContainerRow[]> {
+    const rows = await this.database.getAllAsync<ContainerRowResult>(
+      `SELECT id, kind, status, sort_order, created_month_key, created_at,
+              archived_at, deleted_at, archive_month_key, closed_at, system_key
+       FROM containers
+       WHERE status = 'archived'
+         AND closed_at IS NULL
+         AND system_key IS NULL
+         AND archive_month_key IS NOT NULL
+         AND archive_month_key <= ?
+       ORDER BY archive_month_key ASC, sort_order ASC`,
+      [closedMonthKey],
+    );
+    return rows.map(mapContainerRow);
+  }
+
+  async hasLifecycleEvent(
+    containerId: string,
+    eventType: string,
+    effectiveMonthKey: string,
+  ): Promise<boolean> {
+    const row = await this.database.getFirstAsync<{ found: number }>(
+      `SELECT 1 AS found FROM container_lifecycle_events
+       WHERE container_id = ? AND event_type = ? AND effective_month_key = ?
+       LIMIT 1`,
+      [containerId, eventType, effectiveMonthKey],
+    );
+    return row?.found === 1;
   }
 
   async setContainerDeleted(containerId: string, deletedAt: string): Promise<void> {
@@ -635,7 +693,7 @@ export class FinanceRepository {
     const month = getCalendarMonth(monthKey);
     const rows = await this.database.getAllAsync<ContainerSnapshotRowResult>(
       `SELECT c.id, c.kind, c.status, c.sort_order, c.created_month_key,
-              c.created_at, c.archived_at, c.deleted_at, c.system_key,
+              c.created_at, c.archived_at, c.deleted_at, c.archive_month_key, c.closed_at, c.system_key,
               m.name, m.description, m.icon, m.tone,
               COALESCE(bl.limit_minor, 0) AS limit_minor,
               COALESCE((
@@ -678,7 +736,9 @@ export class FinanceRepository {
       .filter(
         (row) =>
           row.status === 'active' ||
-          (includeEmptyArchived && row.status === 'archived') ||
+          (row.closed_at === null &&
+            includeEmptyArchived &&
+            row.status === 'archived') ||
           row.limit_minor > 0 ||
           row.spent_minor > 0 ||
           row.balance_minor !== 0 ||
@@ -695,7 +755,7 @@ export class FinanceRepository {
           id: row.id,
           ...label,
           kind: row.kind,
-          status: row.status,
+          status: (row.closed_at ? 'closed' : row.status) as ContainerStatus,
           sortOrder: row.sort_order,
           createdMonthKey: row.created_month_key,
           systemKey: row.system_key,
@@ -1050,12 +1110,14 @@ function mapContainerRow(row: ContainerRowResult): ContainerRow {
   return {
     id: row.id,
     kind: row.kind,
-    status: row.status,
+    status: row.closed_at ? 'closed' : row.status,
     sortOrder: row.sort_order,
     createdMonthKey: row.created_month_key,
     createdAt: row.created_at,
     archivedAt: row.archived_at,
     deletedAt: row.deleted_at,
+    archiveMonthKey: row.archive_month_key ?? null,
+    closedAt: row.closed_at ?? null,
     systemKey: row.system_key,
   };
 }

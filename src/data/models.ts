@@ -3,7 +3,7 @@ import type { Tone } from '@/theme';
 
 export type WalletKind = 'cash' | 'virtual_gcash';
 export type ContainerKind = 'budget' | 'savings';
-export type ContainerStatus = 'active' | 'archived';
+export type ContainerStatus = 'active' | 'archived' | 'closed';
 export type SystemContainerKey = 'unallocated' | 'savings';
 
 export interface Wallet {

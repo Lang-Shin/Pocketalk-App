@@ -88,6 +88,12 @@ export function BudgetsScreen() {
     (container) =>
       container.status === 'archived' && container.systemKey == null,
   );
+  const closedContainers = isHistorical
+    ? snapshots.filter(
+        (container) =>
+          container.status === 'closed' && container.systemKey == null,
+      )
+    : [];
   const unallocated = snapshots.find(
     (container) => container.systemKey === 'unallocated',
   );
@@ -318,6 +324,25 @@ export function BudgetsScreen() {
                   isHistorical ? undefined : () => setEditor(container)
                 }
               />
+            ))}
+          </View>
+        </View>
+      ) : null}
+
+      {closedContainers.length > 0 ? (
+        <View style={styles.archivedSection}>
+          <SectionHeader
+            title="Closed containers"
+            subtitle="Settled at month end and retained for historical reporting."
+          />
+          <NoticeBanner
+            title="Historical meaning stays intact"
+            message="Closed containers keep their original labels, spending, and limits. Their settled balances were returned to Unallocated and they cannot be reused."
+            icon="lock-closed-outline"
+          />
+          <View style={styles.grid}>
+            {closedContainers.map((container) => (
+              <BudgetCard key={container.id} container={container} />
             ))}
           </View>
         </View>

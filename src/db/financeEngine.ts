@@ -193,6 +193,7 @@ export interface WalletMutationResult {
 export interface RolloverResult {
   processedMonths: string[];
   transactionIds: string[];
+  closedContainerIds: string[];
 }
 
 interface OperationContext {
@@ -527,15 +528,16 @@ export class FinanceEngine {
       async () => {
         const container = await this.requireExistingContainer(containerId);
         this.requireUserContainer(container);
-        if (container.status === 'archived') {
+        if (container.status !== 'active') {
           throw new FinanceError(
             'INVALID_STATE',
-            'That container is already archived.',
+            'Only active containers can be archived.',
           );
         }
         await this.repository.setContainerArchived(
           container.id,
           context.recordedAt,
+          context.todayMonthKey,
         );
         await this.repository.insertLifecycleEvent({
           id: 0,
@@ -569,10 +571,10 @@ export class FinanceEngine {
       async () => {
         const container = await this.requireExistingContainer(containerId);
         this.requireUserContainer(container);
-        if (container.status === 'active') {
+        if (container.status !== 'archived') {
           throw new FinanceError(
             'INVALID_STATE',
-            'That container is already active.',
+            'Only archived containers can be reactivated.',
           );
         }
         await this.repository.setContainerArchived(container.id, null);
@@ -614,6 +616,12 @@ export class FinanceEngine {
           );
         }
         this.requireUserContainer(container);
+        if (container.status === 'closed') {
+          throw new FinanceError(
+            'INVALID_STATE',
+            'Closed containers are retained for historical reporting and cannot be deleted.',
+          );
+        }
         if (await this.repository.hasContainerFinancialHistory(container.id)) {
           throw new FinanceError(
             'INVALID_STATE',
@@ -1048,7 +1056,21 @@ export class FinanceEngine {
         if (processedMonths.length > 0) {
           await this.assertLedgerInvariant();
         }
-        return { processedMonths, transactionIds };
+
+        const closure = await this.closeEligibleArchivedContainers(
+          context,
+          previousMonthKey,
+        );
+        if (closure.closedContainerIds.length > 0) {
+          await this.assertLedgerInvariant();
+        }
+        transactionIds.push(...closure.transactionIds);
+
+        return {
+          processedMonths,
+          transactionIds,
+          closedContainerIds: closure.closedContainerIds,
+        };
       });
     })();
 
@@ -1226,6 +1248,151 @@ export class FinanceEngine {
       return;
     }
     await this.processDueRollovers();
+  }
+
+  private async closeEligibleArchivedContainers(
+    context: OperationContext,
+    closedMonthKey: string,
+  ): Promise<{ closedContainerIds: string[]; transactionIds: string[] }> {
+    const eligible =
+      await this.repository.listArchivedContainersEligibleForClosure(
+        closedMonthKey,
+      );
+    const closedContainerIds: string[] = [];
+    const transactionIds: string[] = [];
+    const effectiveDate = getCalendarMonth(
+      shiftMonthKey(closedMonthKey, 1),
+    ).startDateKey;
+
+    for (const eligibleContainer of eligible) {
+      const container = await this.repository.getContainer(
+        eligibleContainer.id,
+      );
+      if (
+        !container ||
+        container.status !== 'archived' ||
+        container.closedAt ||
+        container.archiveMonthKey == null ||
+        container.archiveMonthKey > closedMonthKey
+      ) {
+        continue;
+      }
+      const archiveMonthKey = container.archiveMonthKey;
+
+      const amountMinor = await this.repository.getContainerBalance(
+        container.id,
+        context.todayDateKey,
+      );
+      if (amountMinor < 0) {
+        if (
+          !(await this.repository.hasLifecycleEvent(
+            container.id,
+            'closure_failed',
+            closedMonthKey,
+          ))
+        ) {
+          await this.repository.insertLifecycleEvent({
+            id: 0,
+            containerId: container.id,
+            eventType: 'closure_failed',
+            effectiveMonthKey: closedMonthKey,
+            recordedAt: context.recordedAt,
+            detailsJson: JSON.stringify({
+              reason: 'negative_balance',
+              balanceMinor: amountMinor,
+            }),
+          });
+        }
+        continue;
+      }
+
+      let settlementTransactionId: string | null = null;
+      if (amountMinor > 0) {
+        const sourceLabel = await this.requireContainerLabel(
+          container.id,
+          closedMonthKey,
+        );
+        const destinationLabel = await this.requireContainerLabel(
+          UNALLOCATED_CONTAINER_ID,
+          closedMonthKey,
+        );
+        settlementTransactionId = this.idFactory('txn');
+        const row = makeTransactionRow(
+          {
+            id: settlementTransactionId,
+            idempotencyKey: `container_closure_settlement:${container.id}:${archiveMonthKey}`,
+            requestFingerprint: fingerprintOf({
+              operation: 'container_closure_settlement',
+              containerId: container.id,
+              archiveMonthKey,
+              amountMinor,
+            }),
+            amountMinor,
+            effectiveDate,
+            effectiveMonthKey: monthKeyForDateKey(effectiveDate),
+            recordedAt: context.recordedAt,
+            recordedTimeZone: context.recordedTimeZone,
+            recordedOffsetMinutes: context.recordedOffsetMinutes,
+            status: 'posted',
+            reversalOfId: null,
+            correctionOfId: null,
+            createdAt: context.recordedAt,
+          },
+          {
+            kind: 'container_transfer',
+            title: `Closure settlement: ${sourceLabel.name}`,
+            category: 'Container closure',
+            direction: 'neutral',
+            sourceWalletId: null,
+            destinationWalletId: null,
+            sourceContainerId: container.id,
+            destinationContainerId: UNALLOCATED_CONTAINER_ID,
+            sourceWalletName: null,
+            destinationWalletName: null,
+            sourceContainerName: sourceLabel.name,
+            destinationContainerName: destinationLabel.name,
+            icon: TRANSFER_ICON,
+            tone: 'violet',
+          },
+        );
+        await this.insertPreparedTransaction({
+          row,
+          postings: [
+            {
+              accountType: 'container',
+              accountId: container.id,
+              amountMinor: -amountMinor,
+            },
+            {
+              accountType: 'container',
+              accountId: UNALLOCATED_CONTAINER_ID,
+              amountMinor,
+            },
+          ],
+        });
+        transactionIds.push(settlementTransactionId);
+      }
+
+      await this.repository.setContainerClosed(
+        container.id,
+        context.recordedAt,
+      );
+      await this.repository.insertLifecycleEvent({
+        id: 0,
+        containerId: container.id,
+        eventType: 'closed',
+        effectiveMonthKey: closedMonthKey,
+        recordedAt: context.recordedAt,
+        detailsJson: JSON.stringify({
+          archiveMonthKey,
+          returnedMinor: Math.max(amountMinor, 0),
+          ...(settlementTransactionId ? { settlementTransactionId } : {}),
+        }),
+      });
+      closedContainerIds.push(container.id);
+    }
+
+    return { closedContainerIds, transactionIds };
   }
 
   private async createRolloverSweeps(
@@ -1889,6 +2056,12 @@ export class FinanceEngine {
         'That container did not exist on the selected date.',
       );
     }
+    if (container.status === 'closed' && !allowArchived) {
+      throw new FinanceError(
+        'ARCHIVED_CONTAINER',
+        'Closed containers cannot receive new activity.',
+      );
+    }
     if (container.status === 'archived' && !allowArchived) {
       throw new FinanceError(
         'ARCHIVED_CONTAINER',
@@ -1910,7 +2083,7 @@ export class FinanceEngine {
 
   private async requireActiveContainer(containerId: string): Promise<ContainerRow> {
     const container = await this.requireExistingContainer(containerId);
-    if (container.status === 'archived') {
+    if (container.status !== 'active') {
       throw new FinanceError(
         'ARCHIVED_CONTAINER',
         'Reactivate this container before changing it.',

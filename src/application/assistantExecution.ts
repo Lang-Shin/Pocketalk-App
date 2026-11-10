@@ -355,7 +355,7 @@ function requireActiveContainer(
   }
   if (container.status !== 'active') {
     throw new AssistantProposalEligibilityError(
-      'Archived containers cannot receive new activity.',
+      'Closed or archived containers cannot receive new activity.',
     );
   }
   return container;

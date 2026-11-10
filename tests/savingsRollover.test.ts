@@ -51,6 +51,11 @@ async function createBudgetContainer(
   });
 }
 
+async function findContainer(engine: FinanceEngine, id: string) {
+  const containers = await engine.listContainers(true, true);
+  return containers.find((container) => container.id === id) ?? null;
+}
+
 test('the system Savings account is stable and protected', async () => {
   const harness = await createHarness(new Date(2026, 9, 20, 12));
   try {
@@ -1278,6 +1283,339 @@ test('monthly reporting clearly distinguishes income, expenses, net savings, Sav
     assert.ok(
       await harness.engine.repository.allWalletContainerTotalsMatch('2026-10-31'),
     );
+  } finally {
+    harness.database.close();
+  }
+});
+
+test('archived container closes after its settlement month and cannot be reused', async () => {
+  const { harness, accounts } = await setup();
+  try {
+    await createBudgetContainer(
+      harness.engine,
+      'container-school',
+      'School',
+      'create-school',
+    );
+    await recordIncome(harness.engine, accounts, 100_000);
+    await harness.engine.transferBetweenContainers({
+      sourceContainerId: accounts.foodContainerId,
+      destinationContainerId: 'container-school',
+      amountMinor: 40_000,
+      effectiveDate: '2026-10-20',
+      idempotencyKey: 'food-to-school',
+    });
+    await harness.engine.archiveContainer({
+      containerId: 'container-school',
+      idempotencyKey: 'archive-school',
+    });
+
+    const archived = await findContainer(harness.engine, 'container-school');
+    assert.equal(archived?.status, 'archived');
+    assert.equal(archived?.archiveMonthKey, '2026-10');
+    assert.equal(archived?.closedAt, null);
+
+    harness.clock.set(2026, 10, 15);
+    const first = await harness.engine.processDueRollovers();
+    assert.deepEqual(first.closedContainerIds, ['container-school']);
+
+    const closed = await findContainer(harness.engine, 'container-school');
+    assert.equal(closed?.status, 'closed');
+    assert.ok(closed?.closedAt);
+
+    const balances = await harness.engine.getContainerBalances('2026-11-15');
+    assert.equal(money(balances, 'container-school'), 0);
+    assert.equal(money(balances, UNALLOCATED_CONTAINER_ID), 100_000);
+    const wallets = await harness.engine.getWalletBalances('2026-11-15');
+    assert.equal(money(wallets, accounts.cashWalletId), 100_000);
+
+    const repeated = await harness.engine.processDueRollovers();
+    assert.deepEqual(repeated.closedContainerIds, []);
+    const closures = (
+      await harness.engine.getLifecycleEvents('container-school')
+    ).filter((event) => event.eventType === 'closed');
+    assert.equal(closures.length, 1);
+
+    await assert.rejects(
+      harness.engine.allocateToContainer({
+        containerId: 'container-school',
+        amountMinor: 1_000,
+        effectiveDate: '2026-11-15',
+        idempotencyKey: 'closed-destination',
+      }),
+      (error: unknown) =>
+        error instanceof FinanceError &&
+        error.code === 'ARCHIVED_CONTAINER',
+    );
+    await assert.rejects(
+      harness.engine.reactivateContainer({
+        containerId: 'container-school',
+        idempotencyKey: 'reactivate-closed',
+      }),
+      (error: unknown) =>
+        error instanceof FinanceError && error.code === 'INVALID_STATE',
+    );
+    await assert.rejects(
+      harness.engine.deleteContainer({
+        containerId: 'container-school',
+        idempotencyKey: 'delete-closed',
+      }),
+      (error: unknown) =>
+        error instanceof FinanceError && error.code === 'INVALID_STATE',
+    );
+
+    const historical = await harness.engine.getContainerSnapshots('2026-10', true);
+    const historicalClosed = historical.find(
+      (container) => container.id === 'container-school',
+    );
+    assert.equal(historicalClosed?.status, 'closed');
+    assert.equal(historicalClosed?.name, 'School');
+
+  } finally {
+    harness.database.close();
+  }
+});
+
+test('audited corrections can still replay settlement for a closed container', async () => {
+  const { harness, accounts } = await setup();
+  try {
+    await createBudgetContainer(
+      harness.engine,
+      'container-school',
+      'School',
+      'create-school',
+    );
+    await recordIncome(harness.engine, accounts, 100_000);
+    await harness.engine.transferBetweenContainers({
+      sourceContainerId: accounts.foodContainerId,
+      destinationContainerId: 'container-school',
+      amountMinor: 50_000,
+      effectiveDate: '2026-10-20',
+      idempotencyKey: 'food-to-school',
+    });
+    const expense = await harness.engine.recordTransaction({
+      kind: 'expense',
+      title: 'School supplies',
+      amountMinor: 10_000,
+      effectiveDate: '2026-10-20',
+      walletId: accounts.cashWalletId,
+      containerId: 'container-school',
+      idempotencyKey: 'school-expense',
+    });
+    await harness.engine.archiveContainer({
+      containerId: 'container-school',
+      idempotencyKey: 'archive-school',
+    });
+
+    harness.clock.set(2026, 10, 15);
+    await harness.engine.processDueRollovers();
+    assert.equal(
+      (await findContainer(harness.engine, 'container-school'))?.status,
+      'closed',
+    );
+
+    await harness.engine.correctTransaction({
+      transactionId: expense.transactionId,
+      reason: 'Corrected school supplies amount',
+      replacement: {
+        kind: 'expense',
+        title: 'School supplies',
+        amountMinor: 20_000,
+        effectiveDate: '2026-10-20',
+        walletId: accounts.cashWalletId,
+        containerId: 'container-school',
+      },
+      idempotencyKey: 'correct-school-expense',
+    });
+
+    const container = await findContainer(harness.engine, 'container-school');
+    assert.equal(container?.status, 'closed');
+    const balances = await harness.engine.getContainerBalances('2026-11-15');
+    assert.equal(money(balances, 'container-school'), 0);
+    assert.equal(money(balances, UNALLOCATED_CONTAINER_ID), 80_000);
+    const wallets = await harness.engine.getWalletBalances('2026-11-15');
+    assert.equal(money(wallets, accounts.cashWalletId), 80_000);
+  } finally {
+    harness.database.close();
+  }
+});
+
+test('zero-balance archived containers close without creating a settlement transfer', async () => {
+  const { harness } = await setup();
+  try {
+    await createBudgetContainer(
+      harness.engine,
+      'container-empty',
+      'Empty',
+      'create-empty',
+    );
+    await harness.engine.archiveContainer({
+      containerId: 'container-empty',
+      idempotencyKey: 'archive-empty',
+    });
+
+    harness.clock.set(2026, 10, 15);
+    const result = await harness.engine.processDueRollovers();
+
+    assert.deepEqual(result.closedContainerIds, ['container-empty']);
+    assert.equal(result.transactionIds.length, 0);
+    const container = await findContainer(harness.engine, 'container-empty');
+    assert.equal(container?.status, 'closed');
+    const settlement = await harness.database.getFirstAsync<{ count: number }>(
+      `SELECT COUNT(*) AS count FROM transactions
+       WHERE category = 'Container closure'`,
+    );
+    assert.equal(settlement?.count, 0);
+  } finally {
+    harness.database.close();
+  }
+});
+
+test('a negative archived balance remains archived and records a recoverable closure failure', async () => {
+  const { harness, accounts } = await setup();
+  try {
+    await createBudgetContainer(
+      harness.engine,
+      'container-negative',
+      'Negative',
+      'create-negative',
+    );
+    await recordIncome(harness.engine, accounts, 100_000);
+    await harness.engine.transferBetweenContainers({
+      sourceContainerId: accounts.foodContainerId,
+      destinationContainerId: 'container-negative',
+      amountMinor: 50_000,
+      effectiveDate: '2026-10-20',
+      idempotencyKey: 'fund-negative',
+    });
+
+    const transactionId = 'txn-negative-fixture';
+    await harness.database.runAsync(
+      `INSERT INTO transactions (
+         id, idempotency_key, request_fingerprint, kind, title, category,
+         direction, amount_minor, effective_date, effective_month_key,
+         recorded_at, recorded_time_zone, recorded_offset_minutes, status,
+         source_container_id, destination_container_id, source_container_name,
+         destination_container_name, icon, tone, created_at
+       ) VALUES (?, ?, ?, 'container_transfer', 'Fixture transfer', 'Fixture',
+                 'neutral', ?, '2026-10-20', '2026-10', ?, 'UTC', 0, 'posted',
+                 ?, ?, 'Negative', 'Savings', 'swap-horizontal-outline',
+                 'violet', ?)`,
+      [
+        transactionId,
+        'fixture-negative',
+        'fixture-fingerprint',
+        80_000,
+        '2026-10-20T12:00:00.000Z',
+        'container-negative',
+        SAVINGS_CONTAINER_ID,
+        '2026-10-20T12:00:00.000Z',
+      ],
+    );
+    await harness.database.runAsync(
+      `INSERT INTO postings (
+         transaction_id, account_type, account_id, container_id,
+         amount_minor, recorded_at
+       ) VALUES (?, 'container', ?, ?, ?, ?), (?, 'container', ?, ?, ?, ?)`,
+      [
+        transactionId,
+        'container-negative',
+        'container-negative',
+        -80_000,
+        '2026-10-20T12:00:00.000Z',
+        transactionId,
+        SAVINGS_CONTAINER_ID,
+        SAVINGS_CONTAINER_ID,
+        80_000,
+        '2026-10-20T12:00:00.000Z',
+      ],
+    );
+    await harness.engine.archiveContainer({
+      containerId: 'container-negative',
+      idempotencyKey: 'archive-negative',
+    });
+
+    harness.clock.set(2026, 10, 15);
+    const first = await harness.engine.processDueRollovers();
+    assert.deepEqual(first.closedContainerIds, []);
+    const container = await findContainer(harness.engine, 'container-negative');
+    assert.equal(container?.status, 'archived');
+    assert.equal(container?.closedAt, null);
+
+    const failures = (
+      await harness.engine.getLifecycleEvents('container-negative')
+    ).filter((event) => event.eventType === 'closure_failed');
+    assert.equal(failures.length, 1);
+
+    await harness.engine.processDueRollovers();
+    assert.equal(
+      (
+        await harness.engine.getLifecycleEvents('container-negative')
+      ).filter((event) => event.eventType === 'closure_failed').length,
+      1,
+    );
+  } finally {
+    harness.database.close();
+  }
+});
+
+test('a container archived during the current month stays archived until that month closes', async () => {
+  const { harness } = await setup(new Date(2026, 10, 15, 12));
+  try {
+    await createBudgetContainer(
+      harness.engine,
+      'container-late',
+      'Late',
+      'create-late',
+    );
+    await harness.engine.archiveContainer({
+      containerId: 'container-late',
+      idempotencyKey: 'archive-late',
+    });
+
+    const before = await harness.engine.processDueRollovers();
+    assert.deepEqual(before.closedContainerIds, []);
+    assert.equal(
+      (await findContainer(harness.engine, 'container-late'))?.status,
+      'archived',
+    );
+
+    harness.clock.set(2026, 11, 15);
+    const after = await harness.engine.processDueRollovers();
+    assert.deepEqual(after.closedContainerIds, ['container-late']);
+    assert.equal(
+      (await findContainer(harness.engine, 'container-late'))?.status,
+      'closed',
+    );
+  } finally {
+    harness.database.close();
+  }
+});
+
+test('legacy archived containers without an archive month remain archived', async () => {
+  const { harness } = await setup();
+  try {
+    await createBudgetContainer(
+      harness.engine,
+      'container-legacy',
+      'Legacy',
+      'create-legacy',
+    );
+    await harness.engine.archiveContainer({
+      containerId: 'container-legacy',
+      idempotencyKey: 'archive-legacy',
+    });
+    await harness.database.runAsync(
+      `UPDATE containers SET archive_month_key = NULL WHERE id = ?`,
+      ['container-legacy'],
+    );
+
+    harness.clock.set(2026, 10, 15);
+    const result = await harness.engine.processDueRollovers();
+    assert.deepEqual(result.closedContainerIds, []);
+    const container = await findContainer(harness.engine, 'container-legacy');
+    assert.equal(container?.status, 'archived');
+    assert.equal(container?.closedAt, null);
   } finally {
     harness.database.close();
   }

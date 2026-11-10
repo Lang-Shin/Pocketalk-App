@@ -2,6 +2,7 @@ import type { ContainerSnapshot } from '@/data/models';
 
 export type BudgetSpendingStatus =
   | 'archived'
+  | 'closed'
   | 'no-limit'
   | 'on-track'
   | 'near-limit'
@@ -12,6 +13,7 @@ export interface BudgetStatusPresentation {
   label: string;
   icon:
     | 'archive-outline'
+    | 'lock-closed-outline'
     | 'remove-circle-outline'
     | 'checkmark-circle-outline'
     | 'alert-circle-outline'
@@ -26,6 +28,7 @@ export function budgetSpendingStatus(
     'status' | 'limitMinor' | 'remainingMinor' | 'spentMinor'
   >,
 ): BudgetSpendingStatus {
+  if (container.status === 'closed') return 'closed';
   if (container.status === 'archived') return 'archived';
   if (container.limitMinor <= 0) return 'no-limit';
   if (container.remainingMinor < 0) return 'over-budget';
@@ -40,6 +43,8 @@ export function budgetStatusPresentation(
   switch (status) {
     case 'archived':
       return { label: 'Archived', icon: 'archive-outline', progressTone: 'primary', semantic: 'neutral' };
+    case 'closed':
+      return { label: 'Closed', icon: 'lock-closed-outline', progressTone: 'primary', semantic: 'neutral' };
     case 'no-limit':
       return { label: 'No limit', icon: 'remove-circle-outline', progressTone: 'primary', semantic: 'neutral' };
     case 'on-track':
