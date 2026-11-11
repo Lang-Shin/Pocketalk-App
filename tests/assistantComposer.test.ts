@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { readFileSync } from 'node:fs';
 
 import {
-  ASSISTANT_KEYBOARD_BEHAVIOR,
+  assistantKeyboardConfig,
   assistantInputPalette,
   isAssistantSendEnabled,
 } from '../src/features/assistant/composerConfig';
@@ -32,8 +33,12 @@ function contrast(foreground: string, background: string): number {
   return (lighter + 0.05) / (darker + 0.05);
 }
 
-test('Assistant uses one Android-safe keyboard padding behavior', () => {
-  assert.equal(ASSISTANT_KEYBOARD_BEHAVIOR, 'padding');
+test('Android resize does not receive additional JS keyboard padding', () => {
+  assert.deepEqual(assistantKeyboardConfig('android'), { enabled: false, behavior: undefined });
+  assert.deepEqual(assistantKeyboardConfig('ios'), { enabled: true, behavior: 'padding' });
+  assert.deepEqual(assistantKeyboardConfig('web'), { enabled: false, behavior: undefined });
+  const manifest = readFileSync('android/app/src/main/AndroidManifest.xml', 'utf8');
+  assert.match(manifest, /android:windowSoftInputMode="adjustResize"/);
 });
 
 test('send is available only for trimmed input while idle', () => {

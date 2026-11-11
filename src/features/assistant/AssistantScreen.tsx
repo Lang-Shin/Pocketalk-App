@@ -5,6 +5,7 @@ import Animated, { FadeIn, useReducedMotion } from 'react-native-reanimated';
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
+  Platform,
   ScrollView,
   StyleSheet,
   TextInput,
@@ -52,7 +53,7 @@ import { AssistantModeSelector } from './AssistantModeSelector';
 import { AssistantThinkingIndicator } from './AssistantThinkingIndicator';
 import { ResponsePresentation } from './responsePresentation';
 import {
-  ASSISTANT_KEYBOARD_BEHAVIOR,
+  assistantKeyboardConfig,
   assistantInputPalette,
   isAssistantSendEnabled,
 } from './composerConfig';
@@ -381,7 +382,7 @@ export function AssistantScreen() {
     <Screen scroll={false}>
       <KeyboardAvoidingView
         style={styles.conversation}
-        behavior={ASSISTANT_KEYBOARD_BEHAVIOR}
+        {...assistantKeyboardConfig(Platform.OS)}
       >
         <ScrollView
           ref={scrollRef}

@@ -112,7 +112,6 @@ test('Assistant has four unique restrained decorations in its conversation', () 
     'utf8',
   );
   assert.match(assistantSource, /<ScreenDecorations preset="assistant"/);
-  assert.match(assistantSource, /behavior=\{ASSISTANT_KEYBOARD_BEHAVIOR\}/);
 });
 
 test('centered decorations track the available content width', () => {

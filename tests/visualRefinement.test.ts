@@ -119,3 +119,33 @@ test('modal blur is iOS-only with an opaque Android fallback', () => {
   assert.match(source, /theme\.colors\.overlay/);
   assert.match(source, /theme\.glass\.modalOverlay/);
 });
+
+test('Expo and native launcher resources reference the approved derived logo', () => {
+  const { expo } = JSON.parse(readFileSync('app.json', 'utf8')) as {
+    expo: { icon: string; android: { package: string; adaptiveIcon: {
+      foregroundImage: string; monochromeImage: string; backgroundColor: string;
+    } } };
+  };
+  assert.equal(expo.android.package, 'com.pocketa.app');
+  assert.equal(expo.android.adaptiveIcon.backgroundColor, '#252427');
+  for (const path of [expo.icon, expo.android.adaptiveIcon.foregroundImage, expo.android.adaptiveIcon.monochromeImage]) {
+    assert.ok(path.startsWith('./assets/branding/pocketa-'));
+    const bytes = readFileSync(path);
+    assert.equal(bytes.subarray(1, 4).toString(), 'PNG');
+    assert.equal(bytes.readUInt32BE(16), 1024);
+    assert.equal(bytes.readUInt32BE(20), 1024);
+  }
+  for (const name of ['ic_launcher', 'ic_launcher_round']) {
+    const xml = readFileSync(`android/app/src/main/res/mipmap-anydpi-v26/${name}.xml`, 'utf8');
+    assert.match(xml, /@mipmap\/ic_launcher_foreground/);
+    assert.match(xml, /@mipmap\/ic_launcher_background/);
+    assert.match(xml, /@mipmap\/ic_launcher_monochrome/);
+  }
+  for (const density of ['mdpi', 'hdpi', 'xhdpi', 'xxhdpi', 'xxxhdpi']) {
+    for (const name of ['ic_launcher', 'ic_launcher_round', 'ic_launcher_background', 'ic_launcher_foreground', 'ic_launcher_monochrome']) {
+      const bytes = readFileSync(`android/app/src/main/res/mipmap-${density}/${name}.webp`);
+      assert.equal(bytes.subarray(0, 4).toString(), 'RIFF');
+      assert.equal(bytes.subarray(8, 12).toString(), 'WEBP');
+    }
+  }
+});

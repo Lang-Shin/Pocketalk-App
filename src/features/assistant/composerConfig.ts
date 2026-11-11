@@ -1,11 +1,12 @@
 import type { AppColors } from '@/theme';
 
-/**
- * A single padding adjustment keeps the composer above the Android keyboard.
- * With windowSoftInputMode=adjustResize the measured overlap usually settles
- * to zero, so this does not add a second offset on top of the resized window.
- */
-export const ASSISTANT_KEYBOARD_BEHAVIOR = 'padding' as const;
+/** Android's adjustResize owns IME layout; never add a second keyboard offset. */
+export function assistantKeyboardConfig(platform: string) {
+  return {
+    enabled: platform === 'ios',
+    behavior: platform === 'ios' ? 'padding' as const : undefined,
+  };
+}
 
 export function isAssistantSendEnabled(
   input: string,

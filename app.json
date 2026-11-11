@@ -4,17 +4,16 @@
     "slug": "pocketa",
     "version": "0.1.0",
     "orientation": "portrait",
-    "icon": "./assets/icon.png",
+    "icon": "./assets/branding/pocketa-launcher.png",
     "scheme": "pocketa",
     "userInterfaceStyle": "automatic",
     "android": {
       "package": "com.pocketa.app",
       "predictiveBackGestureEnabled": false,
       "adaptiveIcon": {
-        "backgroundColor": "#E7F3EE",
-        "foregroundImage": "./assets/android-icon-foreground.png",
-        "backgroundImage": "./assets/android-icon-background.png",
-        "monochromeImage": "./assets/android-icon-monochrome.png"
+        "backgroundColor": "#252427",
+        "foregroundImage": "./assets/branding/pocketa-adaptive-foreground.png",
+        "monochromeImage": "./assets/branding/pocketa-adaptive-monochrome.png"
       }
     },
     "ios": {
