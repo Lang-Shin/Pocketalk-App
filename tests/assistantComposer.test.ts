@@ -33,12 +33,26 @@ function contrast(foreground: string, background: string): number {
   return (lighter + 0.05) / (darker + 0.05);
 }
 
-test('Android resize does not receive additional JS keyboard padding', () => {
-  assert.deepEqual(assistantKeyboardConfig('android'), { enabled: false, behavior: undefined });
-  assert.deepEqual(assistantKeyboardConfig('ios'), { enabled: true, behavior: 'padding' });
-  assert.deepEqual(assistantKeyboardConfig('web'), { enabled: false, behavior: undefined });
+test('Android edge-to-edge layout uses frame-based keyboard avoidance with the safe-area offset', () => {
+  assert.deepEqual(assistantKeyboardConfig('android', 36), {
+    enabled: true,
+    behavior: 'padding',
+    keyboardVerticalOffset: 36,
+  });
+  assert.deepEqual(assistantKeyboardConfig('ios', 36), {
+    enabled: true,
+    behavior: 'padding',
+    keyboardVerticalOffset: 0,
+  });
+  assert.deepEqual(assistantKeyboardConfig('web', 36), {
+    enabled: false,
+    behavior: undefined,
+    keyboardVerticalOffset: 0,
+  });
   const manifest = readFileSync('android/app/src/main/AndroidManifest.xml', 'utf8');
+  const properties = readFileSync('android/gradle.properties', 'utf8');
   assert.match(manifest, /android:windowSoftInputMode="adjustResize"/);
+  assert.match(properties, /edgeToEdgeEnabled=true/);
 });
 
 test('send is available only for trimmed input while idle', () => {

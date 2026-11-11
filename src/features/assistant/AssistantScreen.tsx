@@ -2,6 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { isLoaded } from 'expo-font';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import Animated, { FadeIn, useReducedMotion } from 'react-native-reanimated';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
@@ -114,6 +115,7 @@ let messageSequence = 0;
 export function AssistantScreen() {
   const { theme } = useAppTheme();
   const { width } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
   const inputPalette = assistantInputPalette(theme.colors);
   const { activeMonthKey, todayDateKey, executeMoneyEntry } = useFinance();
   const monthQuery = useFinanceMonth(activeMonthKey);
@@ -382,7 +384,7 @@ export function AssistantScreen() {
     <Screen scroll={false}>
       <KeyboardAvoidingView
         style={styles.conversation}
-        {...assistantKeyboardConfig(Platform.OS)}
+        {...assistantKeyboardConfig(Platform.OS, insets.top)}
       >
         <ScrollView
           ref={scrollRef}

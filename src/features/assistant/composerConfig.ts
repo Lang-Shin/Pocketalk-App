@@ -1,10 +1,17 @@
 import type { AppColors } from '@/theme';
 
-/** Android's adjustResize owns IME layout; never add a second keyboard offset. */
-export function assistantKeyboardConfig(platform: string) {
+/**
+ * The app is edge-to-edge, so Android's adjustResize does not shrink this
+ * React Native viewport on the tested device. KeyboardAvoidingView measures
+ * the actual frame overlap, adding no offset when a viewport is already resized.
+ * The safe-area top is the KAV's screen offset inside Screen.
+ */
+export function assistantKeyboardConfig(platform: string, topInset = 0) {
+  const enabled = platform !== 'web';
   return {
-    enabled: platform === 'ios',
-    behavior: platform === 'ios' ? 'padding' as const : undefined,
+    enabled,
+    behavior: enabled ? 'padding' as const : undefined,
+    keyboardVerticalOffset: platform === 'android' ? topInset : 0,
   };
 }
 
